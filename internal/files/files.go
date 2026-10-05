@@ -5,6 +5,7 @@ package files
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -41,6 +42,36 @@ type PutOptions struct {
 	// Key, if set, encrypts the item instead of a fresh random key. Items
 	// stored with the same key can be joined into one (see Concat).
 	Key []byte
+	// Previous is an earlier version of the item. Its key is used, and
+	// chunks whose plaintext it already holds are reused instead of stored
+	// again, so a new version costs only what changed.
+	Previous *manifest.Manifest
+}
+
+// Reused counts the chunks of m that also belong to prev.
+func Reused(m, prev manifest.Manifest) int {
+	have := map[string]bool{}
+	for _, ch := range prev.Chunks {
+		if len(ch.Shards) > 0 {
+			have[ch.Shards[0].Hash] = true
+		}
+	}
+	n := 0
+	for _, ch := range m.Chunks {
+		if len(ch.Shards) > 0 && have[ch.Shards[0].Hash] {
+			n++
+		}
+	}
+	return n
+}
+
+// chunkTag is a keyed hash of a chunk's plaintext: equal tags under one key
+// mean equal chunks, and without the key it says nothing about the content.
+func chunkTag(key, plain []byte) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("yggstore chunk tag\x00"))
+	mac.Write(plain)
+	return hex.EncodeToString(mac.Sum(nil)[:16])
 }
 
 // Challenges is the owner's private list of precomputed challenges, keyed by shard hash.
@@ -85,6 +116,15 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 	}
 
 	key := opts.Key
+	reuse := map[string]manifest.Chunk{}
+	if prev := opts.Previous; prev != nil && key == nil && len(prev.Key) == cryptofile.KeySize && prev.SharedBy == nil {
+		key = prev.Key
+		for _, ch := range prev.Chunks {
+			if ch.Tag != "" {
+				reuse[ch.Tag] = ch
+			}
+		}
+	}
 	if key == nil {
 		key = make([]byte, cryptofile.KeySize)
 		if _, err := rand.Read(key); err != nil {
@@ -146,6 +186,21 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 			fail(rerr)
 			break
 		}
+		tag := chunkTag(key, buf[:n])
+		if old, ok := reuse[tag]; ok && old.PlaintextSize == n {
+			old.Tag = tag
+			mu.Lock()
+			chunks[idx] = old
+			mu.Unlock()
+			total += n
+			nChunks++
+			progress(ctx, n)
+			logf("chunk %d: unchanged, reused", idx)
+			if rerr != nil {
+				break
+			}
+			continue
+		}
 		cipherText, nonce, err := cryptofile.EncryptChunk(buf[:n], key)
 		if err != nil {
 			fail(err)
@@ -202,7 +257,7 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 			for h, p := range prepared {
 				chal.Shards[h] = p
 			}
-			chunks[idx] = manifest.Chunk{PlaintextSize: n, CiphertextSize: ctLen, Nonce: nonce, Shards: refs}
+			chunks[idx] = manifest.Chunk{Tag: tag, PlaintextSize: n, CiphertextSize: ctLen, Nonce: nonce, Shards: refs}
 			mu.Unlock()
 			progress(ctx, n)
 			logf("chunk %d: %d bytes -> %d shards", idx, n, len(shards))

@@ -40,6 +40,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore get     [-o OUT] FILE.ystub                     rebuild the file from its stub
   yggstore verify  FILE.ystub                              challenge every shard holder
   yggstore rm      FILE.ystub                              delete the item from all nodes, then its stub
+  yggstore history FILE.ystub | -folder PATH -at DATE      older versions; restore one, or a folder as it was
   yggstore dashboard -peers peers.json [-stubs DIR | -outfiles DIR [-keep]] [-listen 127.0.0.1:7480]
                    [-test-peers FILE -test-stubs DIR]   also show a test cluster, separately
                                                            live status page; with -outfiles it also
@@ -116,6 +117,8 @@ func main() {
 		err = cmdGateway(ctx, args)
 	case "msg":
 		err = cmdMsg(ctx, args)
+	case "history":
+		err = cmdHistory(ctx, args)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -318,6 +321,9 @@ func cmdGet(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		if abs, err := filepath.Abs(target); err == nil {
+			target = abs
+		}
 		log.Printf("restored folder %s (%d files)", target, m.FileCount)
 		return nil
 	}
@@ -339,6 +345,9 @@ func cmdGet(ctx context.Context, args []string) error {
 	}
 	if err := os.Rename(dest+".partial", dest); err != nil {
 		return err
+	}
+	if abs, err := filepath.Abs(dest); err == nil {
+		dest = abs
 	}
 	log.Printf("restored %s (%s)", dest, size(int64(m.PlaintextSize)))
 	return nil
@@ -385,6 +394,11 @@ func cmdRm(ctx context.Context, args []string) error {
 	fs.Parse(args)
 	if fs.NArg() != 1 {
 		return fmt.Errorf("need exactly one FILE.ystub")
+	}
+	if dir := outboxOf(fs.Arg(0)); dir != "" {
+		// In an outbox, older versions go too.
+		w := outbox.New(outbox.Config{Dir: dir, Client: client.New(), Event: printEvent})
+		return w.DeleteStub(ctx, fs.Arg(0))
 	}
 	m, res, err := files.DeleteStub(ctx, client.New(), fs.Arg(0))
 	if err != nil {

@@ -240,18 +240,18 @@ func TestFoldersAreStoredFileByFile(t *testing.T) {
 		t.Fatal("restored x.mkv differs")
 	}
 
-	// Putting it back next to its own stub is refused with a warning, once.
+	// Putting the same file back next to its stub makes no new version.
 	os.Rename(got, filepath.Join(movies, "x.mkv"))
 	settle(t, w, movies)
 	w.poll(context.Background())
-	warned := 0
+	same := 0
 	for _, e := range *events {
-		if strings.Contains(e, "x.mkv is not stored") {
-			warned++
+		if strings.Contains(e, "x.mkv is the same as the version already stored") {
+			same++
 		}
 	}
-	if warned != 1 {
-		t.Fatalf("got %d warnings about x.mkv beside its stub, want 1 (events: %v)", warned, *events)
+	if m, _ := files.ReadStub(filepath.Join(movies, "x.mkv"+files.StubExt)); same != 1 || w.VersionCount(m) != 0 {
+		t.Fatalf("got %d 'same' notes and %d versions for x.mkv put back, want 1 and 0 (events: %v)", same, w.VersionCount(m), *events)
 	}
 
 	// Deleting a stub from inside the tree removes that item only.
@@ -356,5 +356,52 @@ func TestReceiveSharedItem(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(bobDir, ReceivedDir, "plan.pdf (2)"+files.StubExt)); !os.IsNotExist(err) {
 		t.Fatal("a refused file was opened")
+	}
+}
+
+func TestRestoreFolderChoice(t *testing.T) {
+	w, dir, events := setup(t, 4)
+	data := randBytes(50_000)
+	os.WriteFile(filepath.Join(dir, "notes.txt"), data, 0o644)
+	settle(t, w, filepath.Join(dir, "notes.txt"))
+	stub := filepath.Join(dir, "notes.txt"+files.StubExt)
+
+	if w.RestoreDir() != filepath.Join(dir, RestoredDir) {
+		t.Fatalf("default restore dir = %s", w.RestoreDir())
+	}
+	for _, bad := range []string{"relative/path", filepath.Join(dir, "inside")} {
+		if err := w.SetRestoreDir(bad); err == nil {
+			t.Fatalf("SetRestoreDir(%q) accepted", bad)
+		}
+	}
+	elsewhere := filepath.Join(t.TempDir(), "My Restores")
+	if err := w.SetRestoreDir(elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	// The choice is kept across restarts.
+	if w2 := New(Config{Dir: dir}); w2.RestoreDir() != elsewhere {
+		t.Fatalf("after restart, restore dir = %s", w2.RestoreDir())
+	}
+	p, err := w.RestoreStub(context.Background(), stub)
+	if err != nil || p != filepath.Join(elsewhere, "notes.txt") {
+		t.Fatalf("restore = %q, %v", p, err)
+	}
+	if got, _ := os.ReadFile(p); !bytes.Equal(got, data) {
+		t.Fatal("restored file differs")
+	}
+	r := w.Restores()
+	if len(r) != 1 || r[0].Path != p || r[0].Error != "" {
+		t.Fatalf("Restores() = %+v", r)
+	}
+	found := false
+	for _, e := range *events {
+		found = found || strings.Contains(e, p)
+	}
+	if !found {
+		t.Fatalf("no event names the full path %s: %v", p, *events)
+	}
+
+	if err := w.SetRestoreDir(""); err != nil || w.RestoreDir() != filepath.Join(dir, RestoredDir) {
+		t.Fatalf("reset: %s, %v", w.RestoreDir(), err)
 	}
 }

@@ -66,6 +66,9 @@ type Config struct {
 	// and token file.
 	MsgAPI       string
 	MsgTokenPath string
+	// LogPath keeps the activity log on disk (default: in the outbox's
+	// .yggstore folder), so it survives restarts and can be looked at later.
+	LogPath string
 }
 
 type PeerState struct {
@@ -105,6 +108,8 @@ type FileState struct {
 	Error          string           `json:"error,omitempty"`
 	Test           bool             `json:"test,omitempty"`
 	SharedBy       *manifest.Sender `json:"shared_by,omitempty"` // set if someone sent you this
+	Versions       int              `json:"versions,omitempty"`  // older versions kept
+	StoredAt       int64            `json:"stored_at,omitempty"`
 }
 
 type Event struct {
@@ -124,6 +129,7 @@ type State struct {
 	Files       []FileState      `json:"files"`
 	Events      []Event          `json:"events"`
 	Activity    *outbox.Activity `json:"activity,omitempty"` // upload, read-back or restore in progress
+	Restore     *RestoreState    `json:"restore,omitempty"`  // where restores go, and the latest ones
 	// This node's own peers.json entry, for a new node's first list; empty
 	// unless this node is an admin and so can add nodes.
 	AdminEntry string `json:"admin_entry,omitempty"`
@@ -167,14 +173,20 @@ type Dashboard struct {
 	events  []Event
 	wake    chan struct{}
 	pushed  map[string]time.Time // last list push per node, used only by poll
+	logMu   sync.Mutex           // the activity log file
 }
 
 func New(cfg Config) *Dashboard {
 	if cfg.Interval <= 0 {
 		cfg.Interval = 5 * time.Second
 	}
-	return &Dashboard{cfg: cfg, history: map[string][]float64{}, seen: map[string]int64{}, wake: make(chan struct{}, 1),
+	if cfg.LogPath == "" && cfg.Outbox != nil {
+		cfg.LogPath = cfg.Outbox.LogPath()
+	}
+	d := &Dashboard{cfg: cfg, history: map[string][]float64{}, seen: map[string]int64{}, wake: make(chan struct{}, 1),
 		pushed: map[string]time.Time{}}
+	d.events = readLog(cfg.LogPath, maxEvents)
+	return d
 }
 
 // Run polls until ctx ends.
@@ -212,6 +224,7 @@ func (d *Dashboard) Handler() http.Handler {
 		}
 		if d.cfg.Outbox != nil {
 			st.Activity = d.cfg.Outbox.Activity()
+			st.Restore = d.restoreState()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -219,6 +232,10 @@ func (d *Dashboard) Handler() http.Handler {
 	})
 	mux.HandleFunc("POST /api/verify", d.handleVerify)
 	mux.HandleFunc("POST /api/restore", d.handleRestore)
+	mux.HandleFunc("POST /api/restore-to", d.handleRestoreTo)
+	mux.HandleFunc("GET /api/versions", d.handleVersions)
+	mux.HandleFunc("POST /api/restore-folder", d.handleRestoreFolder)
+	mux.HandleFunc("POST /api/open-folder", d.handleOpenFolder)
 	mux.HandleFunc("POST /api/delete", d.handleDelete)
 	mux.HandleFunc("POST /api/nodes", d.handleAddNode)
 	mux.HandleFunc("POST /api/share", d.handleShare)
@@ -331,21 +348,35 @@ func (d *Dashboard) handleRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stub := r.URL.Query().Get("stub")
-	d.mu.Lock()
-	known := false
-	for _, f := range d.state.Files {
-		if f.Stub == stub && !f.Test {
-			known = true
-		}
-	}
-	d.mu.Unlock()
-	if !known {
+	if !d.knownStub(stub) {
 		http.Error(w, "unknown stub", http.StatusNotFound)
 		return
 	}
-	d.Event("info", "restoring "+filepath.Base(stub)+"…")
-	go d.cfg.Outbox.RestoreStub(context.Background(), stub)
+	// An older version, if asked for.
+	path, err := d.cfg.Outbox.VersionStub(stub, r.URL.Query().Get("version"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	what := filepath.Base(stub)
+	if path != stub {
+		what += " (an older version)"
+	}
+	d.Event("info", "restoring "+what+"…")
+	go d.cfg.Outbox.RestoreStub(context.Background(), path)
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// knownStub reports whether stub is one of the listed real items.
+func (d *Dashboard) knownStub(stub string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, f := range d.state.Files {
+		if f.Stub == stub && !f.Test {
+			return true
+		}
+	}
+	return false
 }
 
 // handleDelete removes a listed item from all nodes in the background, then its
@@ -852,7 +883,10 @@ func (d *Dashboard) scanFiles(ctx context.Context, root string, up map[string]bo
 			continue
 		}
 		fsx.Name, fsx.Size, fsx.Kind, fsx.FileCount = m.FileName, m.PlaintextSize, "file", m.FileCount
-		fsx.SharedBy = m.SharedBy
+		fsx.SharedBy, fsx.StoredAt = m.SharedBy, m.StoredAt
+		if d.cfg.Outbox != nil && root == d.cfg.Outbox.Dir() && m.SharedBy == nil {
+			fsx.Versions = d.cfg.Outbox.VersionCount(m)
+		}
 		if m.Kind == files.KindFolder {
 			fsx.Kind = "folder"
 		}
@@ -975,10 +1009,12 @@ func (d *Dashboard) Event(kind, msg string) { d.event(kind, msg) }
 func (d *Dashboard) event(kind, msg string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.events = append(d.events, Event{Time: time.Now().Unix(), Kind: kind, Msg: msg})
+	ev := Event{Time: time.Now().Unix(), Kind: kind, Msg: msg}
+	d.events = append(d.events, ev)
 	if len(d.events) > maxEvents {
 		d.events = d.events[len(d.events)-maxEvents:]
 	}
+	d.writeLog(ev)
 }
 
 func (d *Dashboard) peerNames() map[string]string {

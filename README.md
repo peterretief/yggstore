@@ -20,6 +20,9 @@ independent. Don't make it the only copy of anything you can't lose.
 - No box? The [gateway](docs/gateway.md) lets people pay a monthly fee and
   use the group's storage from any S3 program (rclone, Cyberduck, Duplicati).
   Members choose whether their box holds customers' data, and earn credit.
+- Every version is kept: [history](docs/history.md) lets you restore an
+  older version of a file, or a folder as it was on a given day. A new
+  version only stores the parts that changed.
 - Nodes can [message each other](docs/messaging.md): direct messages, and
   topics any node can publish to and follow, delivered even to nodes that
   were off at the time. Programs can use it too, through a local API.

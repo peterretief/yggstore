@@ -80,6 +80,15 @@ button.del:hover { border-color: var(--bad); color: var(--bad); }
 .empty { padding: 22px; color: var(--muted); text-align: center; }
 td.actions { white-space: nowrap; }
 td.actions button + button { margin-left: 4px; }
+.restoreto { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; }
+.restoreto .mono { overflow-wrap: anywhere; }
+details.restoreto { display: block; }
+.restoreto input, .restoreto select { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 0; }
+tr.versions td { background: var(--info-bg); font-size: 12px; }
+button.linkish { border: 0; background: none; padding: 2px 0; color: var(--info); }
+.restored { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; margin: 0 0 6px; border-radius: 6px; background: var(--ok-bg); }
+.restored.bad { background: var(--bad-bg); }
+.restored .mono { overflow-wrap: anywhere; min-width: 0; }
 
 .events { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; max-height: 340px; overflow-y: auto; }
 .ev { display: grid; grid-template-columns: 74px 10px 1fr; gap: 10px; align-items: baseline; padding: 7px 14px; border-bottom: 1px solid var(--line); }
@@ -162,6 +171,21 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   <div class="sub" style="margin-top:6px">Each person should hold for others about 1.5× what they use. Accounting only for now: nothing is enforced. Set who runs a node with <span class="mono">"owner"</span> in peers.json; it defaults to the machine.</div>
 
   <h2>Your files</h2>
+  <div id="restoreBox" hidden>
+    <div class="restoreto"><span class="sub">Restores go to</span> <span class="mono" id="restoreDir"></span> <span class="pill info" id="restoreDefault" hidden>default</span>
+      <button id="restoreChange">Change</button></div>
+    <div class="restoreto" id="restoreEdit" hidden>
+      <input type="text" id="restoreInput" style="flex:1;min-width:240px" placeholder="full path of a folder">
+      <button id="restoreSave">Save</button><button id="restoreReset">Use default</button><button id="restoreCancel">Cancel</button>
+      <span class="sub" id="restoreMsg"></span></div>
+    <details id="folderRestore" class="restoreto" hidden><summary class="sub">Restore a folder as it was at a date</summary>
+      <div class="restoreto" style="margin-top:8px">
+        <select id="frDir"></select> <span class="sub">as it was on</span> <input type="datetime-local" id="frAt">
+        <button id="frGo">Restore</button> <span class="sub" id="frMsg"></span></div>
+      <div class="sub">Each item comes back as the latest version stored by then. It goes to the restore folder, so nothing is overwritten.</div>
+    </details>
+    <div id="restoreRecent"></div>
+  </div>
   <div class="legend">
     <span>each block is one chunk, each square one shard (4 needed of 6)</span>
     <span><i style="background:var(--ok)"></i>all shards</span>
@@ -355,7 +379,7 @@ function renderFiles(s, list, el, test, received) {
         <td class="num">${size(f.size)}<div class="sub">${(f.chunks || []).length} chunks</div></td>
         <td><div class="grid">${grid}</div></td>
         <td class="from">${esc(by.name || "someone")}<div class="sub">${esc(contactName(s, by.code) ? "in your contacts as " + contactName(s, by.code) : "not in your contacts")}</div><div class="sub">${ago(by.received_at)}</div></td>
-        <td class="actions">${s.outbox ? `<button data-restore="${esc(f.stub)}" ${f.status === "lost" ? "disabled" : ""} title="Rebuild into restored/">Restore</button>` : ""}
+        <td class="actions">${s.outbox ? `<button data-restore="${esc(f.stub)}" ${f.status === "lost" ? "disabled" : ""} title="Rebuild into the restore folder">Restore</button>` : ""}
           ${shareBtn}
           <button class="del" data-delete="${esc(f.stub)}" data-name="${esc(f.name)}" data-received="1" title="Remove from your list; the sender's copy stays">Remove</button></td>
       </tr>`;
@@ -366,11 +390,12 @@ function renderFiles(s, list, el, test, received) {
       <td class="num">${size(f.size)}<div class="sub">${(f.chunks || []).length} chunks</div></td>
       <td><div class="grid">${grid}</div></td>
       <td class="num">${f.challenges_left < 0 ? "–" : f.challenges_left}</td>
-      <td class="actions">${s.outbox && !test ? `<button data-restore="${esc(f.stub)}" ${f.status === "lost" ? "disabled" : ""} title="Rebuild into restored/">Restore</button>` : ""}
+      <td class="actions">${s.outbox && !test ? `<button data-restore="${esc(f.stub)}" ${f.status === "lost" ? "disabled" : ""} title="Rebuild into the restore folder">Restore</button>` : ""}
         <button ${canVerify ? "" : "disabled"} data-stub="${esc(f.stub)}" title="Ask each holder to prove it still has its shard">Verify</button>
         ${shareBtn}
-        <button class="del" data-delete="${esc(f.stub)}" data-name="${esc(f.name)}" title="Delete from all nodes, then remove the stub">Delete</button></td>
-    </tr>`;
+        <button class="del" data-delete="${esc(f.stub)}" data-name="${esc(f.name)}" title="Delete from all nodes, with every older version, then remove the stub">Delete</button>
+        ${f.versions ? `<div><button data-versions="${esc(f.stub)}" class="linkish">${openVersions[f.stub] ? "Hide" : "Show"} ${f.versions} older version${f.versions === 1 ? "" : "s"}</button></div>` : ""}</td>
+    </tr>${openVersions[f.stub] ? versionRows(f) : ""}`;
   }).join("");
 }
 
@@ -490,6 +515,113 @@ function renderEvents(s) {
   ).join("") || `<div class="empty">Nothing yet</div>`;
 }
 
+// Older versions, per stub, while their list is open.
+const openVersions = {};
+function versionRows(f) {
+  const vs = openVersions[f.stub];
+  if (vs === "loading") return `<tr class="versions"><td colspan="6" class="sub">Loading versions…</td></tr>`;
+  if (typeof vs === "string") return `<tr class="versions"><td colspan="6" class="err">${esc(vs)}</td></tr>`;
+  return vs.map(v => `<tr class="versions">
+      <td colspan="2"><span class="sub">${v.current ? "current version" : "older version"}</span> · stored ${v.stored_at ? new Date(v.stored_at * 1000).toLocaleString() : "before history was kept"}</td>
+      <td class="num">${size(v.size)}</td><td colspan="2"></td>
+      <td class="actions">${v.current ? "" : `<button data-restore="${esc(f.stub)}" data-version="${esc(v.id)}" title="Rebuild this version into the restore folder, with its date in the name">Restore this version</button>`}</td>
+    </tr>`).join("");
+}
+async function toggleVersions(stub) {
+  if (openVersions[stub]) { delete openVersions[stub]; refresh(); return; }
+  openVersions[stub] = "loading"; refresh();
+  try {
+    const r = await fetch("api/versions?stub=" + encodeURIComponent(stub), {cache: "no-store"});
+    if (!r.ok) throw new Error(await r.text());
+    openVersions[stub] = await r.json();
+  } catch (e) { openVersions[stub] = "Could not list versions: " + e.message; }
+  refresh();
+}
+function renderFolderRestore(s) {
+  const box = $("folderRestore");
+  if (!s.restore) { box.hidden = true; return; }
+  box.hidden = false;
+  const slash = p => p.replace(/\\/g, "/");
+  const root = slash(s.stub_dir).replace(/\/+$/, "");
+  const dirs = new Set([""]);
+  for (const f of s.files) {
+    const stub = slash(f.stub);
+    if (f.test || f.shared_by || !stub.startsWith(root + "/")) continue;
+    const parts = stub.slice(root.length + 1).split("/").slice(0, -1);
+    for (let i = 1; i <= parts.length; i++) dirs.add(parts.slice(0, i).join("/"));
+  }
+  const sel = $("frDir"), want = [...dirs].sort();
+  if (sel.dataset.opts !== want.join("|")) {
+    const cur = sel.value;
+    sel.innerHTML = want.map(d => `<option value="${esc(d)}">${d ? esc(d) : "everything"}</option>`).join("");
+    sel.value = want.includes(cur) ? cur : "";
+    sel.dataset.opts = want.join("|");
+  }
+  if (!$("frAt").value) {
+    const d = new Date(Date.now() - 864e5); d.setSeconds(0, 0);
+    $("frAt").value = new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
+  }
+}
+$("frGo").onclick = async () => {
+  const at = new Date($("frAt").value);
+  if (isNaN(at)) { $("frMsg").textContent = "Pick a date and time."; return; }
+  $("frMsg").textContent = "";
+  try {
+    const r = await post("api/restore-folder", {body: JSON.stringify({dir: $("frDir").value, at: Math.floor(at / 1000)})});
+    if (!r.ok) throw new Error(await r.text());
+    $("frMsg").textContent = "Restoring… it appears above when done.";
+    setTimeout(() => $("frMsg").textContent = "", 8000);
+  } catch (e) { $("frMsg").textContent = e.message; }
+  setTimeout(refresh, 500);
+};
+
+function renderRestore(r) {
+  $("restoreBox").hidden = !r;
+  if (!r) return;
+  $("restoreDir").textContent = r.dir;
+  $("restoreDefault").hidden = r.dir !== r.default;
+  const recent = (r.recent || []).filter(x => Date.now() / 1000 - x.at < 24 * 3600).slice(0, 3);
+  const html = recent.map(x => x.error
+    ? `<div class="restored bad"><b>${esc(x.name)}</b> <span>could not be restored: ${esc(x.error)}</span> <span class="sub">${ago(x.at)}</span></div>`
+    : `<div class="restored"><span>Restored <b>${esc(x.name)}</b> (${size(x.size)}) to</span> <span class="mono">${esc(x.path)}</span>
+        <span class="sub">${ago(x.at)}</span>
+        <button data-copy="${esc(x.path)}">Copy path</button><button data-open="${esc(x.path)}">Show in folder</button></div>`).join("");
+  if ($("restoreRecent").dataset.html !== html) { $("restoreRecent").innerHTML = html; $("restoreRecent").dataset.html = html; }
+}
+async function setRestoreDir(dir) {
+  $("restoreMsg").textContent = "";
+  try {
+    const r = await post("api/restore-to", {body: JSON.stringify({dir})});
+    if (!r.ok) throw new Error(await r.text());
+    $("restoreEdit").hidden = true;
+    refresh();
+  } catch (e) { $("restoreMsg").textContent = e.message; }
+}
+$("restoreChange").onclick = () => {
+  $("restoreInput").value = lastState && lastState.restore ? lastState.restore.dir : "";
+  $("restoreEdit").hidden = false; $("restoreInput").focus();
+};
+$("restoreCancel").onclick = () => { $("restoreEdit").hidden = true; $("restoreMsg").textContent = ""; };
+$("restoreSave").onclick = () => setRestoreDir($("restoreInput").value);
+$("restoreInput").onkeydown = e => { if (e.key === "Enter") setRestoreDir($("restoreInput").value); };
+$("restoreReset").onclick = () => setRestoreDir("");
+$("restoreRecent").onclick = async ev => {
+  const c = ev.target.closest("button[data-copy]");
+  if (c) {
+    try { await navigator.clipboard.writeText(c.dataset.copy); c.textContent = "Copied"; }
+    catch { c.textContent = "Select it above"; }
+    setTimeout(() => c.textContent = "Copy path", 1500);
+    return;
+  }
+  const o = ev.target.closest("button[data-open]");
+  if (o) {
+    try {
+      const r = await post("api/open-folder?path=" + encodeURIComponent(o.dataset.open));
+      if (!r.ok) throw new Error(await r.text());
+    } catch (e) { alert(e.message); }
+  }
+};
+
 async function refresh() {
   try {
     const r = await fetch("api/state", {cache: "no-store"});
@@ -504,6 +636,8 @@ async function refresh() {
     renderNodes(s, s.peers.filter(p => !p.test), "nodes");
     renderAdd(s);
     renderInvites(s);
+    renderRestore(s.restore);
+    renderFolderRestore(s);
     renderFiles(s, s.files.filter(f => !f.test && !f.shared_by), "files", false);
     const rec = s.files.filter(f => !f.test && f.shared_by);
     $("receivedWrap").hidden = !rec.length;
@@ -620,11 +754,13 @@ document.addEventListener("click", async ev => {
     setTimeout(refresh, 500);
     return;
   }
+  const vb = ev.target.closest("button[data-versions]");
+  if (vb) { toggleVersions(vb.dataset.versions); return; }
   const rb = ev.target.closest("button[data-restore]");
   if (rb) {
     rb.disabled = true; rb.textContent = "Restoring…";
     try {
-      const r = await post("api/restore?stub=" + encodeURIComponent(rb.dataset.restore));
+      const r = await post("api/restore?stub=" + encodeURIComponent(rb.dataset.restore) + (rb.dataset.version ? "&version=" + encodeURIComponent(rb.dataset.version) : ""));
       if (!r.ok) throw new Error(await r.text());
     } catch (e) { alert("Restore failed: " + e.message); }
     setTimeout(refresh, 500);

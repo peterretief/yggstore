@@ -200,8 +200,12 @@ func Report(w io.Writer, mo Month, customers []Customer) {
 		name := c.Name
 		if name == "" {
 			name = id + " (deleted)"
+		} else if c.Closed != 0 {
+			name += " (closed)"
 		} else if c.Suspended {
 			name += " (suspended)"
+		} else if c.TrialEnds != 0 {
+			name += " (trial)"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%.3f\t%.2f\t%.2f\t%.2f\t%.2f\t%d\t\n", name, c.Plan, gbMonths(u.ByteHours),
 			float64(u.StoredBytes)/1e9, float64(u.PeakBytes)/1e9, float64(u.Uploaded)/1e9, float64(u.Downloaded)/1e9, u.Requests)

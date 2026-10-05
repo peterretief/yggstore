@@ -58,6 +58,7 @@ type Gateway struct {
 	meter     *meter
 	fails     *failures
 	bg        sync.WaitGroup
+	linkMu    sync.Mutex // key links are used once
 }
 
 // New opens the gateway kept in dir.
@@ -117,6 +118,13 @@ func (g *Gateway) chores(ctx context.Context) {
 			}
 		}
 	}
+	if list, err := g.Customers.List(); err == nil {
+		for _, c := range list {
+			if c.Closed != 0 {
+				g.purge(c)
+			}
+		}
+	}
 	entries, _ := os.ReadDir(g.store.trashDir())
 	for _, e := range entries {
 		path := filepath.Join(g.store.trashDir(), e.Name())
@@ -130,6 +138,43 @@ func (g *Gateway) chores(ctx context.Context) {
 		if err == nil {
 			os.Remove(path)
 		}
+	}
+}
+
+// purge deletes everything a closed account stored.
+func (g *Gateway) purge(c Customer) {
+	objects, items := 0, 0
+	for _, b := range g.store.buckets(c.ID) {
+		for _, u := range g.store.uploads(c.ID, b.Name) {
+			for _, m := range g.store.endUpload(c.ID, u, nil) {
+				g.discard(m)
+				items++
+			}
+		}
+		for {
+			l, e := g.store.list(c.ID, b.Name, "", "", "", 1000)
+			if e != nil || len(l.objects) == 0 {
+				break
+			}
+			for _, o := range l.objects {
+				m, e := g.store.remove(c.ID, b.Name, o.Key)
+				if e != nil {
+					g.opts.Log("closing %s: removing %s/%s: %v", c.Name, b.Name, o.Key, e)
+					return
+				}
+				objects++
+				if m != nil {
+					g.discard(*m)
+					items++
+				}
+			}
+		}
+		if e := g.store.deleteBucket(c.ID, b.Name); e != nil {
+			g.opts.Log("closing %s: removing bucket %s: %v", c.Name, b.Name, e)
+		}
+	}
+	if objects > 0 || items > 0 {
+		g.opts.Log("closed account %s (%s): deleted %d objects, %d stored items", c.Name, c.ID, objects, items)
 	}
 }
 
@@ -196,6 +241,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		q.fail(errf(errSlowDown, "too many failed sign-ins from your address; wait a few minutes"))
 		return
 	}
+	// "_keys" can't be a bucket name, so this never hides an object.
+	if b, token := g.route(r); b == linkBucket {
+		g.serveKeyLink(w, r, ip, token)
+		return
+	}
 	a, e := g.authenticate(r, time.Now())
 	if e != nil {
 		if e.code == errSignature.code || e.code == errInvalidAccessKey.code {
@@ -207,6 +257,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	q.a = a
 	g.meter.request(a.customer.ID)
 	q.bucket, q.key = g.route(r)
+	if acc, why := a.customer.Access(time.Now()); acc == AccessReadOnly && !readOnlyOK(r, q) {
+		q.fail(errf(errAccountProblem, why))
+		return
+	}
 	if q.key != "" && (len(q.key) > maxKeyLen || !utf8.ValidString(q.key)) {
 		q.fail(errf(errKeyTooLong, "keys are at most 1024 bytes of UTF-8"))
 		return
@@ -237,6 +291,18 @@ var unsupportedSub = []string{"acl", "cors", "lifecycle", "policy", "tagging", "
 	"retention", "legal-hold", "torrent", "attributes", "restore", "select"}
 
 func (q *request) has(k string) bool { _, ok := q.query[k]; return ok }
+
+// readOnlyOK reports whether a request only reads or deletes, which an
+// account whose trial ended may still do.
+func readOnlyOK(r *http.Request, q *request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodDelete:
+		return true
+	case http.MethodPost:
+		return q.key == "" && q.has("delete")
+	}
+	return false
+}
 
 func (g *Gateway) dispatch(q *request) {
 	r := q.r

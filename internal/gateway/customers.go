@@ -28,6 +28,8 @@ type Customer struct {
 	AccessKey  string `json:"access_key"`
 	Secret     string `json:"secret"`
 	Suspended  bool   `json:"suspended,omitempty"`
+	TrialEnds  int64  `json:"trial_ends,omitempty"` // unix seconds; 0 = not a trial
+	Closed     int64  `json:"closed,omitempty"`     // when it was closed: its files are deleted
 	Created    int64  `json:"created"`
 	Note       string `json:"note,omitempty"`
 }

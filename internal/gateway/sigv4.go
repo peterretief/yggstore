@@ -208,8 +208,8 @@ func (g *Gateway) authenticate(r *http.Request, now time.Time) (auth, *s3Error) 
 	if !hmac.Equal([]byte(want), []byte(strings.ToLower(signature))) {
 		return auth{}, errf(errSignature, "the signature doesn't match; check the secret key")
 	}
-	if cu.Suspended {
-		return auth{}, errf(errAccountProblem, "this account is suspended; contact the group's organiser")
+	if acc, why := cu.Access(time.Now()); acc == AccessNone {
+		return auth{}, errf(errAccountProblem, why)
 	}
 	return auth{customer: cu, payload: payload, key: key, date: date, scope: scope, seed: want}, nil
 }
@@ -283,8 +283,8 @@ func (g *Gateway) authenticateV2Link(r *http.Request, query url.Values, now time
 	if !hmac.Equal([]byte(want), []byte(query.Get("Signature"))) {
 		return auth{}, errf(errSignature, "the link's signature doesn't match")
 	}
-	if cu.Suspended {
-		return auth{}, errf(errAccountProblem, "this account is suspended; contact the group's organiser")
+	if acc, why := cu.Access(time.Now()); acc == AccessNone {
+		return auth{}, errf(errAccountProblem, why)
 	}
 	return auth{customer: cu, payload: unsignedBody}, nil
 }

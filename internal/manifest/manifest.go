@@ -31,6 +31,12 @@ type Manifest struct {
 	// SharedBy is set on a stub someone else sent you: its shards are theirs,
 	// so removing it only forgets it here.
 	SharedBy *Sender `json:"shared_by,omitempty"`
+	// History: every version of an item shares a Lineage (the first
+	// version's FileID). StoredAt is when this version was stored, and
+	// SourceModTime the original's modification time (unix nanoseconds).
+	Lineage       string `json:"lineage,omitempty"`
+	StoredAt      int64  `json:"stored_at,omitempty"`
+	SourceModTime int64  `json:"source_mtime,omitempty"`
 }
 
 // Sender says who shared an item, as opened from their .ysend file.
@@ -42,6 +48,9 @@ type Sender struct {
 }
 
 type Chunk struct {
+	// Tag identifies the chunk's plaintext under the item's key (a keyed
+	// hash), so a later version can reuse a chunk that didn't change.
+	Tag            string     `json:"tag,omitempty"`
 	PlaintextSize  int        `json:"plaintext_size"`
 	CiphertextSize int        `json:"ciphertext_size"`
 	Nonce          []byte     `json:"nonce"`
@@ -127,6 +136,14 @@ func NewChunked(layout erasure.Layout, fileID, fileName string, plaintextSize, c
 		ChunkSize: chunkSize, CiphertextSize: int(ciphertextSize),
 		Key: append([]byte(nil), key...), Chunks: append([]Chunk(nil), chunks...),
 	}, nil
+}
+
+// LineageOf is m's lineage: its own FileID for a first version.
+func LineageOf(m Manifest) string {
+	if m.Lineage != "" {
+		return m.Lineage
+	}
+	return m.FileID
 }
 
 func Hash(data []byte) string {

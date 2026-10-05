@@ -110,6 +110,7 @@ The gateway keeps everything in `~/.yggstore/gateway`:
 | File | What it holds |
 |---|---|
 | `customers.json` | Accounts and their secret keys |
+| `links/` | One-time links to customers' keys |
 | `objects/` | Every object's record, **including its decryption key** |
 | `uploads/` | Large uploads still in progress |
 | `usage/` | Metering, one file per month |
@@ -127,20 +128,65 @@ yggstore gateway customer add -name "Acme Ltd" -email ops@acme.example \
   -plan "100 GB, R60/month" -quota 100 -endpoint https://s3.yourgroup.example
 ```
 
-This prints a message to send them, with their access key and secret key.
-Send the secret by a different channel from the rest if you can.
+This prints a message to send them, with a **one-time link to their keys**,
+so you never send the secret key itself. Give `-endpoint` once; it is
+remembered.
+
+- Opening the link shows a **Show my keys** button. The keys appear when it
+  is pressed, and the link then stops working. Link previews in WhatsApp or
+  email only open the page, so they don't use it up.
+- The link expires after 7 days. `customer link WHO` makes a new one and
+  cancels any unused one.
+- If someone says the link was already used and it wasn't them, give them a
+  new secret with `customer new-secret WHO`.
+- `-keys` prints the keys themselves instead, as before.
+
+### Free trials
+
+Let people try it before they pay:
+
+```sh
+yggstore gateway customer add -name "Thandi" -email thandi@example.org -trial 14d
+```
+
+A trial gets 5 GB unless you give `-quota`.
+
+```mermaid
+flowchart LR
+  T["Trial<br/>14 days, full use"] --> R["Download only<br/>30 days"] --> N["No access<br/>files kept until you close it"]
+  T -- "customer paid" --> P["Paying customer<br/>same keys and files"]
+  R -- "customer paid" --> P
+```
+
+- **When the trial ends**, they can still download and delete their files
+  for 30 days, but not upload. Their program shows why: "your free trial
+  ended on …; contact the group's organiser".
+- **After those 30 days** the keys stop working. The files stay on the
+  members' boxes until you close the account.
+- `customer list` shows each trial's state: days left, download only, or
+  ended.
 
 | Command | What it does |
 |---|---|
-| `yggstore gateway customer list` | Lists every account |
-| `yggstore gateway customer show WHO` | Prints the welcome message again |
+| `yggstore gateway customer extend WHO 7d` | A longer trial (from today, if it already ended) |
+| `yggstore gateway customer paid WHO -plan "100 GB, R60/month" -quota 100` | Ends the trial; keys and files stay the same |
+| `yggstore gateway customer close WHO -yes` | Deletes all their files from the group and stops the account. Use it for trials that didn't continue. |
+
+### Managing customers
+
+| Command | What it does |
+|---|---|
+| `yggstore gateway customer list` | Lists every account, with its state |
+| `yggstore gateway customer link WHO` | A new one-time link to their keys |
+| `yggstore gateway customer show WHO` | Prints their keys |
 | `yggstore gateway customer quota WHO 200` | Changes their space, in GB (0 = unlimited) |
 | `yggstore gateway customer suspend WHO` | Stops access; their files are kept |
 | `yggstore gateway customer resume WHO` | Gives access back |
-| `yggstore gateway customer new-secret WHO` | Replaces a leaked secret key |
+| `yggstore gateway customer new-secret WHO` | Replaces a leaked secret key, and prints a link to the new one |
 
 `WHO` is the customer's ID, access key or exact name. Changes apply at once,
-without restarting the gateway.
+without restarting the gateway. Closing an account deletes its files within
+the hour.
 
 ### 4. Each month
 
@@ -170,6 +216,8 @@ Members (space held for customers, shards included)
   what customers store, because each object is stored as 6 pieces, any 4 of
   which rebuild it.
 - Suspend accounts that don't pay. Their files stay until you decide.
+- Trials are marked "(trial)" in the report, so you can see who is using
+  theirs.
 
 ---
 
@@ -207,7 +255,9 @@ Your box then shows a **customers** badge on the dashboards, and the
 
 ## For customers
 
-You've been given an **endpoint**, an **access key** and a **secret key**.
+You've been given a link to your keys. Open it, press **Show my keys**, and
+save the **endpoint**, **access key** and **secret key** in your password
+manager: the page only opens once.
 Any program that supports "S3 compatible storage" works. Use these settings:
 
 | Setting | Value |

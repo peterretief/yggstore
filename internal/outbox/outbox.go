@@ -8,6 +8,7 @@ package outbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -55,9 +56,11 @@ type Watcher struct {
 	sigs  map[string]signature
 	retry map[string]time.Time
 	shown map[string]bool // "already has a stub" warnings given, per path
+	stubs map[string]cachedStub
 
-	actMu sync.Mutex
-	act   *Activity
+	actMu    sync.Mutex
+	act      *Activity
+	restored []Restored // latest restores, oldest first
 }
 
 // Activity is what the watcher is doing right now, for a progress bar.
@@ -115,7 +118,7 @@ func New(cfg Config) *Watcher {
 	if cfg.Event == nil {
 		cfg.Event = func(string, string) {}
 	}
-	return &Watcher{cfg: cfg, sigs: map[string]signature{}, retry: map[string]time.Time{}, shown: map[string]bool{}}
+	return &Watcher{cfg: cfg, sigs: map[string]signature{}, retry: map[string]time.Time{}, shown: map[string]bool{}, stubs: map[string]cachedStub{}}
 }
 
 func (w *Watcher) Dir() string { return w.cfg.Dir }
@@ -131,7 +134,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 	}
 	os.Chmod(filepath.Join(w.cfg.Dir, privateDir), 0o700)
-	w.cfg.Event("info", "watching "+w.cfg.Dir+" (drop files or folders in, or into whole/ to keep a folder as one item; stubs into restore/ or delete/)")
+	w.cfg.Event("info", "watching "+w.cfg.Dir+" (drop files or folders in, or into whole/ to keep a folder as one item; stubs into restore/ or delete/); restores go to "+w.RestoreDir())
 	t := time.NewTicker(w.cfg.Interval)
 	defer t.Stop()
 	for {
@@ -321,19 +324,56 @@ func freeStub(path string) string {
 	}
 }
 
-// unstored is false if path already has a stub beside it. Unless originals
-// are kept on purpose, that means a file was put back next to its own stub;
-// it is left alone (the stub would be overwritten), and the user is told once.
+// unstored is true if path has no stub beside it, or if it differs from
+// the version the stub holds: then it is stored as a new version. A file
+// that is the same as its stub's version is left alone (and, unless
+// originals are kept on purpose, the user is told once).
 func (w *Watcher) unstored(path string) bool {
-	if _, err := os.Lstat(path + files.StubExt); err != nil {
+	stub := path + files.StubExt
+	m, err := w.stubInfo(stub)
+	if errors.Is(err, os.ErrNotExist) {
 		return true
+	}
+	if err != nil {
+		if !w.shown[path] {
+			w.shown[path] = true
+			w.cfg.Event("bad", fmt.Sprintf("%s is not stored: its stub %s can't be read (%v)", w.rel(path), filepath.Base(stub), err))
+		}
+		return false
+	}
+	if m.SharedBy != nil || !w.same(path, m) {
+		return m.SharedBy == nil
 	}
 	if !w.cfg.Keep && !w.shown[path] {
 		w.shown[path] = true
-		w.cfg.Event("warn", fmt.Sprintf("%s is not stored: %s already exists beside it. Rename the file, or delete the old version first (move its stub into delete/)",
-			w.rel(path), filepath.Base(path)+files.StubExt))
+		w.cfg.Event("warn", fmt.Sprintf("%s is the same as the version already stored, so it isn't stored again. You can delete it.", w.rel(path)))
 	}
 	return false
+}
+
+// stubInfo reads a stub, caching it while the stub file doesn't change, as
+// every item is checked on every poll.
+func (w *Watcher) stubInfo(stub string) (manifest.Manifest, error) {
+	info, err := os.Stat(stub)
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	if c, ok := w.stubs[stub]; ok && c.mtime.Equal(info.ModTime()) && c.size == info.Size() {
+		return c.m, nil
+	}
+	m, err := files.ReadStub(stub)
+	if err != nil {
+		return m, err
+	}
+	m.Chunks, m.Shards, m.Key = nil, nil, nil // only the details are needed
+	w.stubs[stub] = cachedStub{info.ModTime(), info.Size(), m}
+	return m, nil
+}
+
+type cachedStub struct {
+	mtime time.Time
+	size  int64
+	m     manifest.Manifest
 }
 
 // rel names path relative to the outbox, for messages.
@@ -424,10 +464,23 @@ func (w *Watcher) store(ctx context.Context, path string) {
 		fail(err)
 		return
 	}
-	w.cfg.Event("info", fmt.Sprintf("storing %s (%s) on %d nodes", shown, human(size.size), len(online)))
+	stub := path + files.StubExt
+	var prev *manifest.Manifest
+	if m, err := files.ReadStub(stub); err == nil && m.SharedBy == nil {
+		prev = &m
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fail(fmt.Errorf("its stub %s can't be read: %w", filepath.Base(stub), err))
+		return
+	}
+	mtime := modTime(path)
+	if prev != nil {
+		w.cfg.Event("info", fmt.Sprintf("storing a new version of %s (%s) on %d nodes", shown, human(size.size), len(online)))
+	} else {
+		w.cfg.Event("info", fmt.Sprintf("storing %s (%s) on %d nodes", shown, human(size.size), len(online)))
+	}
 	start := time.Now()
 	putCtx := w.begin(ctx, "storing", shown, size.size)
-	opts := files.PutOptions{ChunkSize: w.cfg.ChunkSize, Challenges: w.cfg.Challenges}
+	opts := files.PutOptions{ChunkSize: w.cfg.ChunkSize, Challenges: w.cfg.Challenges, Previous: prev}
 	var m manifest.Manifest
 	var chal files.Challenges
 	var sum string
@@ -444,12 +497,45 @@ func (w *Watcher) store(ctx context.Context, path string) {
 		fail(err)
 		return
 	}
+	if prev != nil && m.PlaintextSize == prev.PlaintextSize && len(m.Chunks) == len(prev.Chunks) && files.Reused(m, *prev) == len(m.Chunks) {
+		// Nothing changed: keep the version there is, with the new time.
+		prev.SourceModTime = mtime
+		if err := files.WriteJSON(stub, *prev); err != nil {
+			fail(err)
+			return
+		}
+		msg := fmt.Sprintf("%s is the same as the version already stored; no new version made", shown)
+		if w.cfg.Keep {
+			w.cfg.Event("ok", msg)
+			return
+		}
+		if err := os.RemoveAll(path); err != nil {
+			w.cfg.Event("warn", msg+"; could not remove it: "+err.Error())
+			return
+		}
+		w.cfg.Event("ok", msg+"; original replaced by "+filepath.Base(stub))
+		return
+	}
 	// Before anything is deleted, prove the network can give it back intact.
 	if err := files.ReadBack(w.begin(ctx, "verifying", shown, int64(m.PlaintextSize)), w.cfg.Client, m, sum); err != nil {
 		fail(fmt.Errorf("read-back check failed, original kept: %w", err))
 		return
 	}
-	stub := path + files.StubExt
+	m.StoredAt, m.SourceModTime = time.Now().Unix(), mtime
+	versionNote := ""
+	if prev != nil {
+		// The old version goes into the history; its shards stay.
+		lineage, err := w.archive(stub, *prev)
+		if err != nil {
+			files.Delete(context.WithoutCancel(ctx), w.cfg.Client, only(m, []manifest.Manifest{*prev}))
+			fail(fmt.Errorf("could not keep the previous version: %w", err))
+			return
+		}
+		m.Lineage = lineage
+		mergeChallenges(&chal, m, stub)
+		reused := files.Reused(m, *prev)
+		versionNote = fmt.Sprintf("; new version, %d of %d chunks changed, previous version kept in history", len(m.Chunks)-reused, len(m.Chunks))
+	}
 	if err := files.WriteJSON(files.ChallengesPath(stub), chal); err != nil {
 		fail(err)
 		return
@@ -462,8 +548,11 @@ func (w *Watcher) store(ctx context.Context, path string) {
 	if info.IsDir() {
 		what = fmt.Sprintf("folder of %d files", m.FileCount)
 	}
-	msg := fmt.Sprintf("stored %s (%s, %s, %d chunks on %d nodes, %.1fs, read-back verified)",
-		shown, what, human(int64(m.PlaintextSize)), len(m.Chunks), len(online), time.Since(start).Seconds())
+	msg := fmt.Sprintf("stored %s (%s, %s, %d chunks on %d nodes, %.1fs, read-back verified%s)",
+		shown, what, human(int64(m.PlaintextSize)), len(m.Chunks), len(online), time.Since(start).Seconds(), versionNote)
+	if prev != nil {
+		defer w.prune(context.WithoutCancel(ctx), m)
+	}
 	if w.cfg.Keep {
 		w.cfg.Event("ok", msg+"; original kept")
 		return
@@ -487,24 +576,31 @@ func (w *Watcher) restoreDropped(ctx context.Context, stub string) {
 	}
 }
 
-// RestoreStub rebuilds the item a stub describes into restored/.
+// RestoreStub rebuilds the item a stub describes into the restore folder
+// (see RestoreDir) and returns its full path.
 func (w *Watcher) RestoreStub(ctx context.Context, stub string) (string, error) {
 	w.work.Lock()
 	defer w.work.Unlock()
 	m, err := files.ReadStub(stub)
 	if err != nil {
 		w.cfg.Event("bad", fmt.Sprintf("cannot read %s: %v", filepath.Base(stub), err))
+		w.noteRestore(Restored{Name: filepath.Base(stub), Error: err.Error()})
 		return "", err
 	}
 	defer w.idle()
+	if w.inHistory(stub) {
+		m.FileName = versionName(m.FileName, storedAt(m, stub))
+	}
 	start := time.Now()
-	target, err := files.Restore(w.begin(ctx, "restoring", m.FileName, int64(m.PlaintextSize)), w.cfg.Client, m, filepath.Join(w.cfg.Dir, RestoredDir), nil)
+	dir := w.RestoreDir()
+	target, err := files.Restore(w.begin(ctx, "restoring", m.FileName, int64(m.PlaintextSize)), w.cfg.Client, m, dir, nil)
 	if err != nil {
-		w.cfg.Event("bad", fmt.Sprintf("restore of %s failed: %v", m.FileName, err))
+		w.cfg.Event("bad", fmt.Sprintf("restore of %s into %s failed: %v", m.FileName, dir, err))
+		w.noteRestore(Restored{Name: m.FileName, Dir: dir, Size: int64(m.PlaintextSize), Error: err.Error()})
 		return "", err
 	}
-	rel, _ := filepath.Rel(w.cfg.Dir, target)
-	w.cfg.Event("ok", fmt.Sprintf("restored %s (%s) to %s in %.1fs", m.FileName, human(int64(m.PlaintextSize)), rel, time.Since(start).Seconds()))
+	w.cfg.Event("ok", fmt.Sprintf("restored %s (%s) to %s in %.1fs", m.FileName, human(int64(m.PlaintextSize)), target, time.Since(start).Seconds()))
+	w.noteRestore(Restored{Name: m.FileName, Path: target, Dir: dir, Size: int64(m.PlaintextSize)})
 	return target, nil
 }
 
@@ -544,14 +640,20 @@ func (w *Watcher) deleteItem(ctx context.Context, stub string) error {
 		w.cfg.Event("ok", fmt.Sprintf("removed %s (shared by %s) from your list; the sender's copy is untouched", m.FileName, m.SharedBy.Name))
 		return nil
 	}
-	res := files.Delete(ctx, w.cfg.Client, m)
+	versions := w.allVersions(m)
+	res := files.Delete(ctx, w.cfg.Client, everyShard(versions))
 	if err := res.Err(); err != nil {
 		w.cfg.Event("warn", fmt.Sprintf("deleted %d shards of %s, but %d could not be deleted (node down?); stub kept, will retry",
 			res.Deleted, m.FileName, len(res.Failed)))
 		return err
 	}
 	w.forget(m)
-	w.cfg.Event("ok", fmt.Sprintf("deleted %s (%s) from all nodes: %d shards", m.FileName, human(int64(m.PlaintextSize)), res.Deleted))
+	os.RemoveAll(w.historyPath(manifest.LineageOf(m)))
+	also := ""
+	if len(versions) > 1 {
+		also = fmt.Sprintf(", with its %d older versions", len(versions)-1)
+	}
+	w.cfg.Event("ok", fmt.Sprintf("deleted %s (%s)%s from all nodes: %d shards", m.FileName, human(int64(m.PlaintextSize)), also, res.Deleted))
 	return nil
 }
 

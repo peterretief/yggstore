@@ -22,14 +22,20 @@ import (
 const gatewayUsage = `yggstore gateway: an S3 service for people who pay to use the group's storage
 
   yggstore gateway serve    [-listen :9000] [-domain DOMAIN] [-tls-cert FILE -tls-key FILE] [-trust-proxy]
-  yggstore gateway customer add -name NAME [-email EMAIL] [-plan TEXT] -quota GB
+  yggstore gateway customer add -name NAME [-email EMAIL] [-plan TEXT] [-quota GB] [-trial 14d]
   yggstore gateway customer list
-  yggstore gateway customer show|suspend|resume|new-secret WHO
+  yggstore gateway customer link WHO          a new one-time link to their keys
+  yggstore gateway customer show WHO          print their keys
+  yggstore gateway customer suspend|resume|new-secret WHO
   yggstore gateway customer quota WHO GB
+  yggstore gateway customer extend WHO 7d     a longer trial
+  yggstore gateway customer paid WHO [-plan TEXT] [-quota GB]
+  yggstore gateway customer close WHO -yes    delete the account's files
   yggstore gateway report   [-month YYYY-MM]
 
 All take -dir (default ~/.yggstore/gateway). WHO is a customer's ID, access
-key or name. See docs/gateway.md.
+key or name. Give -endpoint https://… once; it is remembered for links.
+See docs/gateway.md.
 `
 
 func defaultGatewayDir() string { return filepath.Join(yggstoreHome(), "gateway") }
@@ -148,27 +154,85 @@ func gatewayCustomer(args []string) error {
 	email := fs.String("email", "", "customer's email, for your records")
 	plan := fs.String("plan", "", `plan, for your records, e.g. "100 GB, R50/month"`)
 	quota := fs.Float64("quota", 0, "storage allowed, in GB (0 = unlimited)")
-	endpoint := fs.String("endpoint", "https://s3.example.org", "the gateway's public address, for the welcome message")
-	fs.Parse(args)
+	trial := fs.String("trial", "", `make it a free trial for this long, e.g. "14d" (default space 5 GB)`)
+	endpoint := fs.String("endpoint", "", "the gateway's public address, e.g. https://s3.yourgroup.example (remembered)")
+	keys := fs.Bool("keys", false, "print the keys themselves instead of a one-time link to them")
+	yes := fs.Bool("yes", false, "confirm closing an account")
+	// Flags may come before or after WHO.
+	var pos []string
+	for {
+		fs.Parse(args)
+		if fs.NArg() == 0 {
+			break
+		}
+		pos, args = append(pos, fs.Arg(0)), fs.Args()[1:]
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	cs := gateway.OpenCustomers(filepath.Join(*dir, "customers.json"))
 	quotaBytes := int64(*quota * 1e9)
-
-	who := fs.Arg(0)
+	arg := func(i int) string {
+		if i < len(pos) {
+			return pos[i]
+		}
+		return ""
+	}
+	who := arg(0)
 	needWho := func() error {
 		if who == "" {
 			return fmt.Errorf("say which customer: yggstore gateway customer %s WHO", sub)
 		}
 		return nil
 	}
+	if *endpoint != "" {
+		if err := gateway.SetEndpoint(*dir, *endpoint); err != nil {
+			return err
+		}
+	}
+	ep := gateway.Endpoint(*dir)
+	// welcome prints what to send: a one-time link, or with -keys the keys.
+	welcome := func(c gateway.Customer) error {
+		if *keys {
+			printWelcome(c, ep)
+			return nil
+		}
+		if ep == "" {
+			return errors.New("give the gateway's public address once with -endpoint https://…, or use -keys to print the keys instead")
+		}
+		link, err := gateway.NewKeyLink(*dir, c.ID, ep)
+		if err != nil {
+			return err
+		}
+		printLinkWelcome(c, link)
+		return nil
+	}
 	switch sub {
 	case "add":
+		var trialEnds int64
+		if *trial != "" {
+			d, err := parseDays(*trial)
+			if err != nil {
+				return err
+			}
+			trialEnds = time.Now().Add(d).Unix()
+			if !set["quota"] {
+				quotaBytes = gateway.DefaultTrialQuota
+			}
+			if *plan == "" {
+				*plan = "free trial"
+			}
+		}
 		c, err := cs.Add(*name, *email, *plan, quotaBytes)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Added %s (%s).\n\n", c.Name, c.ID)
-		printWelcome(c, *endpoint)
-		return nil
+		if trialEnds != 0 {
+			if c, err = cs.Update(c.ID, func(c *gateway.Customer) { c.TrialEnds = trialEnds }); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("Added %s (%s): %s, %s.\n\n", c.Name, c.ID, c.Status(time.Now()), quotaText(c.QuotaBytes))
+		return welcome(c)
 	case "list":
 		list, err := cs.List()
 		if err != nil {
@@ -177,14 +241,10 @@ func gatewayCustomer(args []string) error {
 		tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "ID\tName\tEmail\tPlan\tQuota\tAccess key\tStatus")
 		for _, c := range list {
-			status := "active"
-			if c.Suspended {
-				status = "suspended"
-			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c.ID, c.Name, c.Email, c.Plan, quotaText(c.QuotaBytes), c.AccessKey, status)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c.ID, c.Name, c.Email, c.Plan, quotaText(c.QuotaBytes), c.AccessKey, c.Status(time.Now()))
 		}
 		return tw.Flush()
-	case "show":
+	case "show", "link":
 		if err := needWho(); err != nil {
 			return err
 		}
@@ -192,8 +252,10 @@ func gatewayCustomer(args []string) error {
 		if err != nil {
 			return err
 		}
-		printWelcome(c, *endpoint)
-		return nil
+		if sub == "show" {
+			*keys = true
+		}
+		return welcome(c)
 	case "suspend", "resume":
 		if err := needWho(); err != nil {
 			return err
@@ -202,7 +264,7 @@ func gatewayCustomer(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s is now %s. Their files are kept either way.\n", c.Name, map[bool]string{true: "suspended", false: "active"}[c.Suspended])
+		fmt.Printf("%s is now %s. Their files are kept either way.\n", c.Name, c.Status(time.Now()))
 		return nil
 	case "new-secret":
 		if err := needWho(); err != nil {
@@ -213,14 +275,13 @@ func gatewayCustomer(args []string) error {
 			return err
 		}
 		fmt.Printf("New secret for %s; the old one no longer works.\n\n", c.Name)
-		printWelcome(c, *endpoint)
-		return nil
+		return welcome(c)
 	case "quota":
 		if err := needWho(); err != nil {
 			return err
 		}
 		var gb float64
-		if _, err := fmt.Sscan(fs.Arg(1), &gb); err != nil {
+		if _, err := fmt.Sscan(arg(1), &gb); err != nil {
 			return errors.New("usage: yggstore gateway customer quota WHO GB")
 		}
 		c, err := cs.Update(who, func(c *gateway.Customer) { c.QuotaBytes = int64(gb * 1e9) })
@@ -229,21 +290,98 @@ func gatewayCustomer(args []string) error {
 		}
 		fmt.Printf("%s may now store %s.\n", c.Name, quotaText(c.QuotaBytes))
 		return nil
+	case "extend":
+		if err := needWho(); err != nil {
+			return err
+		}
+		d, err := parseDays(arg(1))
+		if err != nil {
+			return errors.New("usage: yggstore gateway customer extend WHO 7d")
+		}
+		c, err := cs.Find(who)
+		if err != nil {
+			return err
+		}
+		if c.TrialEnds == 0 {
+			return fmt.Errorf("%s isn't on a trial", c.Name)
+		}
+		c, err = cs.Update(c.ID, func(c *gateway.Customer) {
+			c.TrialEnds = time.Unix(max(c.TrialEnds, time.Now().Unix()), 0).Add(d).Unix()
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s: %s.\n", c.Name, c.Status(time.Now()))
+		return nil
+	case "paid":
+		if err := needWho(); err != nil {
+			return err
+		}
+		c, err := cs.Update(who, func(c *gateway.Customer) {
+			c.TrialEnds = 0
+			if set["plan"] {
+				c.Plan = *plan
+			} else if c.Plan == "free trial" {
+				c.Plan = ""
+			}
+			if set["quota"] {
+				c.QuotaBytes = quotaBytes
+			}
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s is now a paying customer (%s, %s). Their keys and files stay the same.\n", c.Name, orDash(c.Plan), quotaText(c.QuotaBytes))
+		return nil
+	case "close":
+		if err := needWho(); err != nil {
+			return err
+		}
+		c, err := cs.Find(who)
+		if err != nil {
+			return err
+		}
+		if !*yes {
+			return fmt.Errorf("closing %s deletes all their files from the group; this can't be undone. Run again with -yes to go ahead", c.Name)
+		}
+		if _, err := cs.Update(c.ID, func(c *gateway.Customer) { c.Closed = time.Now().Unix() }); err != nil {
+			return err
+		}
+		fmt.Printf("Closed %s. Their keys stop working now; the running gateway deletes their files within the hour (or when it next starts).\n", c.Name)
+		return nil
 	}
 	fmt.Fprint(os.Stderr, gatewayUsage)
 	os.Exit(2)
 	return nil
 }
 
-func quotaText(n int64) string {
-	if n == 0 {
-		return "unlimited"
+func orDash(s string) string {
+	if s == "" {
+		return "no plan set"
 	}
-	return fmt.Sprintf("%g GB", float64(n)/1e9)
+	return s
 }
+
+// parseDays reads "14d", "14" (days) or a Go duration like "36h".
+func parseDays(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	var n float64
+	if _, err := fmt.Sscanf(strings.TrimSuffix(s, "d"), "%g", &n); err == nil && n > 0 && !strings.ContainsAny(strings.TrimSuffix(s, "d"), "hms") {
+		return time.Duration(n * 24 * float64(time.Hour)), nil
+	}
+	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return d, nil
+	}
+	return 0, fmt.Errorf("%q: give a number of days, such as 14d", s)
+}
+
+func quotaText(n int64) string { return gateway.QuotaText(n) }
 
 // printWelcome prints what to send the customer.
 func printWelcome(c gateway.Customer, endpoint string) {
+	if endpoint == "" {
+		endpoint = "https://s3.yourgroup.example (set it with -endpoint)"
+	}
 	fmt.Printf(`Send this to %s (keep the secret out of shared channels):
 
   Endpoint:    %s
@@ -257,6 +395,35 @@ func printWelcome(c gateway.Customer, endpoint string) {
   the program's own encryption so only you can read your files.
   Setup guide: https://github.com/peterretief/yggstore/blob/main/docs/gateway.md#for-customers
 `, c.Name, endpoint, c.AccessKey, c.Secret, quotaText(c.QuotaBytes))
+}
+
+// printLinkWelcome prints a message to send, with a one-time link to the keys.
+func printLinkWelcome(c gateway.Customer, link string) {
+	what := "your storage account is ready"
+	if c.TrialEnds != 0 {
+		what = fmt.Sprintf("your free trial is ready (%s until %s)", quotaText(c.QuotaBytes), time.Unix(c.TrialEnds, 0).Format("2 Jan"))
+	}
+	fmt.Printf(`Send this to %s:
+
+  Hi %s, %s.
+
+  Open this link to get your keys. It works once, so save the keys
+  somewhere safe, such as your password manager:
+
+  %s
+
+  The page explains how to set up rclone, Cyberduck or Duplicati.
+  The link expires in 7 days.
+
+(Make a new link with: yggstore gateway customer link %s)
+`, c.Name, firstName(c.Name), what, link, c.ID)
+}
+
+func firstName(name string) string {
+	if f := strings.Fields(name); len(f) > 0 {
+		return f[0]
+	}
+	return name
 }
 
 func gatewayReport(args []string) error {
