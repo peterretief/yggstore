@@ -36,6 +36,9 @@ type Info struct {
 	// ByWriter is bytes stored per uploading node ID, for accounting. It is
 	// recounted at most every 30 s.
 	ByWriter map[string]int64 `json:"by_writer,omitempty"`
+	// Customers is whether the node's owner lets it hold paying customers'
+	// files, stored through a gateway.
+	Customers bool `json:"customers,omitempty"`
 }
 
 type Options struct {
@@ -49,6 +52,12 @@ type Options struct {
 	Join          func(caller string, req invite.Request) (invite.Response, error)
 	MaxShardBytes int64
 	MaxConcurrent int
+	// Customers lets gateway peers store shards here (the owner's opt-in).
+	Customers bool
+	// Messages, if set, answers members' messaging calls (/v1/msg...).
+	Messages interface {
+		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
+	}
 }
 
 func Handler(store localstore.Store, opts Options) http.Handler {
@@ -61,6 +70,8 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 	slots := make(chan struct{}, opts.MaxConcurrent)
 	started := time.Now().Unix()
 	joinLimit := newLimiter(6, time.Minute) // invites are 144-bit secrets; this just stops floods
+	var msgMu sync.Mutex
+	msgLimits := map[string]*limiter{} // per member, so one can't flood the others out
 	var usageMu sync.Mutex
 	var usage map[string]int64
 	var usageAt time.Time
@@ -120,6 +131,23 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			return
 		}
 
+		if opts.Messages != nil && strings.HasPrefix(r.URL.Path, "/v1/msg") {
+			msgMu.Lock()
+			l := msgLimits[caller]
+			if l == nil {
+				l = newLimiter(1200, time.Minute)
+				msgLimits[caller] = l
+			}
+			msgMu.Unlock()
+			if !l.Allow() {
+				w.Header().Set("Retry-After", "5")
+				http.Error(w, "too many messages; slow down", http.StatusTooManyRequests)
+				return
+			}
+			if opts.Messages.Serve(w, r, caller) {
+				return
+			}
+		}
 		switch {
 		case r.URL.Path == "/v1/info" && r.Method == http.MethodGet:
 			count, used, err := store.Stats()
@@ -129,7 +157,7 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			}
 			info := Info{Service: "yggstore", Name: opts.Name, NodeID: opts.NodeID,
 				Transport: opts.Transport.Name(), UsedBytes: used, QuotaBytes: store.Quota(),
-				ShardCount: count, StartedAt: started}
+				ShardCount: count, StartedAt: started, Customers: opts.Customers}
 			if opts.Peers != nil {
 				info.PeersHash = opts.Peers.Hash()
 			}
@@ -206,6 +234,10 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			w.Header().Set("Content-Type", "application/octet-stream")
 			w.Write(data)
 		case http.MethodPut:
+			if !opts.Customers && opts.Peers != nil && opts.Peers.IsGateway(caller) {
+				http.Error(w, "this node does not hold customer data", http.StatusForbidden)
+				return
+			}
 			r.Body = http.MaxBytesReader(w, r.Body, opts.MaxShardBytes)
 			body, err := io.ReadAll(r.Body)
 			if err != nil {

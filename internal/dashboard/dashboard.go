@@ -62,6 +62,10 @@ type Config struct {
 	InvitesPath string
 	Group       string
 	YggPeers    []string
+	// Messaging goes through this machine's node: its local API address
+	// and token file.
+	MsgAPI       string
+	MsgTokenPath string
 }
 
 type PeerState struct {
@@ -141,7 +145,15 @@ type Account struct {
 	ForOthers int64  `json:"for_others"` // of Holds, bytes other people uploaded
 	Offered   int64  `json:"offered"`    // quota of their nodes that are up
 	Nodes     int    `json:"nodes"`
+	// ForCustomers is the part of ForOthers stored for paying customers
+	// through the gateway, which earns credit.
+	ForCustomers int64 `json:"for_customers,omitempty"`
+	// Customers marks the row for the gateway's paying customers.
+	Customers bool `json:"customers,omitempty"`
 }
+
+// CustomersOwner is the account paying customers' storage is counted under.
+const CustomersOwner = "Paying customers"
 
 // Contact is someone you can share with.
 type Contact = contacts.Contact
@@ -213,6 +225,10 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/contacts", d.handleAddContact)
 	mux.HandleFunc("POST /api/invites", d.handleInvite)
 	mux.HandleFunc("POST /api/contacts/remove", d.handleRemoveContact)
+	mux.HandleFunc("GET /api/msg", d.handleMsgState)
+	mux.HandleFunc("POST /api/msg/send", d.handleMsgSend)
+	mux.HandleFunc("POST /api/msg/subscribe", d.handleMsgSub)
+	mux.HandleFunc("POST /api/msg/unsubscribe", d.handleMsgSub)
 	return d.guard(mux)
 }
 
@@ -460,6 +476,9 @@ func accounts(list []peers.Peer, states []PeerState, self string) []Account {
 	}
 	operator := func(ip string) string {
 		if p, ok := byIP[ip]; ok {
+			if p.Gateway {
+				return CustomersOwner
+			}
 			return p.Operator()
 		}
 		if ip == "" {
@@ -492,12 +511,16 @@ func accounts(list []peers.Peer, states []PeerState, self string) []Account {
 			if who != p.Operator() {
 				mine.ForOthers += n
 			}
+			if who == CustomersOwner {
+				mine.ForCustomers += n
+			}
 		}
 	}
 	me := operator(self)
 	out := make([]Account, 0, len(acc))
 	for _, a := range acc {
 		a.Me = a.Owner == me
+		a.Customers = a.Owner == CustomersOwner
 		out = append(out, *a)
 	}
 	sort.Slice(out, func(i, j int) bool {

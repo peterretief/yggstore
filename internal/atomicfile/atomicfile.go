@@ -51,3 +51,36 @@ func WriteNewFrom(path string, mode os.FileMode, write func(io.Writer) error) er
 	defer dir.Close()
 	return SyncDirectory(dir)
 }
+
+// Replace writes data to path, replacing any existing file, so that readers
+// see either the old or the new contents, never a mix.
+func Replace(path string, data []byte, mode os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".dstore-write-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := f.Name()
+	defer os.Remove(tmpPath)
+	defer f.Close()
+	if err := f.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return SyncDirectory(dir)
+}

@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# Five Docker test nodes (t1..t5) joined to this machine's Yggdrasil.
-# The test peer list is testnet/shared/peers.json: this desktop + t1..t5, so
-# test files never land on the real nodes.
+# Five Docker test nodes (t1..t5) and a test S3 gateway (gw, port 9000),
+# joined to this machine's Yggdrasil. The test peer list is
+# testnet/shared/peers.json: this desktop + t1..t5 + gw, so test files never
+# land on the real nodes. t1..t5 take customer data; see docs/gateway.md.
 #
 #   scripts/testnet.sh up      build and start, write the peer list, show status
 #   scripts/testnet.sh status  yggstore status for the test cluster
+#   scripts/testnet.sh customer add -name NAME -quota GB   (and the other gateway customer commands)
+#   scripts/testnet.sh report  the test gateway's usage report
 #   scripts/testnet.sh down    stop the containers (keys and shards are kept)
 #   scripts/testnet.sh clean   stop and delete all test data and keys
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 COMPOSE=(docker compose -f docker/compose.yml)
-NODES=(t1 t2 t3 t4 t5)
+NODES=(t1 t2 t3 t4 t5 gw)
 PEERS=testnet/shared/peers.json
 
 up() {
@@ -26,6 +29,8 @@ up() {
     rmdir bin/.ygg
   fi
   mkdir -p testnet/shared "${NODES[@]/#/testnet/}"
+  # Keeps the go tool out of the containers' (root-owned, private) data.
+  [ -f testnet/go.mod ] || echo "module testnet" > testnet/go.mod
   docker build -q -t yggstore-testnode -f docker/Dockerfile . >/dev/null
   "${COMPOSE[@]}" up -d --force-recreate
 
@@ -36,7 +41,7 @@ up() {
   done
 
   # The desktop's own entry comes from the real peer list.
-  desktop=$(grep -o '{[^}]*"desktop"[^}]*}' peers.json)
+  desktop=$(grep -o '{[^}]*"name": *"desktop"[^}]*}' peers.json)
   {
     echo "["
     echo "  $desktop,"
@@ -44,7 +49,8 @@ up() {
     for n in "${NODES[@]}"; do
       ip=$(awk '/node ID/{print $3}' "testnet/$n/id.txt")
       sep=","; [ "$n" = "$last" ] && sep=""
-      echo "  {\"name\": \"$n\", \"addr\": \"[$ip]:7400\"}$sep"
+      extra=""; [ "$n" = gw ] && extra=', "gateway": true'
+      echo "  {\"name\": \"$n\", \"addr\": \"[$ip]:7400\"$extra}$sep"
     done
     echo "]"
   } > "$PEERS.tmp" && mv "$PEERS.tmp" "$PEERS"
@@ -55,9 +61,19 @@ up() {
 
 status() { bin/yggstore status -peers "$PEERS"; }
 
+# The address a PC on the LAN reaches the test gateway at.
+endpoint() { echo "http://$(hostname -I | awk '{print $1}'):9000"; }
+
+customer() {
+  local sub=${1:-list}; shift || true
+  docker exec yggtest-gw-1 yggstore gateway customer "$sub" -dir /data/gateway -endpoint "$(endpoint)" "$@"
+}
+
 case "${1:-}" in
   up) up ;;
   status) status ;;
+  customer) shift; customer "$@" ;;
+  report) shift; docker exec yggtest-gw-1 yggstore gateway report -dir /data/gateway "$@" ;;
   down) "${COMPOSE[@]}" down ;;
   clean)
     "${COMPOSE[@]}" down

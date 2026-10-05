@@ -30,6 +30,7 @@ func cmdJoin(ctx context.Context, args []string) error {
 	port := fs.Int("port", 7400, "port for this node")
 	dir := fs.String("dir", yggstoreHome(), "where to keep this node's files")
 	outfiles := fs.String("outfiles", filepath.Join(homeDir(), "yggstore"), "your outbox folder (for the dashboard)")
+	customers := fs.Bool("customers", false, "also hold paying customers' files (earns you credit; you can change this later)")
 	service := fs.Bool("service", false, "also install and start user services for the node and dashboard (Linux)")
 	fs.Parse(args)
 	if fs.NArg() != 1 {
@@ -86,6 +87,9 @@ func cmdJoin(ctx context.Context, args []string) error {
 	node := []string{exe, "serve", "-peers", peersPath, "-data", filepath.Join(*dir, "shards"), "-port", strconv.Itoa(*port),
 		"-name", resp.Node, "-quota", strconv.FormatFloat(*quotaGB, 'f', -1, 64),
 		"-sharing-key", keyPath, "-contacts", contactsPath, "-invites", filepath.Join(*dir, "invites.json")}
+	if *customers {
+		node = append(node, "-customers")
+	}
 	dash := []string{exe, "dashboard", "-peers", peersPath, "-outfiles", *outfiles,
 		"-sharing-key", keyPath, "-contacts", contactsPath, "-me", *me}
 

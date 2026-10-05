@@ -3,6 +3,7 @@
 package files
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/peterretief/yggstore/internal/challenge"
 	"github.com/peterretief/yggstore/internal/client"
@@ -36,6 +38,9 @@ type PutOptions struct {
 	ChunkSize  int // plaintext bytes per chunk
 	Challenges int // precomputed challenges per shard
 	Log        func(format string, args ...any)
+	// Key, if set, encrypts the item instead of a fresh random key. Items
+	// stored with the same key can be joined into one (see Concat).
+	Key []byte
 }
 
 // Challenges is the owner's private list of precomputed challenges, keyed by shard hash.
@@ -79,9 +84,14 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 		logf("warning: only %d peers online; some peers will hold more than one shard of a chunk", len(online))
 	}
 
-	key := make([]byte, cryptofile.KeySize)
-	if _, err := rand.Read(key); err != nil {
-		return manifest.Manifest{}, Challenges{}, err
+	key := opts.Key
+	if key == nil {
+		key = make([]byte, cryptofile.KeySize)
+		if _, err := rand.Read(key); err != nil {
+			return manifest.Manifest{}, Challenges{}, err
+		}
+	} else if len(key) != cryptofile.KeySize {
+		return manifest.Manifest{}, Challenges{}, fmt.Errorf("key must be %d bytes", cryptofile.KeySize)
 	}
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
@@ -99,12 +109,15 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 		wg       sync.WaitGroup
 		firstErr error
 		chunks   = map[int]manifest.Chunk{}
+		stray    []manifest.ShardRef // stored for a chunk that then failed
 	)
+	// A failure stops reading but lets chunks in flight finish, so that
+	// everything stored is known and can be deleted again. (Cancelling them
+	// would race: a node can finish storing a shard the client gave up on.)
 	fail := func(err error) {
 		mu.Lock()
 		if firstErr == nil {
 			firstErr = err
-			cancel()
 		}
 		mu.Unlock()
 	}
@@ -159,7 +172,17 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 			defer wg.Done()
 			defer func() { <-sem }()
 			refs, err := place(ctx, c, lim, shards, online, idx, layout.ParityShards)
+			strand := func() {
+				mu.Lock()
+				for _, r := range refs {
+					if r.Hash != "" {
+						stray = append(stray, r)
+					}
+				}
+				mu.Unlock()
+			}
 			if err != nil {
+				strand()
 				fail(fmt.Errorf("chunk %d: %w", idx, err))
 				return
 			}
@@ -168,6 +191,7 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 				for i, s := range shards {
 					p, err := challenge.Prepare(refs[i].Hash, s, opts.Challenges)
 					if err != nil {
+						strand()
 						fail(err)
 						return
 					}
@@ -189,6 +213,22 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 	}
 	wg.Wait()
 	if firstErr != nil {
+		// Don't leave the chunks that did get stored behind.
+		var done []manifest.Chunk
+		for _, ch := range chunks {
+			done = append(done, ch)
+		}
+		if len(stray) > 0 {
+			done = append(done, manifest.Chunk{Shards: stray})
+		}
+		if len(done) > 0 {
+			cctx, ccancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+			res := Delete(cctx, c, manifest.Manifest{Version: 2, Chunks: done})
+			ccancel()
+			if err := res.Err(); err != nil {
+				logf("cleaning up after the failed upload: %v", err)
+			}
+		}
 		return manifest.Manifest{}, Challenges{}, firstErr
 	}
 	ordered := make([]manifest.Chunk, nChunks)
@@ -302,7 +342,8 @@ func place(ctx context.Context, c client.Client, lim *peerLimit, shards [][]byte
 			}
 		}
 		if !placed {
-			return nil, fmt.Errorf("shard %d could not be placed: %w", i, lastErr)
+			// refs still lists the shards that were stored, for cleaning up.
+			return refs, fmt.Errorf("shard %d could not be placed: %w", i, lastErr)
 		}
 	}
 	return refs, nil
@@ -313,6 +354,12 @@ func place(ctx context.Context, c client.Client, lim *peerLimit, shards [][]byte
 // DataShards of its shards to arrive, so slow nodes are skipped when the
 // others have enough.
 func Get(ctx context.Context, c client.Client, m manifest.Manifest, w io.Writer, logf func(string, ...any)) error {
+	return GetRange(ctx, c, m, w, 0, int64(m.PlaintextSize), logf)
+}
+
+// GetRange writes length bytes of the item starting at offset, fetching only
+// the chunks that hold them.
+func GetRange(ctx context.Context, c client.Client, m manifest.Manifest, w io.Writer, offset, length int64, logf func(string, ...any)) error {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -323,6 +370,21 @@ func Get(ctx context.Context, c client.Client, m manifest.Manifest, w io.Writer,
 	if m.Version != 2 {
 		return fmt.Errorf("only chunked (version 2) manifests are supported")
 	}
+	if offset < 0 || length < 0 || offset+length > int64(m.PlaintextSize) {
+		return fmt.Errorf("range %d+%d is outside the item (%d bytes)", offset, length, m.PlaintextSize)
+	}
+	// Find the chunks that hold the range, and where it starts in the first.
+	first, skip := 0, offset
+	for first < len(m.Chunks)-1 && skip >= int64(m.Chunks[first].PlaintextSize) {
+		skip -= int64(m.Chunks[first].PlaintextSize)
+		first++
+	}
+	last, span := first, skip+length
+	for last < len(m.Chunks)-1 && span > int64(m.Chunks[last].PlaintextSize) {
+		span -= int64(m.Chunks[last].PlaintextSize)
+		last++
+	}
+	want := m.Chunks[first : last+1]
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	lim := newPeerLimit()
@@ -331,28 +393,28 @@ func Get(ctx context.Context, c client.Client, m manifest.Manifest, w io.Writer,
 		have  int
 		err   error
 	}
-	results := make([]chan result, len(m.Chunks))
+	results := make([]chan result, len(want))
 	for i := range results {
 		results[i] = make(chan result, 1)
 	}
 	sem := make(chan struct{}, getAhead)
 	go func() {
-		for idx, ch := range m.Chunks {
+		for i, ch := range want {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
 				return
 			}
 			go func() {
-				plain, have, err := getChunk(ctx, c, lim, layout, m, idx, ch, logf)
-				results[idx] <- result{plain, have, err}
+				plain, have, err := getChunk(ctx, c, lim, layout, m, first+i, ch, logf)
+				results[i] <- result{plain, have, err}
 			}()
 		}
 	}()
-	for idx := range m.Chunks {
+	for i := range want {
 		var r result
 		select {
-		case r = <-results[idx]:
+		case r = <-results[i]:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -360,13 +422,59 @@ func Get(ctx context.Context, c client.Client, m manifest.Manifest, w io.Writer,
 		if r.err != nil {
 			return r.err
 		}
-		if _, err := w.Write(r.plain); err != nil {
+		plain := r.plain
+		if i == 0 {
+			plain = plain[skip:]
+		}
+		if int64(len(plain)) > length {
+			plain = plain[:length]
+		}
+		length -= int64(len(plain))
+		if _, err := w.Write(plain); err != nil {
 			return err
 		}
-		progress(ctx, len(r.plain))
-		logf("chunk %d: rebuilt from the first %d of %d shards to arrive", idx, r.have, len(m.Chunks[idx].Shards))
+		progress(ctx, len(plain))
+		logf("chunk %d: rebuilt from the first %d of %d shards to arrive", first+i, r.have, len(want[i].Shards))
 	}
 	return nil
+}
+
+// Concat joins items stored with the same key, in order, into one item
+// named name. The parts' shards become the new item's; delete through the
+// result, not the parts.
+func Concat(name string, parts []manifest.Manifest) (manifest.Manifest, error) {
+	if len(parts) == 0 {
+		return manifest.Manifest{}, errors.New("nothing to join")
+	}
+	var chunks []manifest.Chunk
+	total, chunkSize := 0, 0
+	for i, p := range parts {
+		if !bytes.Equal(p.Key, parts[0].Key) || p.DataShards != parts[0].DataShards || p.ParityShards != parts[0].ParityShards {
+			return manifest.Manifest{}, fmt.Errorf("part %d was stored differently from the first", i+1)
+		}
+		chunks = append(chunks, p.Chunks...)
+		total += p.PlaintextSize
+		chunkSize = max(chunkSize, p.ChunkSize)
+	}
+	idBytes := make([]byte, 16)
+	if _, err := rand.Read(idBytes); err != nil {
+		return manifest.Manifest{}, err
+	}
+	layout := erasure.Layout{DataShards: parts[0].DataShards, ParityShards: parts[0].ParityShards}
+	return manifest.NewChunked(layout, hex.EncodeToString(idBytes), name, total, chunkSize, parts[0].Key, chunks)
+}
+
+// ShardBytes is how much each peer holds of the item, in bytes.
+func ShardBytes(m manifest.Manifest) map[string]int64 {
+	out := map[string]int64{}
+	data := max(m.DataShards, 1)
+	for _, ch := range m.Chunks {
+		size := int64((ch.CiphertextSize + data - 1) / data)
+		for _, ref := range ch.Shards {
+			out[ref.Peer] += size
+		}
+	}
+	return out
 }
 
 // getAhead is how many chunks Get fetches at once.

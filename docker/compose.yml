@@ -1,4 +1,4 @@
-# Five yggstore test nodes on their own bridge (br-yggtest). Each runs its own
+# Five yggstore test nodes and a gateway (gw) on their own bridge (br-yggtest). Each runs its own
 # Yggdrasil and finds the desktop's Yggdrasil by link-local multicast on the
 # bridge. Managed by scripts/testnet.sh; data lives in ../testnet/.
 name: yggtest
@@ -16,28 +16,38 @@ services:
   t1:
     <<: *node
     hostname: t1
-    environment: { NODE_NAME: t1 }
+    environment: { NODE_NAME: t1, CUSTOMERS: 1 }
     volumes: ["../testnet/t1:/data", "../testnet/shared:/etc/yggstore:ro"]
   t2:
     <<: *node
     hostname: t2
-    environment: { NODE_NAME: t2 }
+    environment: { NODE_NAME: t2, CUSTOMERS: 1 }
     volumes: ["../testnet/t2:/data", "../testnet/shared:/etc/yggstore:ro"]
   t3:
     <<: *node
     hostname: t3
-    environment: { NODE_NAME: t3 }
+    environment: { NODE_NAME: t3, CUSTOMERS: 1 }
     volumes: ["../testnet/t3:/data", "../testnet/shared:/etc/yggstore:ro"]
   t4:
     <<: *node
     hostname: t4
-    environment: { NODE_NAME: t4 }
+    environment: { NODE_NAME: t4, CUSTOMERS: 1 }
     volumes: ["../testnet/t4:/data", "../testnet/shared:/etc/yggstore:ro"]
   t5:
     <<: *node
     hostname: t5
-    environment: { NODE_NAME: t5 }
+    environment: { NODE_NAME: t5, CUSTOMERS: 1 }
     volumes: ["../testnet/t5:/data", "../testnet/shared:/etc/yggstore:ro"]
+
+  # The S3 gateway, on its own Yggdrasil address. Port 9000 is open to the
+  # LAN so a Windows PC can try it; plain HTTP, so test data only. The test
+  # nodes all share this machine, so it accepts one machine (MIN_MACHINES).
+  gw:
+    <<: *node
+    hostname: gw
+    environment: { NODE_NAME: gw, ROLE: gateway, MIN_MACHINES: 1 }
+    ports: ["9000:9000"]
+    volumes: ["../testnet/gw:/data", "../testnet/shared:/etc/yggstore:ro"]
 
 networks:
   yggtest:

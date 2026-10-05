@@ -20,14 +20,17 @@ import (
 // peers sharing one (containers on the same box) fail together, so placement
 // treats them as one. It defaults to the peer's name. An admin peer may send
 // every node a new list (see Live). Owner names the person who runs the
-// node, for accounting; it defaults to the machine.
+// node, for accounting; it defaults to the machine. A gateway peer stores
+// paying customers' files (see package gateway); nodes only take its shards
+// if their owner has opted in.
 type Peer struct {
-	Name  string `json:"name"`
-	Addr  string `json:"addr"`
-	Slow  bool   `json:"slow,omitempty"`
-	Host  string `json:"host,omitempty"`
-	Admin bool   `json:"admin,omitempty"`
-	Owner string `json:"owner,omitempty"`
+	Name    string `json:"name"`
+	Addr    string `json:"addr"`
+	Slow    bool   `json:"slow,omitempty"`
+	Host    string `json:"host,omitempty"`
+	Admin   bool   `json:"admin,omitempty"`
+	Owner   string `json:"owner,omitempty"`
+	Gateway bool   `json:"gateway,omitempty"`
 }
 
 // Operator is the person the peer's space and uploads count towards.

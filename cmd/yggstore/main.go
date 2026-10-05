@@ -21,6 +21,7 @@ import (
 	"github.com/peterretief/yggstore/internal/files"
 	"github.com/peterretief/yggstore/internal/invite"
 	"github.com/peterretief/yggstore/internal/localstore"
+	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/server"
@@ -43,6 +44,8 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
                    [-test-peers FILE -test-stubs DIR]   also show a test cluster, separately
                                                            live status page; with -outfiles it also
                                                            runs the outbox watcher (see watch)
+  yggstore msg     send|pub|sub|unsub|read|status ...      message other nodes (see docs/messaging.md)
+  yggstore gateway serve|customer|report ...               S3 service for paying customers (see docs/gateway.md)
   yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
                                                            with a .ystub); restore stubs dropped into
                                                            DIR/restore/ into DIR/restored/
@@ -109,6 +112,10 @@ func main() {
 		err = cmdWatch(ctx, args)
 	case "join":
 		err = cmdJoin(ctx, args)
+	case "gateway":
+		err = cmdGateway(ctx, args)
+	case "msg":
+		err = cmdMsg(ctx, args)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -148,6 +155,9 @@ func cmdServe(ctx context.Context, args []string) error {
 	invites := fs.String("invites", filepath.Join(yggstoreHome(), "invites.json"), "invites made on this machine's dashboard (admin nodes only)")
 	contactsPath := fs.String("contacts", filepath.Join(yggstoreHome(), "contacts.json"), "where people who join are added as contacts")
 	keyPath := fs.String("sharing-key", filepath.Join(yggstoreHome(), "sharing.key"), "your sharing key")
+	msgAPI := fs.String("msg-api", "127.0.0.1:7401", `local messaging API for programs on this machine ("" for none)`)
+	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "token file for the local messaging API")
+	customers := fs.Bool("customers", false, "also hold paying customers' files, stored through the group's gateway (it earns you credit)")
 	fs.Parse(args)
 
 	t, err := transport.ByName(*tname)
@@ -168,12 +178,34 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 	go live.Watch(ctx, 10*time.Second, log.Printf)
 
+	engine, err := msg.Open(filepath.Join(*dataDir, "msg"), ip.String(), live.List, msg.NewClient(), log.Printf)
+	if err != nil {
+		return fmt.Errorf("messaging: %w", err)
+	}
+	go engine.Run(ctx)
+	if *msgAPI != "" {
+		token, err := msg.LoadOrCreateToken(*msgToken)
+		if err != nil {
+			return fmt.Errorf("messaging token: %w", err)
+		}
+		local := &http.Server{Addr: *msgAPI, Handler: engine.LocalHandler(token), ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			<-ctx.Done()
+			local.Close()
+		}()
+		go func() {
+			if err := local.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("local messaging API not available on %s: %v", *msgAPI, err)
+			}
+		}()
+	}
+
 	store := localstore.WithQuota(*dataDir, int64(*quotaGB*(1<<30)))
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
 	srv := &http.Server{
 		Addr: addr,
 		Handler: server.Handler(store, server.Options{
-			Name: *name, NodeID: ip.String(), Transport: t, Peers: live,
+			Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine,
 			Join: func(caller string, req invite.Request) (invite.Response, error) {
 				own := ""
 				if id, err := share.Load(*keyPath); err == nil {
@@ -382,6 +414,8 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	group := fs.String("group", userName()+"'s group", "the group's name, shown in invites")
 	invites := fs.String("invites", filepath.Join(yggstoreHome(), "invites.json"), "invites you make (admins only)")
 	yggPeers := fs.String("ygg-peers", defaultYggPeers, "comma-separated Yggdrasil peers newcomers can connect through")
+	msgAPI := fs.String("msg-api", "127.0.0.1:7401", "this machine's node's local messaging API")
+	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "the node's messaging token file")
 	fs.Parse(args)
 
 	id, err := share.LoadOrCreate(*keyPath)
@@ -406,7 +440,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	c.HTTP.Timeout = 10 * time.Second
 	cfg := dashboard.Config{PeersPath: *peersPath, StubDir: absStubs, SelfID: selfID, Interval: *interval, Client: c,
 		TestPeersPath: *testPeers, Identity: id, ContactsPath: *contactsPath, Name: *me, Listen: *listen,
-		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers)}
+		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken}
 	if *testStubs != "" {
 		if cfg.TestStubDir, err = filepath.Abs(*testStubs); err != nil {
 			return err

@@ -17,6 +17,12 @@ independent. Don't make it the only copy of anything you can't lose.
 
 - New to this? [Set up a storage box](docs/storage-box-guide.md) (step by
   step, for Windows users with a second-hand mini PC).
+- No box? The [gateway](docs/gateway.md) lets people pay a monthly fee and
+  use the group's storage from any S3 program (rclone, Cyberduck, Duplicati).
+  Members choose whether their box holds customers' data, and earn credit.
+- Nodes can [message each other](docs/messaging.md): direct messages, and
+  topics any node can publish to and follow, delivered even to nodes that
+  were off at the time. Programs can use it too, through a local API.
 - Licence: see [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
   Security issues: [SECURITY.md](SECURITY.md).
 

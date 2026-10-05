@@ -34,3 +34,30 @@ func TestAccounts(t *testing.T) {
 		t.Fatalf("uploads from unlisted nodes not shown: %+v", got)
 	}
 }
+
+// Customers' storage through a gateway is its own row, not the gateway
+// owner's, and counts towards each holder's credit.
+func TestAccountsCountCustomersSeparately(t *testing.T) {
+	list := []peers.Peer{
+		{Name: "desktop", Addr: "[200::1]:7400", Owner: "peter"},
+		{Name: "gw", Addr: "[200::5]:7400", Owner: "peter", Gateway: true},
+		{Name: "anna-pc", Addr: "[200::3]:7400", Owner: "Anna"},
+	}
+	states := []PeerState{
+		{Addr: "[200::1]:7400", Info: &server.Info{ByWriter: map[string]int64{"200::5": 300}}},
+		{Addr: "[200::3]:7400", Info: &server.Info{Customers: true, ByWriter: map[string]int64{"200::5": 600, "200::1": 50}}},
+	}
+	got := map[string]Account{}
+	for _, a := range accounts(list, states, "200::1") {
+		got[a.Owner] = a
+	}
+	if c := got[CustomersOwner]; !c.Customers || c.Uses != 900 {
+		t.Fatalf("customers %+v", c)
+	}
+	if p := got["peter"]; p.Uses != 50 || p.ForCustomers != 300 {
+		t.Fatalf("peter %+v", p)
+	}
+	if a := got["Anna"]; a.ForCustomers != 600 || a.ForOthers != 650 {
+		t.Fatalf("anna %+v", a)
+	}
+}

@@ -105,6 +105,18 @@ func (l *Live) IsAdmin(ip string) bool {
 	return l.admins[ip]
 }
 
+// IsGateway reports whether ip is a gateway peer's.
+func (l *Live) IsGateway(ip string) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	for _, p := range l.list {
+		if p.Gateway && p.IP() == ip {
+			return true
+		}
+	}
+	return false
+}
+
 func (l *Live) List() []Peer {
 	l.mu.RLock()
 	defer l.mu.RUnlock()

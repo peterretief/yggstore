@@ -106,6 +106,19 @@ details.add .opts input[type=text] { width: 160px; }
 .sharing { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
 .sharing .code { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 12px; }
 .sharing .code .mono { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; word-break: break-all; }
+.msgs { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 14px; }
+.msgs .topics { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.msgs .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--info-bg); color: var(--info); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 12px; font-weight: 600; }
+.msgs .chip button { border: 0; background: none; color: inherit; padding: 0 6px; font-size: 13px; }
+.msgs input[type=text], .msgs select, .msgs textarea { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 0; }
+.msgs .compose { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 8px; }
+.msgs .compose textarea { grid-column: 1 / -1; min-height: 60px; resize: vertical; }
+.msgs .compose .row { grid-column: 1 / -1; }
+.msgs .list { max-height: 380px; overflow-y: auto; border-top: 1px solid var(--line); }
+.msgs .m { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 4px 10px; padding: 8px 2px; border-bottom: 1px solid var(--line); align-items: baseline; }
+.msgs .m time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.msgs .m .body { grid-column: 1 / -1; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .msgs .compose { grid-template-columns: 1fr; } }
 .sharing table td, .sharing table th { padding: 6px 8px; }
 .sharing .addc { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .sharing .addc input { font: 12px var(--mono); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
@@ -174,6 +187,23 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
 
   <h2>Sharing</h2>
   <section class="sharing" id="sharing"></section>
+
+  <h2>Messages</h2>
+  <section class="msgs" id="msgs">
+    <div id="msgError" class="err"></div>
+    <div class="topics"><span class="sub">Following:</span> <span id="msgTopics"></span>
+      <input type="text" id="msgFollow" placeholder="topic, e.g. alerts" size="16" maxlength="64">
+      <button id="msgFollowGo">Follow</button></div>
+    <div class="compose">
+      <select id="msgTo"></select>
+      <input type="text" id="msgTopic" placeholder="topic name" maxlength="64" list="msgTopicList">
+      <datalist id="msgTopicList"></datalist>
+      <textarea id="msgBody" placeholder="Message" maxlength="65536"></textarea>
+      <div class="row"><span class="sub" id="msgNote"></span><button id="msgSend" style="margin-left:auto">Send</button></div>
+    </div>
+    <div class="sub" id="msgPending"></div>
+    <div class="list" id="msgList"></div>
+  </section>
 
   <dialog id="shareDlg">
     <form method="dialog" id="shareForm">
@@ -278,8 +308,9 @@ function renderNodes(s, list, el) {
     const self = p.addr.includes(s.self_id) ? ` <span class="pill info">this node</span>` : "";
     const list = {outdated: `<span class="pill warn" title="This node holds an older node list; it is sent the current one automatically">old list</span>`,
       "old software": `<span class="pill warn" title="This node runs an older yggstore, so it can't be sent the node list. Update it.">update yggstore</span>`}[p.list] || "";
+    const paying = i.customers ? ` <span class="pill info" title="Its owner lets it hold paying customers' files, which earns them credit">customers</span>` : "";
     return `<div class="card ${p.up ? "" : "down"}">
-      <div class="row"><span class="name">${esc(p.name)}</span>${self} ${list}
+      <div class="row"><span class="name">${esc(p.name)}</span>${self}${paying} ${list}
         <span style="margin-left:auto" class="pill ${p.up ? "ok" : "bad"}">${p.up ? "up" : "down"}</span></div>
       <div class="addr mono" title="${esc(p.addr)}">${esc(p.addr)}</div>
       ${p.up ? `<div class="stats">
@@ -422,7 +453,13 @@ function renderAccounts(s) {
   $("accounts").innerHTML = (s.accounts || []).map(a => {
     const ratio = a.uses ? a.for_others / a.uses : null;
     const cls = ratio == null ? "" : ratio >= 1.5 ? "ok" : ratio >= 1 ? "warn" : "bad";
-    return `<tr><td><b>${esc(a.owner)}</b>${a.me ? ` <span class="pill info">you</span>` : ""}<div class="sub">${a.nodes} node${a.nodes === 1 ? "" : "s"}</div></td>
+    if (a.customers) {
+      return `<tr><td><b>${esc(a.owner)}</b><div class="sub">through the gateway</div></td>
+        <td class="num">${size(a.uses)}</td><td class="num">–</td><td class="num">–</td>
+        <td class="num"><span class="pill info">paying</span></td></tr>`;
+    }
+    const paid = a.for_customers ? `<div class="sub">${size(a.for_customers)} for paying customers</div>` : "";
+    return `<tr><td><b>${esc(a.owner)}</b>${a.me ? ` <span class="pill info">you</span>` : ""}<div class="sub">${a.nodes} node${a.nodes === 1 ? "" : "s"}</div>${paid}</td>
       <td class="num">${size(a.uses)}</td><td class="num">${size(a.for_others)}</td><td class="num">${a.offered ? size(a.offered) : "–"}</td>
       <td class="num">${ratio == null ? `<span class="sub">uses nothing</span>` : `<span class="pill ${cls}">${ratio.toFixed(2)}×</span>`}</td></tr>`;
   }).join("") || `<tr><td colspan="5" class="empty">No usage reported yet. Nodes on older yggstore versions don't report it.</td></tr>`;
@@ -613,6 +650,73 @@ document.addEventListener("click", async ev => {
 
 refresh();
 setInterval(refresh, 2000);
+
+let msgRendered = "";
+async function refreshMsgs() {
+  let m;
+  try {
+    const r = await fetch("api/msg", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    m = await r.json();
+  } catch (e) { return; }
+  $("msgError").textContent = m.available ? "" : (m.error || "messaging unavailable");
+  const st = m.status || {subscriptions: [], subscribers: {}, pending: []};
+  // The To list and topic suggestions only change when members or topics do.
+  const key = JSON.stringify([m.members, st.subscriptions, Object.keys(st.subscribers || {})]);
+  if (key !== msgRendered) {
+    msgRendered = key;
+    const was = $("msgTo").value;
+    $("msgTo").innerHTML = `<option value="">To a topic…</option>` + m.members.map(n => `<option value="${esc(n)}">To ${esc(n)}</option>`).join("");
+    if ([...$("msgTo").options].some(o => o.value === was)) $("msgTo").value = was;
+    const topics = [...new Set([...(st.subscriptions || []), ...Object.keys(st.subscribers || {})])].sort();
+    $("msgTopicList").innerHTML = topics.map(t => `<option value="${esc(t)}">`).join("");
+    $("msgTopics").innerHTML = (st.subscriptions || []).map(t => {
+      const who = (st.subscribers || {})[t] || [];
+      return `<span class="chip" title="${who.length ? "Also followed by " + esc(who.join(", ")) : ""}">${esc(t)}<button data-unsub="${esc(t)}" title="Stop following">×</button></span>`;
+    }).join("") || `<span class="sub">no topics yet</span>`;
+    msgToChanged();
+  }
+  const pend = st.pending || [];
+  $("msgPending").textContent = pend.length ? `${pend.length} message${pend.length === 1 ? "" : "s"} waiting to be delivered, to ` +
+    [...new Set(pend.map(p => p.name || p.to))].join(", ") + " (retried until they're reachable)" : "";
+  $("msgList").innerHTML = m.messages.slice().reverse().map(x => {
+    const mine = x.from === st.self;
+    const where = x.topic ? `<span class="pill info">${esc(x.topic)}</span>` : `<span class="pill ok">direct</span>`;
+    return `<div class="m"><b>${esc(mine ? "you" : (x.from_name || x.from))}</b>${where}<time>${new Date(x.time).toLocaleString()}</time>
+      <div class="body">${esc(x.body)}</div></div>`;
+  }).join("") || `<div class="empty">No messages yet. Follow a topic, or send a node a message.</div>`;
+}
+function msgToChanged() { $("msgTopic").hidden = $("msgTo").value !== ""; }
+$("msgTo").addEventListener("change", msgToChanged);
+$("msgSend").addEventListener("click", async () => {
+  const to = $("msgTo").value, topic = to ? "" : $("msgTopic").value.trim();
+  if (!to && !topic) { $("msgNote").textContent = "Choose a node, or name a topic."; return; }
+  $("msgSend").disabled = true;
+  try {
+    const r = await post("api/msg/send", {body: JSON.stringify({to, topic, body: $("msgBody").value})});
+    if (!r.ok) throw new Error(await r.text());
+    $("msgBody").value = "";
+    $("msgNote").textContent = to ? `Sent to ${to}.` : `Published to ${topic}.`;
+  } catch (e) { $("msgNote").textContent = e.message; }
+  $("msgSend").disabled = false;
+  refreshMsgs();
+});
+$("msgFollowGo").addEventListener("click", async () => {
+  const topic = $("msgFollow").value.trim();
+  if (!topic) return;
+  const r = await post("api/msg/subscribe", {body: JSON.stringify({topic})});
+  if (r.ok) { $("msgFollow").value = ""; $("msgNote").textContent = `Following ${topic}; its recent messages will arrive shortly.`; }
+  else $("msgNote").textContent = await r.text();
+  refreshMsgs();
+});
+$("msgTopics").addEventListener("click", async ev => {
+  const b = ev.target.closest("button[data-unsub]");
+  if (!b) return;
+  await post("api/msg/unsubscribe", {body: JSON.stringify({topic: b.dataset.unsub})});
+  refreshMsgs();
+});
+refreshMsgs();
+setInterval(refreshMsgs, 2000);
 </script>
 </body>
 </html>
