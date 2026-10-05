@@ -90,21 +90,40 @@ func (c Client) Has(ctx context.Context, addr, hash string) (bool, error) {
 	return false, fmt.Errorf("%s", resp.Status)
 }
 
+// Delete removes a shard. A node that is busy (too many requests at once,
+// as when many items are deleted together) is asked again after the second
+// it asks for, a few times, since deleting twice does no harm.
 func (c Client) Delete(ctx context.Context, addr, hash string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, ShardURL(addr, hash), nil)
-	if err != nil {
-		return err
+	for try := 1; ; try++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodDelete, ShardURL(addr, hash), nil)
+		if err != nil {
+			return err
+		}
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			return err
+		}
+		switch {
+		case resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound:
+			resp.Body.Close()
+			return nil
+		case resp.StatusCode != http.StatusServiceUnavailable || try == busyTries:
+			defer resp.Body.Close()
+			return statusError(resp)
+		}
+		resp.Body.Close()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(busyWait * time.Duration(try)):
+		}
 	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
-		return statusError(resp)
-	}
-	return nil
 }
+
+// How often, and after how long, a busy node is asked again.
+const busyTries = 4
+
+var busyWait = time.Second
 
 func (c Client) Challenge(ctx context.Context, addr string, req challenge.Request) (string, error) {
 	var resp challenge.Response

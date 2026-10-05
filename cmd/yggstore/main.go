@@ -186,11 +186,15 @@ func cmdServe(ctx context.Context, args []string) error {
 		return fmt.Errorf("messaging: %w", err)
 	}
 	go engine.Run(ctx)
+	// The local API is only for programs on this machine; a node without a
+	// home folder (a service user on a storage box) still serves without it.
+	token := ""
 	if *msgAPI != "" {
-		token, err := msg.LoadOrCreateToken(*msgToken)
-		if err != nil {
-			return fmt.Errorf("messaging token: %w", err)
+		if token, err = msg.LoadOrCreateToken(*msgToken); err != nil {
+			log.Printf("local messaging API not started: no token file (%v); give -msg-token a writable path to use it", err)
 		}
+	}
+	if token != "" {
 		local := &http.Server{Addr: *msgAPI, Handler: engine.LocalHandler(token), ReadHeaderTimeout: 10 * time.Second}
 		go func() {
 			<-ctx.Done()

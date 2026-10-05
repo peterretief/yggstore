@@ -119,3 +119,19 @@ func TestGuardKeepsOtherPagesOut(t *testing.T) {
 		}
 	}
 }
+
+// A node that took the list but reports another one runs older software:
+// it is marked so, and not sent the list again every minute.
+func TestOldNodeNotPushedForever(t *testing.T) {
+	d := New(Config{PeersPath: filepath.Join(t.TempDir(), "peers.json"), StubDir: t.TempDir(), Listen: "127.0.0.1:7480"})
+	list := []peers.Peer{{Name: "admin", Addr: "[200::1]:7400", Admin: true}, {Name: "old", Addr: "[200::2]:7400"}}
+	states := []PeerState{{Name: "old", Addr: list[1].Addr, Info: &server.Info{PeersHash: "0123456789abcdef"}}}
+	d.took[list[1].Addr] = peers.Hash(list)
+	d.syncLists(context.Background(), list, states, true)
+	if states[0].List != "old software" {
+		t.Fatalf("list state %q, want old software", states[0].List)
+	}
+	if !d.pushed[list[1].Addr].IsZero() {
+		t.Fatal("the list was sent again")
+	}
+}

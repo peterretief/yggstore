@@ -173,6 +173,7 @@ type Dashboard struct {
 	events  []Event
 	wake    chan struct{}
 	pushed  map[string]time.Time // last list push per node, used only by poll
+	took    map[string]string    // list hash each node accepted last, used only by poll
 	logMu   sync.Mutex           // the activity log file
 }
 
@@ -184,7 +185,7 @@ func New(cfg Config) *Dashboard {
 		cfg.LogPath = cfg.Outbox.LogPath()
 	}
 	d := &Dashboard{cfg: cfg, history: map[string][]float64{}, seen: map[string]int64{}, wake: make(chan struct{}, 1),
-		pushed: map[string]time.Time{}}
+		pushed: map[string]time.Time{}, took: map[string]string{}}
 	d.events = readLog(cfg.LogPath, maxEvents)
 	return d
 }
@@ -566,7 +567,9 @@ func accounts(list []peers.Peer, states []PeerState, self string) []Account {
 // syncLists marks which nodes hold this node's peer list and, if this node is
 // an admin, sends it to those that don't, at most once a minute each. So an
 // added node, or a hand edit of peers.json, reaches every node by itself.
-// Nodes on older software report no list and are left alone.
+// Nodes on older software report no list and are left alone. So is a node
+// that took the list but still reports another one: its yggstore is older and
+// drops fields it doesn't know, so sending it again would never help.
 func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []PeerState, admin bool) {
 	want := peers.Hash(list)
 	for i := range states {
@@ -579,6 +582,8 @@ func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []P
 			ps.List = "old software"
 		case h == want:
 			ps.List = "current"
+		case d.took[ps.Addr] == want:
+			ps.List = "old software"
 		default:
 			ps.List = "outdated"
 			if !admin || time.Since(d.pushed[ps.Addr]) < time.Minute {
@@ -593,6 +598,7 @@ func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []P
 				continue
 			}
 			ps.List = "current"
+			d.took[ps.Addr] = want
 			d.event("info", "sent the updated node list to "+ps.Name)
 		}
 	}
