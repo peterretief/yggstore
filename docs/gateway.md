@@ -49,6 +49,53 @@ flowchart LR
 - **At least 3 machines in the group whose owners opted in**, so any one
   can fail without losing data.
 
+### The easy way: Docker
+
+On a VPS (or any Linux machine with ports 80 and 443 open to the
+internet), Docker does all of the steps below in one go. It runs the gateway
+with its own Yggdrasil, and [Caddy](https://caddyserver.com) for HTTPS.
+
+1. Point a domain name at the machine, such as `s3.yourgroup.example`
+   (an `A` record with its public IP).
+2. On your admin dashboard, make an invite for the gateway (**Invite someone**).
+3. On the gateway machine, install
+   [Docker](https://docs.docker.com/engine/install/), get the yggstore
+   source, and run the setup:
+
+   ```sh
+   git clone https://github.com/peterretief/yggstore
+   cd yggstore
+   scripts/gateway-docker.sh setup
+   ```
+
+   It asks for the domain, your name and the invite. It builds everything
+   from source, joins the group, and gets a certificate.
+4. `setup` prints the gateway's entry. On your admin machine, add
+   `"gateway": true` to it in `peers.json`. The gateway starts by itself
+   within a minute of the list reaching it.
+
+Then:
+
+| Command | What it does |
+|---|---|
+| `scripts/gateway-docker.sh status` | The group, the gateway's address, and whether HTTPS works |
+| `scripts/gateway-docker.sh customer add -name "Ann" -trial 14d` | Add a customer; every `customer` command below works the same way |
+| `scripts/gateway-docker.sh report` | This month's usage |
+| `scripts/gateway-docker.sh backup` | Copy accounts and object keys to `deploy/gateway/backups/` |
+| `scripts/gateway-docker.sh up` | Rebuild and restart, after a `git pull` |
+| `scripts/gateway-docker.sh logs` | Follow the logs |
+
+Everything lives in `deploy/gateway/data/`: the Yggdrasil key (the
+gateway's address), the member list, and `node/gateway/`, the directory
+described below. Back it up as the next section says. If the Yggdrasil peers
+in the invite don't suit the machine, set `YGG_PEERS` in
+`deploy/gateway/.env` and run `up`.
+
+For a first run, work through the checklist in
+[Testing the gateway in Docker](gateway-docker-test.md).
+
+The rest of this section does the same by hand.
+
 ### 1. Add the gateway to the group
 
 On the gateway machine, install Yggdrasil and yggstore as in the

@@ -1,0 +1,5 @@
+# This gateway's keys, accounts, certificates and settings
+.env
+data/
+caddy/
+backups/

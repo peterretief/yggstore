@@ -194,8 +194,9 @@ outfiles/.yggstore/  stubs that have been restored (kept for reference)
   only regular files and folders are written, and paths that would escape the
   destination are rejected. Symlinks are skipped.
 - A file put back next to its own stub (say, restored, edited and moved back)
-  is not stored, since that would overwrite the stub; the dashboard says so
-  once. Rename it, or delete the old version first.
+  is stored as a new version, and the stub then points to it; older versions
+  are kept (see [history](docs/history.md)). An unchanged copy isn't stored
+  again.
 - At least 3 machines must be online, so that no machine holds more than 2 of
   a chunk's 6 shards. Otherwise the item stays put and is retried every 2 minutes.
 - After uploading, the watcher downloads the item again and compares SHA-256

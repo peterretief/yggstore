@@ -1,0 +1,8 @@
+# Only the source goes into the build: never the group's peer list, keys,
+# test data or this gateway's own data.
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+!deploy/gateway/entrypoint.sh

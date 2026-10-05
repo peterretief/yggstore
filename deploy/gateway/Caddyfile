@@ -1,0 +1,3 @@
+{$DOMAIN} {
+	reverse_proxy gateway:9000
+}

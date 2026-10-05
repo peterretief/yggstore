@@ -1,0 +1,33 @@
+# The S3 gateway (with its own Yggdrasil) and Caddy in front of it for HTTPS.
+# Settings are in .env next to this file; scripts/gateway-docker.sh writes it.
+name: yggstore-gateway
+
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/gateway/Dockerfile
+    image: yggstore-gateway
+    hostname: gateway
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 0
+    environment:
+      NODE_NAME: ${NODE_NAME:-gateway}
+      OWNER: ${OWNER:-organiser}
+      YGG_PEERS: ${YGG_PEERS:-}
+      MIN_MACHINES: ${MIN_MACHINES:-3}
+    volumes: ["./data:/data"]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/data
+    depends_on: [gateway]
+    restart: unless-stopped
