@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yggstore Box Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; numbered steps in order, each marked with the machine you type on. */
+:root {
+  --bg: #f3f6f5;
+  --panel: #ffffff;
+  --ink: #16211e;
+  --muted: #56645f;
+  --line: #d9e2df;
+  --accent: #0b6e63;
+  --accent-soft: #e0f0ec;
+  --pc: #3a5bc7;
+  --pc-soft: #e6ecfb;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0dc;
+  --code-bg: #182320;
+  --code-ink: #e4efe9;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101614; --panel: #17201d; --ink: #e5eeea; --muted: #9aaaa4; --line: #2a3632;
+    --accent: #4cc2ad; --accent-soft: #163631; --pc: #8ea7f3; --pc-soft: #1c2647;
+    --warn: #e8b25a; --warn-soft: #3a2b12; --code-bg: #0b100e; --code-ink: #dce8e2;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101614; --panel: #17201d; --ink: #e5eeea; --muted: #9aaaa4; --line: #2a3632;
+  --accent: #4cc2ad; --accent-soft: #163631; --pc: #8ea7f3; --pc-soft: #1c2647;
+  --warn: #e8b25a; --warn-soft: #3a2b12; --code-bg: #0b100e; --code-ink: #dce8e2;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 17px/1.6 var(--body); padding-inline: 16px; }
+main { max-width: 46rem; margin: 0 auto; padding-block: 40px 72px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 2.6rem); margin: 0 0 12px; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; margin: 0; }
+h3 { font-size: 1.05rem; margin: 18px 0 6px; }
+p { margin: 0 0 12px; }
+a { color: var(--accent); }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 40rem; }
+.eyebrow { font: 600 0.78rem/1 var(--body); text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent); margin-bottom: 10px; }
+code { font-family: var(--mono); font-size: 0.86em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+
+.words { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 22px 0 0; padding: 16px 18px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+.words dt { font-weight: 600; }
+.words dd { margin: 0; color: var(--muted); }
+
+.need { margin: 28px 0 8px; }
+.need ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+
+ol.steps { list-style: none; padding: 0; margin: 36px 0 0; counter-reset: step; display: grid; gap: 40px; }
+ol.steps > li { counter-increment: step; display: grid; grid-template-columns: 2.6rem 1fr; gap: 0 14px; }
+ol.steps > li::before {
+  content: counter(step); font: 700 1.1rem/2.4rem var(--display); text-align: center;
+  width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 2px solid var(--accent); color: var(--accent);
+}
+.step { min-width: 0; }
+.step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; min-height: 2.4rem; }
+.where { font: 600 0.75rem/1 var(--body); letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 9px; border-radius: 999px; white-space: nowrap; }
+.where.box { color: var(--accent); background: var(--accent-soft); }
+.where.pc { color: var(--pc); background: var(--pc-soft); }
+
+.cmd { position: relative; margin: 8px 0 14px; }
+.cmd pre { margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 8px; padding: 14px 16px; padding-right: 76px;
+  font: 0.84rem/1.55 var(--mono); overflow-x: auto; white-space: pre; }
+.cmd button { position: absolute; top: 8px; right: 8px; font: 600 0.78rem var(--body); padding: 5px 10px; border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--code-ink) 30%, transparent); background: transparent; color: var(--code-ink); cursor: pointer; }
+.cmd button:hover, .cmd button:focus-visible { background: color-mix(in srgb, var(--code-ink) 14%, transparent); outline: none; }
+
+.note, .warn { border-radius: 8px; padding: 12px 14px; margin: 10px 0 14px; font-size: 0.97rem; }
+.note { background: var(--panel); border: 1px solid var(--line); }
+.warn { background: var(--warn-soft); color: var(--ink); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); }
+.warn strong { color: var(--warn); }
+.choices { margin: 6px 0 12px; padding-left: 20px; display: grid; gap: 3px; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+.tablewrap { overflow-x: auto; margin: 8px 0 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 0.85rem; }
+
+section.after { margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--line); }
+footer { margin-top: 48px; color: var(--muted); font-size: 0.9rem; }
+@media (max-width: 520px) {
+  body { font-size: 16px; }
+  ol.steps > li { grid-template-columns: 1fr; }
+  ol.steps > li::before { margin-bottom: 6px; }
+  .words { grid-template-columns: 1fr; }
+  .words dd { margin-bottom: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<main>
+  <div class="eyebrow">For Windows users</div>
+  <h1>Set up your yggstore storage box</h1>
+  <p class="lede">Turn a second-hand mini PC into your storage box: it keeps your files backed up across the group, and holds a share of everyone else's. You'll need about an hour, once. After that it runs by itself.</p>
+
+  <dl class="words">
+    <dt>Storage box</dt><dd>The little computer you set up here. The technical word for it is a <em>node</em>.</dd>
+    <dt>Group</dt><dd>The people who back each other up. Each of your files is encrypted, cut into 6 pieces and spread over their boxes; any 4 pieces rebuild it.</dd>
+    <dt>Invite</dt><dd>A one-time code from the group's organiser, starting <code>yggjoin1:</code>. It works once, for 7 days.</dd>
+    <dt>Stub</dt><dd>The small <code>.ystub</code> file left in place of a stored file. It holds the key; without it the file can't be rebuilt.</dd>
+  </dl>
+
+  <div class="need">
+    <h2>What you need</h2>
+    <ul>
+      <li>A second-hand mini PC or thin client, for example an HP t630 (about R1,000 refurbished).</li>
+      <li>An external USB drive for the group's storage, ideally an SSD or a 2.5″ hard drive. <strong>It will be erased.</strong></li>
+      <li>A USB stick of 2 GB or more for the installer. <strong>It will be erased.</strong></li>
+      <li>A screen and keyboard for the first half hour only. The t630 has DisplayPort sockets, so you may need a DisplayPort-to-HDMI adapter.</li>
+      <li>A network cable from the box to your router.</li>
+      <li>Your invite message, and the <code>yggstore-linux-amd64</code> program file from the organiser.</li>
+    </ul>
+  </div>
+
+  <ol class="steps">
+    <li><div class="step">
+      <div class="step-head"><h2>Make the installer stick</h2><span class="where pc">On your Windows PC</span></div>
+      <p>The box will run Debian Linux instead of Windows: it's free, light and runs for years unattended.</p>
+      <ol class="choices">
+        <li>Download the Debian “netinst” image for <strong>amd64</strong> from <a href="https://www.debian.org/distrib/netinst" target="_blank" rel="noopener">debian.org/distrib/netinst</a>.</li>
+        <li>Download <a href="https://rufus.ie" target="_blank" rel="noopener">Rufus</a>, plug in the USB stick, pick the Debian file in Rufus and press <strong>Start</strong>. If Rufus asks how to write the image, choose <strong>DD Image mode</strong>.</li>
+      </ol>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Install Debian on the box</h2><span class="where box">On the box, with screen and keyboard</span></div>
+      <div class="warn"><strong>This erases the box.</strong> Unplug the external storage drive for now, so it can't be erased by mistake.</div>
+      <p>Connect the screen, keyboard, network cable and the installer stick. Switch on and keep tapping <strong>F9</strong> (on HP boxes) to get the boot menu, then choose the USB stick. In the installer:</p>
+      <ul class="choices">
+        <li>Choose <strong>Install</strong>, then your language, country and keyboard.</li>
+        <li>Hostname: something like <code>storagebox</code>. Leave the domain empty.</li>
+        <li><strong>Leave the root password empty.</strong> Your own account then gets admin rights through <code>sudo</code>, which these steps use.</li>
+        <li>Create your user; remember the username and password.</li>
+        <li>Partitioning: <strong>Guided – use entire disk</strong>, on the box's own small disk.</li>
+        <li>Software selection: <strong>untick</strong> “Debian desktop environment” and “GNOME”; <strong>tick</strong> “SSH server” and “standard system utilities”.</li>
+      </ul>
+      <p>When it finishes, remove the stick and let it restart. Log in, then find the box's network address:</p>
+      <div class="cmd"><pre>ip -br address</pre><button type="button">Copy</button></div>
+      <p>Note the address starting with <code>192.168.</code> (or <code>10.</code>). Below, replace <code>192.168.0.50</code> with it and <code>you</code> with your username. Tip: in your router's settings, reserve that address for the box so it never changes.</p>
+      <p>You can now unplug the screen and keyboard.</p>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Connect from Windows</h2><span class="where pc">On your Windows PC</span></div>
+      <p>Open <strong>Terminal</strong> (or PowerShell) from the Start menu. Windows 10 and 11 can connect to the box directly:</p>
+      <div class="cmd"><pre>ssh you@192.168.0.50</pre><button type="button">Copy</button></div>
+      <p>Answer <code>yes</code> the first time, then type your password. Everything marked “On the box” from here on is typed in this window.</p>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Prepare the storage drive</h2><span class="where box">On the box</span></div>
+      <p>Plug in the external drive, then list the drives:</p>
+      <div class="cmd"><pre>lsblk -o NAME,SIZE,MODEL</pre><button type="button">Copy</button></div>
+      <p>Find your external drive by its size, for example <code>sdb</code>. The box's own disk is usually <code>sda</code>.</p>
+      <div class="warn"><strong>Check the name twice.</strong> The next command erases that drive. Replace <code>sdb</code> if yours differs.</div>
+      <div class="cmd"><pre>sudo mkfs.ext4 -L yggstore /dev/sdb
+sudo mkdir -p /srv/yggstore
+echo 'LABEL=yggstore /srv/yggstore ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+sudo systemctl daemon-reload
+sudo mount -a
+sudo chown $USER: /srv/yggstore
+df -h /srv/yggstore</pre><button type="button">Copy</button></div>
+      <p>The last line should show the drive's size. It now mounts by itself at every start.</p>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Install Yggdrasil</h2><span class="where box">On the box</span></div>
+      <p>Yggdrasil is the encrypted network the group's boxes talk over. These are the official install steps:</p>
+      <div class="cmd"><pre>sudo apt-get install -y gnupg
+sudo mkdir -p /usr/local/apt-keys
+gpg --fetch-keys https://neilalexander.s3.dualstack.eu-west-2.amazonaws.com/deb/key.txt
+gpg --export 1C5162E133015D81A811239D1840CDAC6011C5EA | sudo tee /usr/local/apt-keys/yggdrasil-keyring.gpg > /dev/null
+echo 'deb [signed-by=/usr/local/apt-keys/yggdrasil-keyring.gpg] http://neilalexander.s3.dualstack.eu-west-2.amazonaws.com/deb/ debian yggdrasil' | sudo tee /etc/apt/sources.list.d/yggdrasil.list
+sudo apt-get update
+sudo apt-get install -y yggdrasil
+sudo systemctl enable --now yggdrasil</pre><button type="button">Copy</button></div>
+      <p>Now give it the peers listed in your invite message, so it can reach the group. Open the settings file:</p>
+      <div class="cmd"><pre>sudo nano /etc/yggdrasil.conf</pre><button type="button">Copy</button></div>
+      <p>Find the line <code>Peers: []</code> and put the peers from your invite between the brackets, in quotes, separated by commas, like this:</p>
+      <div class="cmd"><pre>Peers: ["tls://91.98.161.68:9001?key=0e638944bfd6b277fa5e0dddbeb4444778eea8bece63a9862c661797022a8f05", "tls://5.252.118.13:443"]</pre><button type="button">Copy</button></div>
+      <p>Save with <strong>Ctrl+O</strong>, Enter, and leave with <strong>Ctrl+X</strong>. Then restart it and check it's connected:</p>
+      <div class="cmd"><pre>sudo systemctl restart yggdrasil
+sleep 10
+sudo yggdrasilctl getPeers</pre><button type="button">Copy</button></div>
+      <p>At least one line should say <code>Up</code>.</p>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Close the doors</h2><span class="where box">On the box</span></div>
+      <p>On Yggdrasil your box gets an address anyone on that network can reach. This firewall lets in only two things: the group, on the storage port, and you, from your home network.</p>
+      <div class="cmd"><pre>sudo apt-get install -y ufw
+sudo ufw default deny incoming
+sudo ufw allow from 192.168.0.0/16 to any port 22 proto tcp
+sudo ufw allow in on tun0 to any port 7400 proto tcp
+sudo ufw enable</pre><button type="button">Copy</button></div>
+      <p>If your home addresses start with <code>10.</code>, use <code>10.0.0.0/8</code> instead of <code>192.168.0.0/16</code>. Answer <code>y</code> when asked.</p>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Copy the yggstore program to the box</h2><span class="where pc">On your Windows PC</span></div>
+      <p>Open a <strong>second</strong> Terminal window, go to the folder where you saved the program (usually Downloads) and copy it over:</p>
+      <div class="cmd"><pre>cd $HOME\Downloads
+scp .\yggstore-linux-amd64 you@192.168.0.50:</pre><button type="button">Copy</button></div>
+      <p>Then, back in the window connected to the box:</p>
+      <div class="cmd"><pre>sudo install -m 755 yggstore-linux-amd64 /usr/local/bin/yggstore</pre><button type="button">Copy</button></div>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Join the group</h2><span class="where box">On the box</span></div>
+      <p>Change the space you give (in GB; stay below your drive's size), your box's name and your name, and paste your invite between the quotes:</p>
+      <div class="cmd"><pre>yggstore join -service -dir /srv/yggstore -outfiles /srv/yggstore/outfiles \
+  -quota 500 -name anna-box -me "Anna" \
+  'yggjoin1:PASTE-YOUR-INVITE-HERE'</pre><button type="button">Copy</button></div>
+      <p>It should end with <em>You're in</em>. Then keep it running after restarts, even when nobody is logged in:</p>
+      <div class="cmd"><pre>sudo loginctl enable-linger $USER
+systemctl --user status yggstore-node --no-pager</pre><button type="button">Copy</button></div>
+      <p>The status should say <code>active (running)</code>. The organiser is now in your contacts, and you in theirs.</p>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Open your dashboard</h2><span class="where pc">On your Windows PC</span></div>
+      <p>The dashboard only answers on the box itself, so nobody else on your network can use it. To open it from Windows, connect with this command and leave the window open:</p>
+      <div class="cmd"><pre>ssh -N -L 7480:127.0.0.1:7480 you@192.168.0.50</pre><button type="button">Copy</button></div>
+      <p>Then open <a href="http://127.0.0.1:7480" target="_blank" rel="noopener">http://127.0.0.1:7480</a> in your browser. You'll see the group's boxes, your files, your sharing code and what you give and use.</p>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Store, restore and share files</h2><span class="where pc">On your Windows PC</span></div>
+      <p>Install <a href="https://winscp.net" target="_blank" rel="noopener">WinSCP</a> (free) and connect to <code>192.168.0.50</code> with your username and password, protocol SFTP. Open <code>/srv/yggstore/outfiles</code>; it works like a drop box:</p>
+      <div class="tablewrap"><table>
+        <tr><th>To</th><th>Do this</th></tr>
+        <tr><td>Store</td><td>Drag files or folders in. Each file is replaced by its <code>.ystub</code> once it's safely stored and checked.</td></tr>
+        <tr><td>Restore</td><td>Press Restore on the dashboard, or move a <code>.ystub</code> into <code>restore</code>. The file appears in <code>restored</code>.</td></tr>
+        <tr><td>Send to someone</td><td>Press Share on the dashboard and send them the <code>.ysend</code> file. Drop <code>.ysend</code> files you receive into <code>outfiles</code>.</td></tr>
+        <tr><td>Delete</td><td>Press Delete on the dashboard, or move a <code>.ystub</code> into <code>delete</code>.</td></tr>
+      </table></div>
+    </div></li>
+
+    <li><div class="step">
+      <div class="step-head"><h2>Keep a copy of your keys</h2><span class="where pc">On your Windows PC</span></div>
+      <div class="warn"><strong>Your stubs exist only on your box.</strong> If its drive dies, the pieces of your files are still safe on the other boxes, but without the stubs nobody can put them back together.</div>
+      <p>With WinSCP, copy these to your PC (or another drive) now, and copy the stubs again whenever you've stored new files:</p>
+      <ul class="choices">
+        <li>all <code>.ystub</code> files in <code>/srv/yggstore/outfiles</code> and its folders;</li>
+        <li><code>/srv/yggstore/sharing.key</code>, which opens files people send you.</li>
+      </ul>
+      <p>Keep them private: anyone with a stub who can reach the group can read that file.</p>
+    </div></li>
+  </ol>
+
+  <section class="after">
+    <h2>Living with it</h2>
+    <h3>Leave it on</h3>
+    <p>The group relies on your box being reachable. A thin client like the t630 uses under 10 W, a few kWh a month.</p>
+    <h3>Updates</h3>
+    <p>Once a month, on the box:</p>
+    <div class="cmd"><pre>sudo apt-get update && sudo apt-get upgrade -y</pre><button type="button">Copy</button></div>
+    <p>New versions of yggstore come from the organiser; copy and install them as in step 7, then run <code>systemctl --user restart yggstore-node yggstore-dashboard</code>.</p>
+    <h3>If something's wrong</h3>
+    <div class="tablewrap"><table>
+      <tr><th>You see</th><th>Try</th></tr>
+      <tr><td><em>Yggdrasil is not running</em> when joining</td><td>Check step 5: <code>sudo yggdrasilctl getPeers</code> must show a peer <code>Up</code>.</td></tr>
+      <tr><td><em>Could not reach the group</em></td><td>Same as above, then try again in a minute. The organiser's box may be restarting.</td></tr>
+      <tr><td><em>The group did not accept this machine</em></td><td>The invite was used or has expired. Ask for a new one.</td></tr>
+      <tr><td>The dashboard page doesn't load</td><td>The window from step 9 must stay open; run that command again.</td></tr>
+      <tr><td>The box doesn't appear on the group's dashboard</td><td><code>systemctl --user status yggstore-node</code> on the box; if it isn't running, <code>systemctl --user restart yggstore-node</code>.</td></tr>
+    </table></div>
+  </section>
+
+  <footer>Written for yggstore as it is today. Later versions aim to replace steps 1–8 with a ready-made image and a setup page you open from Windows.</footer>
+</main>
+
+<script>
+document.querySelectorAll(".cmd button").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const pre = btn.previousElementSibling;
+    try {
+      await navigator.clipboard.writeText(pre.textContent);
+      btn.textContent = "Copied";
+    } catch {
+      const r = document.createRange();
+      r.selectNodeContents(pre);
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      btn.textContent = "Ctrl+C";
+    }
+    setTimeout(() => { btn.textContent = "Copy"; }, 1600);
+  });
+});
+</script>
+
+</html>

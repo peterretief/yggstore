@@ -1,0 +1,14 @@
+bin/
+*.ystub
+*.challenges.json
+stubs/
+outfiles/
+testnet/
+# Your group's real member list, keys and records; see peers.example.json
+peers.json
+peers.json.*
+*.key
+invites.json
+contacts.json
+# Personal deploy script
+scripts/update-node.sh

@@ -1,0 +1,42 @@
+# Three small yggstore test nodes for a remote host, on their own
+# bridge (br-yggtest). The host's Yggdrasil must beacon on br-yggtest and allow
+# the nodes' keys. Deployed by scripts/testnet-remote.sh.
+name: yggtest
+
+x-node: &node
+  image: yggstore-testnode
+  cap_add: [NET_ADMIN]
+  devices: ["/dev/net/tun"]
+  sysctls:
+    net.ipv6.conf.all.disable_ipv6: 0
+  networks: [yggtest]
+  restart: unless-stopped
+  mem_limit: 96m
+
+services:
+  l1:
+    <<: *node
+    hostname: l1
+    environment: { NODE_NAME: l1 }
+    volumes: ["../testnet/l1:/data", "../testnet/shared:/etc/yggstore:ro"]
+  l2:
+    <<: *node
+    hostname: l2
+    environment: { NODE_NAME: l2 }
+    volumes: ["../testnet/l2:/data", "../testnet/shared:/etc/yggstore:ro"]
+  l3:
+    <<: *node
+    hostname: l3
+    environment: { NODE_NAME: l3 }
+    volumes: ["../testnet/l3:/data", "../testnet/shared:/etc/yggstore:ro"]
+
+networks:
+  yggtest:
+    driver: bridge
+    enable_ipv6: true
+    driver_opts:
+      com.docker.network.bridge.name: br-yggtest
+    ipam:
+      config:
+        - subnet: 172.30.78.0/24
+        - subnet: fd42:7967:7375::/64

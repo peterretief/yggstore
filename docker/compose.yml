@@ -1,0 +1,51 @@
+# Five yggstore test nodes on their own bridge (br-yggtest). Each runs its own
+# Yggdrasil and finds the desktop's Yggdrasil by link-local multicast on the
+# bridge. Managed by scripts/testnet.sh; data lives in ../testnet/.
+name: yggtest
+
+x-node: &node
+  image: yggstore-testnode
+  cap_add: [NET_ADMIN]
+  devices: ["/dev/net/tun"]
+  sysctls:
+    net.ipv6.conf.all.disable_ipv6: 0
+  networks: [yggtest]
+  restart: unless-stopped
+
+services:
+  t1:
+    <<: *node
+    hostname: t1
+    environment: { NODE_NAME: t1 }
+    volumes: ["../testnet/t1:/data", "../testnet/shared:/etc/yggstore:ro"]
+  t2:
+    <<: *node
+    hostname: t2
+    environment: { NODE_NAME: t2 }
+    volumes: ["../testnet/t2:/data", "../testnet/shared:/etc/yggstore:ro"]
+  t3:
+    <<: *node
+    hostname: t3
+    environment: { NODE_NAME: t3 }
+    volumes: ["../testnet/t3:/data", "../testnet/shared:/etc/yggstore:ro"]
+  t4:
+    <<: *node
+    hostname: t4
+    environment: { NODE_NAME: t4 }
+    volumes: ["../testnet/t4:/data", "../testnet/shared:/etc/yggstore:ro"]
+  t5:
+    <<: *node
+    hostname: t5
+    environment: { NODE_NAME: t5 }
+    volumes: ["../testnet/t5:/data", "../testnet/shared:/etc/yggstore:ro"]
+
+networks:
+  yggtest:
+    driver: bridge
+    enable_ipv6: true
+    driver_opts:
+      com.docker.network.bridge.name: br-yggtest
+    ipam:
+      config:
+        - subnet: 172.30.77.0/24
+        - subnet: fd42:7967:7374::/64

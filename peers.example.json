@@ -1,0 +1,5 @@
+[
+  {"name": "desktop", "addr": "[200:1234:5678::1]:7400", "admin": true, "owner": "Anna"},
+  {"name": "pi",      "addr": "[201:abcd::1]:7400", "slow": true, "owner": "Anna"},
+  {"name": "ben-box", "addr": "[202:42::7]:7400", "owner": "Ben"}
+]

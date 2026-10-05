@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yggstore</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea;
+  --ok: #1f9d55; --ok-bg: #e5f5ec; --warn: #b7791f; --warn-bg: #fdf3e1;
+  --bad: #d64545; --bad-bg: #fbe9e9; --info: #3b6fd8; --info-bg: #e8effc;
+  --empty: #e6e9ed; --bar: #3b6fd8;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418; --panel: #1a1e24; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038;
+    --ok: #3ccf7e; --ok-bg: #173225; --warn: #e3a948; --warn-bg: #3a2c14;
+    --bad: #f07070; --bad-bg: #3d1c1c; --info: #79a2f2; --info-bg: #1b2842;
+    --empty: #2a3038; --bar: #79a2f2;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 18px; }
+h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 10px; font-weight: 600; }
+.sub { color: var(--muted); font-size: 13px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.live { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.dot.stale { background: var(--bad); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.tile .k { color: var(--muted); font-size: 12px; }
+.tile .v { font-size: 26px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .v small { font-size: 14px; color: var(--muted); font-weight: 500; }
+
+.nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.card.down { border-color: var(--bad); }
+.row { display: flex; align-items: center; gap: 8px; }
+.name { font-weight: 600; font-size: 15px; }
+.addr { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 2px 0 10px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.pill.ok { color: var(--ok); background: var(--ok-bg); }
+.pill.warn { color: var(--warn); background: var(--warn-bg); }
+.pill.bad { color: var(--bad); background: var(--bad-bg); }
+.pill.info { color: var(--info); background: var(--info-bg); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.stats div span { display: block; color: var(--muted); font-size: 11px; }
+.stats div b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.bar { height: 6px; background: var(--empty); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--bar); }
+.barlabel { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 4px; }
+.spark { width: 100%; height: 34px; margin-top: 10px; display: block; }
+.err { color: var(--bad); font-size: 12px; margin-top: 6px; word-break: break-word; }
+
+.tablewrap { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.grid { display: flex; flex-wrap: wrap; gap: 4px; max-width: 520px; }
+.chunk { display: grid; grid-template-columns: repeat(3, 7px); gap: 2px; padding: 3px; border-radius: 4px; background: var(--ok-bg); }
+.chunk.warn { background: var(--warn-bg); } .chunk.bad { background: var(--bad-bg); }
+.chunk i { width: 7px; height: 7px; border-radius: 2px; background: var(--empty); }
+.chunk i.on { background: var(--ok); }
+.chunk.warn i.on { background: var(--warn); } .chunk.bad i.on { background: var(--bad); }
+button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); cursor: pointer; }
+button:hover { border-color: var(--info); }
+button:disabled { opacity: .5; cursor: default; }
+button.del:hover { border-color: var(--bad); color: var(--bad); }
+.verify { font-size: 12px; margin-top: 6px; color: var(--muted); }
+.empty { padding: 22px; color: var(--muted); text-align: center; }
+td.actions { white-space: nowrap; }
+td.actions button + button { margin-left: 4px; }
+
+.events { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; max-height: 340px; overflow-y: auto; }
+.ev { display: grid; grid-template-columns: 74px 10px 1fr; gap: 10px; align-items: baseline; padding: 7px 14px; border-bottom: 1px solid var(--line); }
+.ev:last-child { border-bottom: 0; }
+.ev time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.ev b { width: 8px; height: 8px; border-radius: 50%; align-self: center; background: var(--info); }
+.ev b.up, .ev b.ok { background: var(--ok); } .ev b.down, .ev b.bad { background: var(--bad); } .ev b.warn { background: var(--warn); }
+.job { background: var(--panel); border: 1px solid var(--info); border-radius: 10px; padding: 14px 16px; margin-top: 12px; }
+.job .row { flex-wrap: wrap; margin-bottom: 8px; }
+.job .name { overflow-wrap: anywhere; }
+.job .bar { height: 10px; border-radius: 5px; }
+.job .bar i { transition: width .6s ease; }
+details.add { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin-top: 12px; }
+details.add summary { cursor: pointer; font-weight: 600; }
+details.add ol { padding-left: 20px; margin: 10px 0; }
+details.add li { margin: 6px 0; }
+details.add pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0;
+  white-space: pre-wrap; word-break: break-all; font-family: var(--mono); font-size: 12px; }
+details.add textarea, details.add input[type=text] { width: 100%; font: 12px var(--mono); padding: 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+details.add .opts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 8px 0; }
+details.add .opts label { display: inline-flex; align-items: center; gap: 6px; }
+details.add .opts input[type=text] { width: 160px; }
+.sharing { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.sharing .code { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 12px; }
+.sharing .code .mono { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; word-break: break-all; }
+.sharing table td, .sharing table th { padding: 6px 8px; }
+.sharing .addc { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.sharing .addc input { font: 12px var(--mono); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: min(520px, calc(100vw - 32px)); padding: 18px; }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog .field { display: block; margin: 8px 0; font-size: 13px; }
+dialog select, dialog input[type=text] { display: block; width: 100%; margin-top: 4px; font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.from { font-size: 12px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin: -4px 0 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+@media (max-width: 560px) { th:nth-child(3), td:nth-child(3), th:nth-child(5), td:nth-child(5) { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>yggstore</h1>
+    <span class="sub">this node <span class="mono" id="self">…</span></span>
+    <span class="live"><span class="dot" id="dot"></span><span id="updated">connecting…</span></span>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+  <section class="job" id="job" hidden></section>
+
+  <h2>Nodes</h2>
+  <div id="peersError" class="err"></div>
+  <section class="nodes" id="nodes"></section>
+  <details class="add" id="addNode">
+    <summary>Invite someone</summary>
+    <div id="addBody"></div>
+  </details>
+
+  <h2>Give and use</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Person</th><th>Uses on the network</th><th>Holds for others</th><th>Space offered</th><th>Gives ÷ uses</th></tr></thead>
+      <tbody id="accounts"></tbody>
+    </table>
+  </div>
+  <div class="sub" style="margin-top:6px">Each person should hold for others about 1.5× what they use. Accounting only for now: nothing is enforced. Set who runs a node with <span class="mono">"owner"</span> in peers.json; it defaults to the machine.</div>
+
+  <h2>Your files</h2>
+  <div class="legend">
+    <span>each block is one chunk, each square one shard (4 needed of 6)</span>
+    <span><i style="background:var(--ok)"></i>all shards</span>
+    <span><i style="background:var(--warn)"></i>some missing, still readable</span>
+    <span><i style="background:var(--bad)"></i>not enough to rebuild</span>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>File</th><th>Status</th><th>Size</th><th>Shard availability</th><th>Checks left</th><th></th></tr></thead>
+      <tbody id="files"></tbody>
+    </table>
+  </div>
+
+  <div id="receivedWrap" hidden>
+    <h2>Shared with you</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>File</th><th>Status</th><th>Size</th><th>Shard availability</th><th>From</th><th></th></tr></thead>
+        <tbody id="received"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2>Sharing</h2>
+  <section class="sharing" id="sharing"></section>
+
+  <dialog id="shareDlg">
+    <form method="dialog" id="shareForm">
+      <h3 style="margin:0 0 8px">Share <span id="shareName"></span></h3>
+      <p class="sub" style="margin:0 0 10px">This makes a <span class="mono">.ysend</span> file only that person can open. Send it to them by email or any other way. They drop it into their <span class="mono">outfiles</span> and can restore it, as long as they have a node in this network.</p>
+      <label class="field">To <select id="shareTo"></select></label>
+      <label class="field">Note (optional, sealed with the file) <input type="text" id="shareNote" maxlength="200"></label>
+      <div class="row" style="margin-top:12px;gap:8px"><span class="sub" id="shareMsg"></span>
+        <button value="cancel" style="margin-left:auto">Cancel</button><button id="shareGo" value="default">Create .ysend file</button></div>
+    </form>
+  </dialog>
+
+  <div id="test" hidden>
+    <h2>Test cluster <span class="sub" id="testSummary" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+    <div id="testError" class="err"></div>
+    <section class="nodes" id="testNodes"></section>
+    <div class="tablewrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>Test file</th><th>Status</th><th>Size</th><th>Shard availability</th><th>Checks left</th><th></th></tr></thead>
+        <tbody id="testFiles"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2>Activity</h2>
+  <section class="events" id="events"></section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+// Every action carries this header; the dashboard refuses actions without it,
+// which keeps other web pages from pressing buttons here.
+const post = (url, opts = {}) => fetch(url, {...opts, method: "POST", headers: {...(opts.headers || {}), "X-Yggstore": "1"}});
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const verifyResults = {};
+let lastOK = 0;
+let lastState = null;
+
+function size(n) {
+  if (n == null) return "–";
+  const u = ["B","KiB","MiB","GiB","TiB"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : n) + " " + u[i];
+}
+function ago(sec) {
+  if (!sec) return "never";
+  const d = Math.max(0, Date.now() / 1000 - sec);
+  if (d < 60) return Math.round(d) + "s ago";
+  if (d < 3600) return Math.round(d / 60) + "m ago";
+  if (d < 86400) return Math.round(d / 3600) + "h ago";
+  return Math.round(d / 86400) + "d ago";
+}
+function dur(sec) {
+  const d = Math.max(0, Date.now() / 1000 - sec);
+  if (d < 3600) return Math.round(d / 60) + "m";
+  if (d < 86400) return (d / 3600).toFixed(1) + "h";
+  return (d / 86400).toFixed(1) + "d";
+}
+function clock(t) { return new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"}); }
+
+function spark(hist) {
+  const W = 300, H = 34, n = 60;
+  const vals = hist.filter(v => v >= 0);
+  const max = Math.max(5, ...vals) * 1.15;
+  const x = i => (i + n - hist.length) * (W / (n - 1));
+  // One line segment per run of successful polls; red ticks where the node was down.
+  const segs = []; let cur = [], down = "";
+  hist.forEach((v, i) => {
+    if (v < 0) {
+      if (cur.length) segs.push(cur);
+      cur = [];
+      down += `<rect x="${(x(i) - 2).toFixed(1)}" y="${H - 4}" width="4" height="4" fill="var(--bad)"/>`;
+      return;
+    }
+    cur.push(x(i).toFixed(1) + " " + (H - 3 - (v / max) * (H - 8)).toFixed(1));
+  });
+  if (cur.length) segs.push(cur);
+  const path = segs.map(s => "M" + (s.length === 1 ? s[0] + " l0.1 0" : s.join(" L"))).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="round-trip time history">
+    <path d="${path}" fill="none" stroke="var(--bar)" stroke-width="1.5" stroke-linecap="round" vector-effect="non-scaling-stroke"/>${down}</svg>`;
+}
+
+function renderTiles(all) {
+  const s = {peers: all.peers.filter(p => !p.test), files: all.files.filter(f => !f.test)};
+  const up = s.peers.filter(p => p.up).length;
+  const used = s.peers.reduce((a, p) => a + (p.info?.used_bytes || 0), 0);
+  const shards = s.peers.reduce((a, p) => a + (p.info?.shard_count || 0), 0);
+  const healthy = s.files.filter(f => f.status === "healthy").length;
+  const logical = s.files.reduce((a, f) => a + (f.size || 0), 0);
+  const tile = (k, v, cls = "") => `<div class="tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+  $("tiles").innerHTML =
+    tile("Nodes up", `${up}<small> / ${s.peers.length}</small>`) +
+    tile("Files healthy", `${healthy}<small> / ${s.files.length}</small>`) +
+    tile("Your files", size(logical)) +
+    tile("Stored on nodes", `${size(used)}<small> · ${shards} shards</small>`);
+}
+
+function renderNodes(s, list, el) {
+  $(el).innerHTML = list.map(p => {
+    const i = p.info || {};
+    const pct = i.quota_bytes ? Math.min(100, 100 * i.used_bytes / i.quota_bytes) : 0;
+    const self = p.addr.includes(s.self_id) ? ` <span class="pill info">this node</span>` : "";
+    const list = {outdated: `<span class="pill warn" title="This node holds an older node list; it is sent the current one automatically">old list</span>`,
+      "old software": `<span class="pill warn" title="This node runs an older yggstore, so it can't be sent the node list. Update it.">update yggstore</span>`}[p.list] || "";
+    return `<div class="card ${p.up ? "" : "down"}">
+      <div class="row"><span class="name">${esc(p.name)}</span>${self} ${list}
+        <span style="margin-left:auto" class="pill ${p.up ? "ok" : "bad"}">${p.up ? "up" : "down"}</span></div>
+      <div class="addr mono" title="${esc(p.addr)}">${esc(p.addr)}</div>
+      ${p.up ? `<div class="stats">
+          <div><span>round trip</span><b>${p.rtt_ms.toFixed(1)} ms</b></div>
+          <div><span>shards</span><b>${i.shard_count ?? "–"}</b></div>
+          <div><span>uptime</span><b>${i.started_at ? dur(i.started_at) : "–"}</b></div></div>
+        <div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
+        <div class="barlabel"><span>${size(i.used_bytes)} used</span><span>${i.quota_bytes ? size(i.quota_bytes) + " quota" : "no quota"}</span></div>`
+      : `<div class="err">${esc(p.error)}</div><div class="sub" style="margin-top:4px">last seen ${ago(p.last_seen)}</div>`}
+      ${spark(p.history || [])}
+    </div>`;
+  }).join("") || `<div class="empty">No peers in peers.json</div>`;
+}
+
+function renderFiles(s, list, el, test, received) {
+  if (test && !list.length) {
+    $(el).innerHTML = `<tr><td colspan="6" class="empty">No test files yet. Store one with <span class="mono">yggstore put -peers testnet/shared/peers.json FILE</span>.</td></tr>`;
+    return;
+  }
+  if (!list.length) {
+    $(el).innerHTML = s.outbox
+      ? `<tr><td colspan="6" class="empty">Nothing stored yet. Drop a file or folder into <span class="mono">${esc(s.stub_dir)}</span> and it will appear here.</td></tr>`
+      : `<tr><td colspan="6" class="empty">No .ystub files in <span class="mono">${esc(s.stub_dir)}</span>. Store one with <span class="mono">yggstore put</span>.</td></tr>`;
+    return;
+  }
+  $(el).innerHTML = list.map(f => {
+    const cls = {healthy: "ok", degraded: "warn", lost: "bad"}[f.status] || "bad";
+    const grid = (f.chunks || []).map((c, ci) => {
+      const ccls = c.reachable >= f.total_shards ? "" : c.reachable >= f.data_shards ? "warn" : "bad";
+      const tip = `chunk ${ci}: ${c.reachable}/${f.total_shards}\n` + c.shards.map((sh, si) => `shard ${si} on ${sh.peer}: ${sh.present ? "present" : "missing"}`).join("\n");
+      return `<span class="chunk ${ccls}" title="${esc(tip)}">${c.shards.map(sh => `<i class="${sh.present ? "on" : ""}"></i>`).join("")}</span>`;
+    }).join("");
+    const v = verifyResults[f.stub];
+    const vline = v ? `<div class="verify">${v}</div>` : "";
+    const canVerify = f.challenges_left > 0;
+    const shareBtn = !test ? `<button data-share="${esc(f.stub)}" data-name="${esc(f.name)}" title="Send this to someone">Share</button>` : "";
+    if (received) {
+      const by = f.shared_by;
+      return `<tr>
+        <td><b>${esc(f.name)}</b>${f.kind === "folder" ? ` <span class="pill info">folder · ${f.file_count} files</span>` : ""}${by.note ? `<div class="sub">“${esc(by.note)}”</div>` : ""}${f.error ? `<div class="err">${esc(f.error)}</div>` : ""}</td>
+        <td><span class="pill ${cls}">${esc(f.status)}</span></td>
+        <td class="num">${size(f.size)}<div class="sub">${(f.chunks || []).length} chunks</div></td>
+        <td><div class="grid">${grid}</div></td>
+        <td class="from">${esc(by.name || "someone")}<div class="sub">${esc(contactName(s, by.code) ? "in your contacts as " + contactName(s, by.code) : "not in your contacts")}</div><div class="sub">${ago(by.received_at)}</div></td>
+        <td class="actions">${s.outbox ? `<button data-restore="${esc(f.stub)}" ${f.status === "lost" ? "disabled" : ""} title="Rebuild into restored/">Restore</button>` : ""}
+          ${shareBtn}
+          <button class="del" data-delete="${esc(f.stub)}" data-name="${esc(f.name)}" data-received="1" title="Remove from your list; the sender's copy stays">Remove</button></td>
+      </tr>`;
+    }
+    return `<tr>
+      <td><b>${esc(f.name)}</b>${f.kind === "folder" ? ` <span class="pill info">folder · ${f.file_count} files</span>` : ""}<div class="sub mono" title="${esc(f.stub)}">${esc(f.stub.split("/").slice(-2).join("/"))}</div>${f.error ? `<div class="err">${esc(f.error)}</div>` : ""}${vline}</td>
+      <td><span class="pill ${cls}">${esc(f.status)}</span></td>
+      <td class="num">${size(f.size)}<div class="sub">${(f.chunks || []).length} chunks</div></td>
+      <td><div class="grid">${grid}</div></td>
+      <td class="num">${f.challenges_left < 0 ? "–" : f.challenges_left}</td>
+      <td class="actions">${s.outbox && !test ? `<button data-restore="${esc(f.stub)}" ${f.status === "lost" ? "disabled" : ""} title="Rebuild into restored/">Restore</button>` : ""}
+        <button ${canVerify ? "" : "disabled"} data-stub="${esc(f.stub)}" title="Ask each holder to prove it still has its shard">Verify</button>
+        ${shareBtn}
+        <button class="del" data-delete="${esc(f.stub)}" data-name="${esc(f.name)}" title="Delete from all nodes, then remove the stub">Delete</button></td>
+    </tr>`;
+  }).join("");
+}
+
+const OPS = {storing: "Storing", verifying: "Checking read-back of", restoring: "Restoring"};
+function renderJob(a) {
+  $("job").hidden = !a;
+  if (!a) return;
+  const secs = Math.max(1, Date.now() / 1000 - a.started);
+  const rate = a.done / secs;
+  const pct = a.total ? Math.min(100, 100 * a.done / a.total) : 0;
+  const left = rate > 0 && a.total > a.done ? (a.total - a.done) / rate : null;
+  const eta = left == null ? "" : left < 90 ? Math.round(left) + "s left" : Math.round(left / 60) + " min left";
+  const step = a.op === "storing" ? "step 1 of 2" : a.op === "verifying" ? "step 2 of 2" : "";
+  $("job").innerHTML = `<div class="row"><span class="pill info">${esc(OPS[a.op] || a.op)}</span>
+      <span class="name">${esc(a.name)}</span>${step ? `<span class="sub">${step}</span>` : ""}
+      <span style="margin-left:auto;font-variant-numeric:tabular-nums">${pct.toFixed(0)}%</span></div>
+    <div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
+    <div class="barlabel"><span>${size(a.done)} of ${size(a.total)} · ${size(rate)}/s</span><span>${eta}</span></div>`;
+}
+
+let addRendered = "";
+function renderAdd(s) {
+  // Rebuild only when the admin entry changes, so typing isn't wiped by refreshes.
+  const key = s.admin_entry || "-";
+  if (addRendered === key) return;
+  addRendered = key;
+  if (!s.admin_entry) {
+    $("addBody").innerHTML = `<p class="sub">This node can't add nodes: mark its own entry <span class="mono">"admin": true</span> in peers.json first.</p>`;
+    return;
+  }
+  $("addBody").innerHTML = `
+    <p style="margin:10px 0 6px">Make a one-time invite (valid 7 days) and send it to them. They run one command and they're in: their node joins the group, every node is told, and you become each other's contacts.</p>
+    <div class="opts"><label>For <input type="text" id="invFor" placeholder="their name"></label><button id="invBtn">Make invite</button><span class="sub" id="invMsg"></span></div>
+    <div id="invOut"></div>
+    <div id="invList"></div>
+    <details style="margin-top:12px"><summary class="sub">Add a node by hand instead</summary>
+    <ol>
+      <li>On the new machine, install Yggdrasil and peer it with one of your nodes, then copy <span class="mono">yggstore</span> onto it.</li>
+      <li>Create a <span class="mono">peers.json</span> there holding just this node, so it will accept the full list from here:
+        <pre id="adminEntry">[\n  ${esc(s.admin_entry)}\n]</pre></li>
+      <li>Start it: <pre>yggstore serve -peers peers.json -name NAME -quota 50</pre></li>
+      <li>Run <span class="mono">yggstore id -name NAME</span> there and paste what it prints:</li>
+    </ol>
+    <textarea id="addText" rows="3" placeholder='node ID: 200:…&#10;peers.json entry: {"name": "NAME", "addr": "[200:…]:7400"}'></textarea>
+    <div class="opts">
+      <label>Machine <input type="text" id="addHost" placeholder="its own (default)" title="Nodes on the same machine (containers) share this, so they never hold more than 2 shards of a chunk between them"></label>
+      <label><input type="checkbox" id="addSlow"> slow (one shard per chunk)</label>
+      <button id="addBtn">Add node</button>
+      <span class="sub" id="addMsg"></span>
+    </div>
+    <p class="sub">Every node is then sent the new list automatically; new uploads use the new node straight away. Files already stored stay where they are.</p>
+    </details>`;
+}
+
+function renderInvites(s) {
+  const el = $("invList");
+  if (!el) return;
+  const rows = (s.invites || []).map(i => `<tr><td>${esc(i.for || "–")}</td><td class="sub">made ${ago(i.created)}</td>
+    <td>${i.used_by ? `<span class="pill ok">joined as ${esc(i.used_by)}</span>` : `<span class="pill info">open until ${new Date(i.expires * 1000).toLocaleDateString()}</span>`}</td></tr>`).join("");
+  el.innerHTML = rows ? `<table style="margin-top:10px">${rows}</table>` : "";
+}
+
+function inviteMessage(who, r) {
+  return `Hi ${who || "there"},
+
+I'd like you to join ${r.group}: we each give some disk space, back each other's files up, and can send each other files.
+
+1. Install Yggdrasil: https://yggdrasil-network.github.io/installation.html
+   and put these peers in its config file (Peers: [...] in /etc/yggdrasil.conf):
+${r.ygg_peers.map(p => "     " + p).join("\n")}
+2. Get the yggstore program from me.
+3. Run this (it's your personal invite, it works once, for 7 days):
+
+yggstore join -service ${r.invite}
+
+Then open http://127.0.0.1:7480 on your machine.`;
+}
+
+function renderAccounts(s) {
+  $("accounts").innerHTML = (s.accounts || []).map(a => {
+    const ratio = a.uses ? a.for_others / a.uses : null;
+    const cls = ratio == null ? "" : ratio >= 1.5 ? "ok" : ratio >= 1 ? "warn" : "bad";
+    return `<tr><td><b>${esc(a.owner)}</b>${a.me ? ` <span class="pill info">you</span>` : ""}<div class="sub">${a.nodes} node${a.nodes === 1 ? "" : "s"}</div></td>
+      <td class="num">${size(a.uses)}</td><td class="num">${size(a.for_others)}</td><td class="num">${a.offered ? size(a.offered) : "–"}</td>
+      <td class="num">${ratio == null ? `<span class="sub">uses nothing</span>` : `<span class="pill ${cls}">${ratio.toFixed(2)}×</span>`}</td></tr>`;
+  }).join("") || `<tr><td colspan="5" class="empty">No usage reported yet. Nodes on older yggstore versions don't report it.</td></tr>`;
+}
+
+function contactName(s, code) { return (s.contacts || []).find(c => c.code === code)?.name || ""; }
+
+let sharingRendered = "";
+function renderSharing(s) {
+  const key = JSON.stringify([s.sharing_code, s.me, s.contacts]);
+  if (key === sharingRendered) return; // don't wipe what's being typed
+  sharingRendered = key;
+  if (!s.sharing_code) { $("sharing").innerHTML = `<div class="sub">Sharing is not set up on this dashboard.</div>`; return; }
+  const rows = (s.contacts || []).map(c => `<tr><td><b>${esc(c.name)}</b></td><td class="mono" style="word-break:break-all">${esc(c.code)}</td>
+      <td class="actions"><button class="del" data-uncontact="${esc(c.code)}" data-name="${esc(c.name)}">Remove</button></td></tr>`).join("");
+  $("sharing").innerHTML = `
+    <div class="sub">Your sharing code. Give it to people who want to send you files; it is safe to share (it only lets people seal files for you).</div>
+    <div class="code"><span class="mono" id="myCode">${esc(s.sharing_code)}</span><button data-copy="myCode">Copy</button></div>
+    <div class="sub" style="margin-bottom:6px">People see you as <b>${esc(s.me)}</b>. To receive, drop a <span class="mono">.ysend</span> file into <span class="mono">outfiles</span>; it appears under “Shared with you”.</div>
+    <h3 style="font-size:13px;margin:14px 0 4px">Contacts</h3>
+    ${rows ? `<table>${rows}</table>` : `<div class="sub">No contacts yet. Add someone with their sharing code to share files with them.</div>`}
+    <div class="addc"><input id="cName" placeholder="name" size="12"><input id="cCode" placeholder="their sharing code (ys1…)" style="flex:1;min-width:220px"><button id="cAdd">Add contact</button><span class="sub" id="cMsg"></span></div>`;
+}
+
+function renderEvents(s) {
+  $("events").innerHTML = s.events.slice().reverse().map(e =>
+    `<div class="ev"><time>${clock(e.time)}</time><b class="${esc(e.kind)}"></b><span>${esc(e.msg)}</span></div>`
+  ).join("") || `<div class="empty">Nothing yet</div>`;
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("api/state", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    const s = await r.json();
+    lastState = s;
+    lastOK = Date.now();
+    $("self").textContent = s.self_id || "unknown";
+    renderTiles(s);
+    renderJob(s.activity);
+    $("peersError").textContent = s.peers_error ? "peers.json: " + s.peers_error : "";
+    renderNodes(s, s.peers.filter(p => !p.test), "nodes");
+    renderAdd(s);
+    renderInvites(s);
+    renderFiles(s, s.files.filter(f => !f.test && !f.shared_by), "files", false);
+    const rec = s.files.filter(f => !f.test && f.shared_by);
+    $("receivedWrap").hidden = !rec.length;
+    renderFiles(s, rec, "received", false, true);
+    renderSharing(s);
+    renderAccounts(s);
+    const tp = s.peers.filter(p => p.test), tf = s.files.filter(f => f.test);
+    $("test").hidden = !tp.length && !s.test_error;
+    $("testError").textContent = s.test_error ? "test peers: " + s.test_error : "";
+    $("testSummary").textContent = `· ${tp.filter(p => p.up).length}/${tp.length} up · ${tf.filter(f => f.status === "healthy").length}/${tf.length} files healthy · not counted above`;
+    renderNodes(s, tp, "testNodes");
+    renderFiles(s, tf, "testFiles", true);
+    renderEvents(s);
+  } catch (e) { /* shown via the stale dot */ }
+  const stale = Date.now() - lastOK > 8000;
+  $("dot").classList.toggle("stale", stale);
+  $("updated").textContent = lastOK ? (stale ? "dashboard unreachable" : "live · " + clock(lastOK / 1000)) : "connecting…";
+}
+
+document.addEventListener("click", async ev => {
+  const cp = ev.target.closest("button[data-copy]");
+  if (cp) {
+    try { await navigator.clipboard.writeText($(cp.dataset.copy).textContent); cp.textContent = "Copied"; }
+    catch { getSelection().selectAllChildren($(cp.dataset.copy)); cp.textContent = "Press Ctrl+C"; }
+    setTimeout(() => cp.textContent = "Copy", 1500);
+    return;
+  }
+  if (ev.target.id === "cAdd") {
+    try {
+      const r = await post("api/contacts", {headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({name: $("cName").value, code: $("cCode").value})});
+      if (!r.ok) throw new Error(await r.text());
+      sharingRendered = "";
+    } catch (e) { $("cMsg").textContent = "Not added: " + e.message; return; }
+    refresh();
+    return;
+  }
+  const uc = ev.target.closest("button[data-uncontact]");
+  if (uc) {
+    if (!confirm(`Remove ${uc.dataset.name} from your contacts?`)) return;
+    await post("api/contacts/remove?code=" + encodeURIComponent(uc.dataset.uncontact));
+    sharingRendered = "";
+    refresh();
+    return;
+  }
+  const sb = ev.target.closest("button[data-share]");
+  if (sb) {
+    const contacts = lastState?.contacts || [];
+    $("shareName").textContent = sb.dataset.name;
+    $("shareTo").innerHTML = contacts.map(c => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join("");
+    $("shareGo").disabled = !contacts.length;
+    $("shareMsg").textContent = contacts.length ? "" : "Add the person under Sharing → Contacts first.";
+    $("shareNote").value = "";
+    $("shareDlg").dataset.stub = sb.dataset.share;
+    $("shareDlg").showModal();
+    return;
+  }
+  if (ev.target.id === "shareGo") {
+    ev.preventDefault();
+    const dlg = $("shareDlg");
+    try {
+      const r = await post("api/share", {headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({stub: dlg.dataset.stub, to: $("shareTo").value, note: $("shareNote").value})});
+      if (!r.ok) throw new Error(await r.text());
+      const name = /filename="?([^"]+)"?/.exec(r.headers.get("Content-Disposition") || "")?.[1] || "shared.ysend";
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await r.blob());
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      dlg.close();
+    } catch (e) { $("shareMsg").textContent = "Could not share: " + e.message; }
+    return;
+  }
+  if (ev.target.id === "invBtn") {
+    const who = $("invFor").value.trim();
+    try {
+      const r = await post("api/invites", {headers: {"Content-Type": "application/json"}, body: JSON.stringify({for: who})});
+      if (!r.ok) throw new Error(await r.text());
+      const inv = await r.json();
+      $("invOut").innerHTML = `<p class="sub" style="margin:10px 0 4px">Send them this message (it contains the invite):</p>
+        <pre id="invText"></pre><button data-copy="invText">Copy</button>`;
+      $("invText").textContent = inviteMessage(who, inv);
+      $("invMsg").textContent = "";
+      refresh();
+    } catch (e) { $("invMsg").textContent = "No invite: " + e.message; }
+    return;
+  }
+  if (ev.target.id === "addBtn") {
+    const msg = $("addMsg");
+    ev.target.disabled = true; msg.textContent = "Adding…";
+    try {
+      const r = await post("api/nodes", {headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({text: $("addText").value, host: $("addHost").value, slow: $("addSlow").checked})});
+      if (!r.ok) throw new Error(await r.text());
+      msg.textContent = "Added. It appears above once it answers.";
+      $("addText").value = "";
+    } catch (e) { msg.textContent = "Not added: " + e.message; }
+    ev.target.disabled = false;
+    setTimeout(refresh, 500);
+    return;
+  }
+  const db = ev.target.closest("button[data-delete]");
+  if (db) {
+    const msg = db.dataset.received
+      ? `Remove "${db.dataset.name}" from your list?\n\nThe sender's copy stays; ask them to send it again if you need it later.`
+      : `Delete "${db.dataset.name}" from every node?\n\nThis cannot be undone: the shards and the stub are removed, and anyone you shared it with loses it too. Keep a copy if you still need it.`;
+    if (!confirm(msg)) return;
+    db.disabled = true; db.textContent = "Deleting…";
+    try {
+      const r = await post("api/delete?stub=" + encodeURIComponent(db.dataset.delete));
+      if (!r.ok) throw new Error(await r.text());
+    } catch (e) { alert("Delete failed: " + e.message); }
+    setTimeout(refresh, 500);
+    return;
+  }
+  const rb = ev.target.closest("button[data-restore]");
+  if (rb) {
+    rb.disabled = true; rb.textContent = "Restoring…";
+    try {
+      const r = await post("api/restore?stub=" + encodeURIComponent(rb.dataset.restore));
+      if (!r.ok) throw new Error(await r.text());
+    } catch (e) { alert("Restore failed: " + e.message); }
+    setTimeout(refresh, 500);
+    return;
+  }
+  const b = ev.target.closest("button[data-stub]");
+  if (!b) return;
+  const stub = b.dataset.stub;
+  b.disabled = true; b.textContent = "Checking…";
+  try {
+    const r = await post("api/verify?stub=" + encodeURIComponent(stub));
+    if (!r.ok) throw new Error(await r.text());
+    const v = await r.json();
+    const fails = v.rows.filter(x => !x.ok);
+    verifyResults[stub] = `${v.passed}/${v.total} shards proved storage` +
+      (fails.length ? ` · failed: ` + esc([...new Set(fails.map(x => x.peer + " (" + x.error + ")"))].join(", ")) : "") +
+      ` · ${new Date().toLocaleTimeString()}`;
+  } catch (e) {
+    verifyResults[stub] = "verify failed: " + esc(e.message);
+  }
+  refresh();
+});
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
