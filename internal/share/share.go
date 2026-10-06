@@ -214,3 +214,9 @@ func (id *Identity) Open(data []byte) (Received, error) {
 	}
 	return Received{From: env.From, FromName: c.FromName, Note: c.Note, Stub: c.Stub}, nil
 }
+
+// PublicKey is the public half of the identity, as in its sharing code.
+func (id *Identity) PublicKey() *ecdh.PublicKey { return id.key.PublicKey() }
+
+// Agree is the X25519 shared secret between this identity and pub.
+func (id *Identity) Agree(pub *ecdh.PublicKey) ([]byte, error) { return id.key.ECDH(pub) }

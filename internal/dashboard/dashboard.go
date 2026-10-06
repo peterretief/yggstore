@@ -24,6 +24,7 @@ import (
 	"github.com/peterretief/yggstore/internal/contacts"
 	"github.com/peterretief/yggstore/internal/files"
 	"github.com/peterretief/yggstore/internal/invite"
+	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
@@ -66,6 +67,8 @@ type Config struct {
 	// and token file.
 	MsgAPI       string
 	MsgTokenPath string
+	// MailDir is the mailbox this machine's node collects email into.
+	MailDir string
 	// LogPath keeps the activity log on disk (default: in the outbox's
 	// .yggstore folder), so it survives restarts and can be looked at later.
 	LogPath string
@@ -167,6 +170,7 @@ type Contact = contacts.Contact
 type Dashboard struct {
 	cfg     Config
 	mu      sync.Mutex
+	box     *mail.Box
 	state   State
 	history map[string][]float64
 	seen    map[string]int64
@@ -247,6 +251,11 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/msg/send", d.handleMsgSend)
 	mux.HandleFunc("POST /api/msg/subscribe", d.handleMsgSub)
 	mux.HandleFunc("POST /api/msg/unsubscribe", d.handleMsgSub)
+	mux.HandleFunc("GET /api/mail", d.handleMailList)
+	mux.HandleFunc("GET /api/mail/message", d.handleMailRead)
+	mux.HandleFunc("GET /api/mail/raw", d.handleMailRaw)
+	mux.HandleFunc("GET /api/mail/attachment", d.handleMailAttachment)
+	mux.HandleFunc("POST /api/mail/delete", d.handleMailDelete)
 	return d.guard(mux)
 }
 

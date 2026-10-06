@@ -30,6 +30,8 @@ independent. Don't make it the only copy of anything you can't lose.
   other, so losing one tunnel or public peer doesn't cut anyone off.
 - [Websites](docs/sites.md) can live on the group: publish a folder, and
   several machines serve it, so a site stays up when one of them goes down.
+- [Email](docs/mail.md) to your domain can arrive on the group: each message
+  is encrypted for you as it comes in and read on your dashboard.
 - Licence: see [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
   Security issues: [SECURITY.md](SECURITY.md).
 

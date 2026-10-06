@@ -1,0 +1,15 @@
+// Copy to wrangler.jsonc (kept out of git), fill in, then:
+//   npx wrangler secret put INGEST_TOKEN
+//   npx wrangler deploy
+// and in the Cloudflare dashboard send the domain's addresses to this
+// Worker (Email › Email Routing › Routing rules). See docs/mail.md.
+{
+  "name": "yggstore-mail",
+  "main": "worker.js",
+  "workers_dev": false,
+  "compatibility_date": "2026-10-01",
+  "vars": {
+    "INGEST_URL": "https://mail-in.example.org/_yggstore/mail",
+    "MAILBOXES": "{\"you@example.org\": {\"node\": \"200:1111:2222:3333:4444:5555:6666:7777\", \"code\": \"ys1...\"}}"
+  }
+}

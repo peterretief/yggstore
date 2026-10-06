@@ -128,6 +128,23 @@ details.add .opts input[type=text] { width: 160px; }
 .msgs .m time { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .msgs .m .body { grid-column: 1 / -1; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .msgs .compose { grid-template-columns: 1fr; } }
+.mail { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+  display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 14px; }
+.mail .list { max-height: 520px; overflow-y: auto; border-top: 1px solid var(--line); }
+.mail .item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 6px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.mail .item:hover, .mail .item.on { background: var(--bg); }
+.mail .item b, .mail .item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail .item time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.mail .item span { grid-column: 1 / -1; color: var(--muted); }
+.mail .reader { min-width: 0; }
+.mail .reader h3 { margin: 0 0 8px; font-size: 16px; text-wrap: balance; overflow-wrap: anywhere; }
+.mail .reader dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0 0 10px; font-size: 13px; }
+.mail .reader dt { color: var(--muted); }
+.mail .reader dd { margin: 0; overflow-wrap: anywhere; }
+.mail .reader .text { white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--line); padding-top: 10px; max-height: 520px; overflow-y: auto; }
+.mail .reader .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; }
+.mail .reader .acts a { font-size: 13px; }
+@media (max-width: 760px) { .mail { grid-template-columns: 1fr; } }
 .sharing table td, .sharing table th { padding: 6px 8px; }
 .sharing .addc { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .sharing .addc input { font: 12px var(--mono); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
@@ -227,6 +244,15 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     </div>
     <div class="sub" id="msgPending"></div>
     <div class="list" id="msgList"></div>
+  </section>
+
+  <h2>Mail</h2>
+  <section class="mail" id="mail">
+    <div>
+      <div id="mailError" class="err"></div>
+      <div class="list" id="mailList"></div>
+    </div>
+    <div class="reader" id="mailReader"><div class="empty">Choose a message to read it.</div></div>
   </section>
 
   <dialog id="shareDlg">
@@ -862,6 +888,59 @@ $("msgTopics").addEventListener("click", async ev => {
 });
 refreshMsgs();
 setInterval(refreshMsgs, 2000);
+
+let mailOpen = "", mailKey = "";
+async function refreshMail() {
+  let m;
+  try {
+    const r = await fetch("api/mail", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    m = await r.json();
+  } catch (e) { return; }
+  $("mailError").textContent = m.available ? "" : m.error;
+  const key = JSON.stringify(m.messages.map(x => x.id)) + mailOpen;
+  if (key === mailKey) return;
+  mailKey = key;
+  $("mailList").innerHTML = m.messages.map(x => x.error
+    ? `<div class="item" data-id="${esc(x.id)}"><b>Can't open this message</b><time></time><span>${esc(x.error)}</span></div>`
+    : `<div class="item${x.id === mailOpen ? " on" : ""}" data-id="${esc(x.id)}"><b>${esc(x.from || "(no sender)")}</b>
+        <time>${new Date(x.date || x.received).toLocaleString([], {dateStyle: "medium", timeStyle: "short"})}</time>
+        <span>${esc(x.subject || "(no subject)")}</span></div>`).join("")
+    || `<div class="empty">No mail yet. Email to your address arrives here; see docs/mail.md to set one up.</div>`;
+}
+async function openMail(id) {
+  mailOpen = id; mailKey = "";
+  refreshMail();
+  const rd = $("mailReader");
+  rd.innerHTML = `<div class="empty">Opening…</div>`;
+  const r = await fetch("api/mail/message?id=" + encodeURIComponent(id), {cache: "no-store"});
+  if (!r.ok) { rd.innerHTML = `<div class="err">${esc(await r.text())}</div>`; return; }
+  const m = await r.json();
+  const q = "id=" + encodeURIComponent(id);
+  const row = (k, v) => v ? `<dt>${k}</dt><dd>${esc(v)}</dd>` : "";
+  rd.innerHTML = `<h3>${esc(m.subject || "(no subject)")}</h3>
+    <dl>${row("From", m.from)}${row("To", m.to)}${row("Cc", m.cc)}${row("Reply to", m.reply_to)}
+      ${row("Date", m.date ? new Date(m.date).toLocaleString() : "")}</dl>
+    ${m.from_html ? `<div class="sub">Shown as plain text; download the message to see its formatting.</div>` : ""}
+    <div class="text">${esc(m.text) || `<span class="sub">(no text)</span>`}</div>
+    <div class="acts">${(m.attachments || []).map((a, i) =>
+      `<a href="api/mail/attachment?${q}&n=${i}">📎 ${esc(a.name)} (${size(a.size)})</a>`).join("")}
+      <a href="api/mail/raw?${q}">Download message (.eml)</a>
+      <button id="mailDelete" style="margin-left:auto">Delete</button></div>`;
+  $("mailDelete").addEventListener("click", async () => {
+    if (!confirm("Delete this message, here and from the group?")) return;
+    const r = await post("api/mail/delete", {body: JSON.stringify({id})});
+    if (!r.ok) { alert("Not deleted: " + await r.text()); return; }
+    mailOpen = ""; rd.innerHTML = `<div class="empty">Deleted.</div>`;
+    refreshMail();
+  });
+}
+$("mailList").addEventListener("click", ev => {
+  const it = ev.target.closest(".item[data-id]");
+  if (it) openMail(it.dataset.id);
+});
+refreshMail();
+setInterval(refreshMail, 10000);
 </script>
 </body>
 </html>

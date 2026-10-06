@@ -16,6 +16,7 @@ import (
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/files"
+	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/peers"
@@ -34,6 +35,8 @@ type Web struct {
 	Peers  func() []peers.Peer
 	Client client.Client
 	Log    func(string, ...any)
+	// Mail, if set, takes the mail Worker's posts (see package mail).
+	Mail http.Handler
 
 	mu    sync.Mutex
 	st    webState
@@ -314,6 +317,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	if host == HealthHost {
 		rw.Write([]byte("ok\n"))
+		return
+	}
+	if w.Mail != nil && r.URL.Path == mail.IngestPath {
+		w.Mail.ServeHTTP(rw, r)
 		return
 	}
 	w.mu.Lock()

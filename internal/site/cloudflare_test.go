@@ -117,7 +117,7 @@ func TestTunnelFromToken(t *testing.T) {
 	if a, tn, err := TunnelFromToken(tok + "\n"); err != nil || a != "acc" || tn != "tun" {
 		t.Fatalf("%s %s %v", a, tn, err)
 	}
-	if _, _, err := TunnelFromToken("6f1d2c3b-0a4e-4b5f-9c7d-8e9f0a1b2c3d"); err == nil {
+	if _, _, err := TunnelFromToken("00000000-0000-0000-0000-000000000000"); err == nil {
 		t.Fatal("tunnel ID taken for a token")
 	}
 }

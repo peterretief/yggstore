@@ -12,3 +12,8 @@ invites.json
 contacts.json
 # Personal deploy script
 scripts/update-node.sh
+
+# Mail Worker settings (real addresses and node IDs)
+deploy/mail-worker/wrangler.jsonc
+deploy/mail-worker/.wrangler/
+deploy/mail-worker/node_modules/

@@ -24,6 +24,7 @@ import (
 	"github.com/peterretief/yggstore/internal/files"
 	"github.com/peterretief/yggstore/internal/invite"
 	"github.com/peterretief/yggstore/internal/localstore"
+	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/mesh"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
@@ -53,6 +54,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore msg     send|pub|sub|unsub|read|status ...      message other nodes (see docs/messaging.md)
   yggstore site    publish|list|versions|rollback|announce|remove|status ...
                                                            host static websites on the group (see docs/sites.md)
+  yggstore mail    address|token|list|read ...             the group's email (see docs/mail.md)
   yggstore mesh    [set NODE URI...]                        Yggdrasil links between members (see docs/mesh.md)
   yggstore gateway serve|customer|report ...               S3 service for paying customers (see docs/gateway.md)
   yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
@@ -160,6 +162,8 @@ func main() {
 		err = cmdSite(ctx, args)
 	case "mesh":
 		err = cmdMesh(ctx, args)
+	case "mail":
+		err = cmdMail(ctx, args)
 	case "history":
 		err = cmdHistory(ctx, args)
 	case "version", "-version", "--version":
@@ -209,6 +213,8 @@ func cmdServe(ctx context.Context, args []string) error {
 	webAddr := fs.String("web", "", `serve the group's websites on this address, e.g. 127.0.0.1:8480 ("" for none; see docs/sites.md)`)
 	webTunnel := fs.String("web-tunnel", "", "a Cloudflare Tunnel token file: run its connector while this web node serves (see docs/sites.md)")
 	cloudflared := fs.String("cloudflared", "cloudflared", "the cloudflared program, for -web-tunnel")
+	mailIn := fs.String("mail-in", "", "take the group's email from the mail Worker; the file holds its token (needs -web; see docs/mail.md)")
+	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), `where your email is collected ("" for none; see docs/mail.md)`)
 	yggAdmin := fs.String("ygg-admin", "auto", `Yggdrasil's admin socket, for linking to other members ("none" to leave Yggdrasil's links alone)`)
 	fs.Parse(args)
 
@@ -263,9 +269,37 @@ func cmdServe(ctx context.Context, args []string) error {
 		meshStatus = m.Status
 	}
 
+	mailNode := &mail.Node{Dir: filepath.Join(*dataDir, "mail"), Self: ip.String(), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf}
+	if *mailbox != "" {
+		if err := os.MkdirAll(*mailbox, 0o700); err != nil {
+			log.Printf("mail: not collecting email: %v", err)
+		} else {
+			mailNode.Box = *mailbox
+		}
+	}
+	if *mailIn != "" {
+		if *webAddr == "" {
+			return errors.New("-mail-in needs -web")
+		}
+		b, err := os.ReadFile(*mailIn)
+		if err != nil {
+			return fmt.Errorf("-mail-in: %w", err)
+		}
+		if mailNode.Token = strings.TrimSpace(string(b)); len(mailNode.Token) < 32 {
+			return errors.New("-mail-in: the token is too short (make one with: yggstore mail token FILE)")
+		}
+	}
+	if err := mailNode.Start(); err != nil {
+		return fmt.Errorf("mail: %w", err)
+	}
+	go mailNode.Run(ctx)
+
 	var webStatus func() json.RawMessage
 	if *webAddr != "" {
 		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf}
+		if mailNode.Token != "" {
+			web.Mail = mailNode
+		}
 		go func() {
 			if err := web.Run(ctx); err != nil {
 				log.Printf("web: %v", err)
@@ -531,6 +565,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	yggPeers := fs.String("ygg-peers", defaultYggPeers, "comma-separated Yggdrasil peers newcomers can connect through")
 	msgAPI := fs.String("msg-api", "127.0.0.1:7401", "this machine's node's local messaging API")
 	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "the node's messaging token file")
+	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), "where this machine's node collects your email")
 	fs.Parse(args)
 
 	id, err := share.LoadOrCreate(*keyPath)
@@ -555,7 +590,8 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	c.HTTP.Timeout = 10 * time.Second
 	cfg := dashboard.Config{PeersPath: *peersPath, StubDir: absStubs, SelfID: selfID, Interval: *interval, Client: c,
 		TestPeersPath: *testPeers, Identity: id, ContactsPath: *contactsPath, Name: *me, Listen: *listen,
-		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken}
+		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken,
+		MailDir: *mailbox}
 	if *testStubs != "" {
 		if cfg.TestStubDir, err = filepath.Abs(*testStubs); err != nil {
 			return err

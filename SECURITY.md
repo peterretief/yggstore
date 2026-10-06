@@ -36,6 +36,10 @@ It is not yet suitable as the only copy of important or sensitive data.
   their objects and keeps the keys (in `objects/`), so whoever runs it can
   read what customers store; the members' boxes only see ciphertext.
 - **Websites** are public by design: web nodes keep plain copies of them.
+- **Email** is only as private as email is. Cloudflare sees each incoming
+  message before the mail Worker seals it for the recipient; after that the
+  web nodes and members see ciphertext. Anyone with the Worker's token can
+  put messages in a member's mailbox, so keep it as secret as a password.
 - **Yggdrasil** is trusted for transport: node identities and the encryption
   between nodes come from it.
 - **Everything on a member's machine is that member.** Nodes identify callers
