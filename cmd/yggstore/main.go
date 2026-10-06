@@ -33,6 +33,7 @@ import (
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/transport"
+	"github.com/peterretief/yggstore/internal/yggnet"
 )
 
 const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
@@ -40,7 +41,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore join    [-name NODE] [-me NAME] [-quota GB] [-service] INVITE
                                                            join a group with an invite from its dashboard
   yggstore id      [-transport ygg|loopback] [-port 7400]   print this node's ID and peers.json entry
-  yggstore serve   -peers peers.json [-data DIR] [-port 7400] [-name NAME] [-quota GB]
+  yggstore serve   -peers peers.json [-data DIR] [-port 7400] [-name NAME] [-quota GB] [-transport ygg|builtin]
   yggstore status  -peers peers.json                       show which peers answer
   yggstore put     -peers peers.json FILE                  shard FILE, write FILE.ystub
   yggstore get     [-o OUT] FILE.ystub                     rebuild the file from its stub
@@ -129,6 +130,8 @@ func main() {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
+	// Requests to other nodes go over whichever Yggdrasil this machine has.
+	yggnet.Install()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	cmd, args := os.Args[1], os.Args[2:]
@@ -198,7 +201,7 @@ func cmdID(args []string) error {
 
 func cmdServe(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	tname := fs.String("transport", "ygg", "ygg or loopback")
+	tname := fs.String("transport", "ygg", "ygg (the Yggdrasil daemon), builtin (Yggdrasil inside yggstore: no daemon, TUN or root; see docs/builtin.md), or loopback")
 	port := fs.Int("port", 7400, "shard server port")
 	dataDir := fs.String("data", defaultDataDir(), "where this node keeps other peers' shards")
 	peersPath := fs.String("peers", defaultPeers(), "allow-list of peers"+peersHelp)
@@ -216,14 +219,39 @@ func cmdServe(ctx context.Context, args []string) error {
 	mailIn := fs.String("mail-in", "", "take the group's email from the mail Worker; the file holds its token (needs -web; see docs/mail.md)")
 	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), `where your email is collected ("" for none; see docs/mail.md)`)
 	yggAdmin := fs.String("ygg-admin", "auto", `Yggdrasil's admin socket, for linking to other members ("none" to leave Yggdrasil's links alone)`)
+	yggKey := fs.String("ygg-key", filepath.Join(yggstoreHome(), "ygg.key"), "builtin: the node's Yggdrasil key, made if missing (a yggdrasil.conf works too, keeping that machine's address)")
+	yggPeers := fs.String("ygg-peers", defaultYggPeers, "builtin: comma-separated Yggdrasil peers to link to")
+	yggListen := fs.String("ygg-listen", "", "builtin: comma-separated URIs to take Yggdrasil links on, e.g. tls://0.0.0.0:9001")
+	yggLAN := fs.Bool("ygg-lan", true, "builtin: find and link to Yggdrasil nodes on the local network")
+	yggProxy := fs.String("ygg-proxy", yggnet.ProxyAddr(), `builtin: where the dashboard and commands on this machine reach other nodes through this one ("" for none)`)
 	fs.Parse(args)
 
 	t, err := transport.ByName(*tname)
 	if err != nil {
 		return err
 	}
-	ip, err := t.LocalIP()
-	if err != nil {
+	builtin := *tname == "builtin" || *tname == "embedded"
+	var ip net.IP
+	var node *yggnet.Node
+	if builtin {
+		if node, err = startBuiltin(*yggKey, *yggPeers, *yggListen, *yggLAN, *port); err != nil {
+			return err
+		}
+		defer node.Close()
+		ip = node.Addr()
+		if *yggProxy != "" {
+			proxy := &http.Server{Addr: *yggProxy, Handler: node.Proxy(), ReadHeaderTimeout: 10 * time.Second}
+			go func() {
+				<-ctx.Done()
+				proxy.Close()
+			}()
+			go func() {
+				if err := proxy.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Printf("the dashboard and commands on this machine can't reach the group: %v", err)
+				}
+			}()
+		}
+	} else if ip, err = t.LocalIP(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
@@ -263,8 +291,15 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 
 	var meshStatus func() mesh.Status
-	if *yggAdmin != "none" && *tname == "ygg" {
-		m := mesh.New(mesh.Find(*yggAdmin), ip.String(), live.List, filepath.Join(*dataDir, "mesh.json"), log.Printf)
+	var ygg mesh.Yggdrasil
+	switch {
+	case builtin:
+		ygg = mesh.Builtin{Node: node}
+	case *yggAdmin != "none" && *tname == "ygg":
+		ygg = mesh.Find(*yggAdmin)
+	}
+	if ygg != nil {
+		m := mesh.New(ygg, ip.String(), live.List, filepath.Join(*dataDir, "mesh.json"), log.Printf)
 		go m.Run(ctx, time.Minute)
 		meshStatus = m.Status
 	}
@@ -340,25 +375,34 @@ func cmdServe(ctx context.Context, args []string) error {
 
 	store := localstore.WithQuota(*dataDir, int64(*quotaGB*(1<<30)))
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
-	srv := &http.Server{
-		Addr: addr,
-		Handler: server.Handler(store, server.Options{
-			Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
-			Join: func(caller string, req invite.Request) (invite.Response, error) {
-				own := ""
-				if id, err := share.Load(*keyPath); err == nil {
-					own = id.Code()
-				}
-				acc := invite.Acceptor{InvitesPath: *invites, PeersPath: *peersPath, ContactsPath: *contactsPath, OwnCode: own,
-					Refresh: func() { live.Refresh() }}
-				resp, err := acc.Accept(caller, req)
-				if err == nil {
-					log.Printf("%s joined as %s (%s)", req.Person, resp.Node, req.Addr)
-				}
-				return resp, err
-			}}),
-		ReadHeaderTimeout: 10 * time.Second,
+	handler := server.Handler(store, server.Options{
+		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
+		Join: func(caller string, req invite.Request) (invite.Response, error) {
+			own := ""
+			if id, err := share.Load(*keyPath); err == nil {
+				own = id.Code()
+			}
+			acc := invite.Acceptor{InvitesPath: *invites, PeersPath: *peersPath, ContactsPath: *contactsPath, OwnCode: own,
+				Refresh: func() { live.Refresh() }}
+			resp, err := acc.Accept(caller, req)
+			if err == nil {
+				log.Printf("%s joined as %s (%s)", req.Person, resp.Node, req.Addr)
+			}
+			return resp, err
+		}})
+	if builtin {
+		log.Printf("%s serving shards from %s on %s (built-in Yggdrasil, %d peers in list %s, yggstore %s)", *name, *dataDir, addr, len(live.List()), live.Hash(), versionString())
+		return node.Serve(ctx, handler)
 	}
+	if *tname == "ygg" {
+		// HTTP/3 on UDP too, for members with the built-in Yggdrasil.
+		go func() {
+			if err := yggnet.ServeSystem(ctx, ip, *port, handler); err != nil {
+				log.Printf("not answering HTTP/3 (members with the built-in Yggdrasil can't reach this node): %v", err)
+			}
+		}()
+	}
+	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -680,4 +724,22 @@ func size(n int64) string {
 		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+// startBuiltin brings up the node's built-in Yggdrasil and sends this
+// process's requests to other nodes through it.
+func startBuiltin(keyPath, peerList, listen string, lan bool, port int) (*yggnet.Node, error) {
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		return nil, err
+	}
+	key, err := yggnet.LoadKey(keyPath, true)
+	if err != nil {
+		return nil, fmt.Errorf("Yggdrasil key: %w", err)
+	}
+	node, err := yggnet.Start(yggnet.Config{Key: key, Peers: splitList(peerList), Listen: splitList(listen), Multicast: lan, Port: port, Logf: log.Printf})
+	if err != nil {
+		return nil, err
+	}
+	yggnet.Default.UseNode(node)
+	return node, nil
 }

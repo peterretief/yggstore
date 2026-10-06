@@ -28,9 +28,18 @@ type Status struct {
 	Trying map[string]string `json:"trying,omitempty"`
 }
 
+// Yggdrasil is what the mesh needs from this machine's Yggdrasil: the
+// daemon's admin socket (Admin) or the node's built-in one (Builtin).
+type Yggdrasil interface {
+	Self(ctx context.Context) (Self, error)
+	Links(ctx context.Context) ([]Link, error)
+	AddLink(ctx context.Context, uri string) (added bool, err error)
+	RemoveLink(ctx context.Context, uri string) error
+}
+
 // Mesh opens Yggdrasil links to the other members.
 type Mesh struct {
-	admin Admin
+	admin Yggdrasil
 	self  string // this node's address
 	list  func() []peers.Peer
 	state string // file of links this node added, so it only removes its own
@@ -41,7 +50,7 @@ type Mesh struct {
 	logged string // last error logged, so a lasting one is logged once
 }
 
-func New(admin Admin, self string, list func() []peers.Peer, statePath string, logf func(string, ...any)) *Mesh {
+func New(admin Yggdrasil, self string, list func() []peers.Peer, statePath string, logf func(string, ...any)) *Mesh {
 	return &Mesh{admin: admin, self: self, list: list, state: statePath, logf: logf}
 }
 

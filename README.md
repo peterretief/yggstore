@@ -26,6 +26,8 @@ independent. Don't make it the only copy of anything you can't lose.
 - Nodes can [message each other](docs/messaging.md): direct messages, and
   topics any node can publish to and follow, delivered even to nodes that
   were off at the time. Programs can use it too, through a local API.
+- No Yggdrasil to install: a node can run it [built in](docs/builtin.md),
+  with no daemon, TUN device or root. It talks to nodes on the daemon too.
 - The [mesh](docs/mesh.md) keeps members' Yggdrasil linked directly to each
   other, so losing one tunnel or public peer doesn't cut anyone off.
 - [Websites](docs/sites.md) can live on the group: publish a folder, and
@@ -56,8 +58,9 @@ independent. Don't make it the only copy of anything you can't lose.
 A Yggdrasil address (200::/7) is derived from the node's public key, so the
 source address of a connection over the overlay identifies the caller. The
 address is the node ID. Each server only answers callers whose address is in
-`peers.json` (default deny), binds only to its overlay address, and only lets
-the original writer delete a shard.
+`peers.json` (default deny), binds only to its overlay address (or, with the
+[built-in Yggdrasil](docs/builtin.md), has nothing on the machine's network
+at all), and only lets the original writer delete a shard.
 
 ## Usage
 

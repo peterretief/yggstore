@@ -41,10 +41,14 @@ It is not yet suitable as the only copy of important or sensitive data.
   web nodes and members see ciphertext. Anyone with the Worker's token can
   put messages in a member's mailbox, so keep it as secret as a password.
 - **Yggdrasil** is trusted for transport: node identities and the encryption
-  between nodes come from it.
+  between nodes come from it. Nodes speak HTTP/3, whose TLS is not checked
+  (it is there because QUIC needs it); the caller is still its Yggdrasil
+  address.
 - **Everything on a member's machine is that member.** Nodes identify callers
   by their Yggdrasil address, which every program on the machine shares; on
-  an admin's machine, any program can push member lists. Run nodes on
+  an admin's machine, any program can push member lists. With the
+  [built-in Yggdrasil](docs/builtin.md) the same goes for the node's proxy
+  on 127.0.0.1:7402, which any program on the machine can use. Run nodes on
   machines you control, and keep untrusted software off admin machines.
 - **The dashboard has no login.** It refuses web pages, but any user or
   program on the same machine can use it (and so restore, share and delete

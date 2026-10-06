@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/peterretief/yggstore/internal/yggnet"
 )
 
 // Transport is the seam between storage and the network (plan Phase 1).
@@ -19,15 +21,20 @@ type Transport interface {
 
 // Yggdrasil addresses live in 200::/7 and are derived from the node's public
 // key, so a source address on the overlay cannot be forged by another node.
-var yggNet = &net.IPNet{IP: net.ParseIP("200::"), Mask: net.CIDRMask(7, 128)}
+func IsYggdrasil(ip net.IP) bool { return yggnet.IsYggdrasil(ip) }
 
-func IsYggdrasil(ip net.IP) bool { return ip != nil && ip.To4() == nil && yggNet.Contains(ip) }
-
+// Yggdrasil is the system daemon's TUN device, or a node's built-in
+// Yggdrasil (package yggnet); callers are told apart by address either way.
 type Yggdrasil struct{}
 
 func (Yggdrasil) Name() string { return "yggdrasil" }
 
+// LocalIP is the address of the node on this machine: one running the
+// built-in Yggdrasil if there is one, else the system daemon's.
 func (Yggdrasil) LocalIP() (net.IP, error) {
+	if ip, ok := yggnet.LocalNode(); ok {
+		return ip, nil
+	}
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return nil, err
@@ -38,7 +45,7 @@ func (Yggdrasil) LocalIP() (net.IP, error) {
 			return ipnet.IP, nil
 		}
 	}
-	return nil, fmt.Errorf("no Yggdrasil (200::/7) address found; is yggdrasil running?")
+	return nil, fmt.Errorf("no Yggdrasil (200::/7) address found: start the node (yggstore serve), or the Yggdrasil daemon")
 }
 
 func (Yggdrasil) Identify(remoteAddr string) (string, error) {
@@ -70,7 +77,7 @@ func (Loopback) Identify(remoteAddr string) (string, error) {
 
 func ByName(name string) (Transport, error) {
 	switch strings.ToLower(name) {
-	case "", "yggdrasil", "ygg":
+	case "", "yggdrasil", "ygg", "builtin", "embedded":
 		return Yggdrasil{}, nil
 	case "loopback":
 		return Loopback{}, nil

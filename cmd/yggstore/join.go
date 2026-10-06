@@ -42,19 +42,33 @@ func cmdJoin(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("Joining %s, invited by %s.\n", inv.Group, inv.From)
 
+	if err := os.MkdirAll(*dir, 0o700); err != nil {
+		return err
+	}
 	t, err := transport.ByName("ygg")
 	if err != nil {
 		return err
 	}
+	// Without Yggdrasil on this machine, the node runs its own, linked
+	// through the peers in the invite.
+	var builtin []string
 	ip, err := t.LocalIP()
 	if err != nil {
-		return fmt.Errorf("Yggdrasil is not running on this machine.\n\n%s", yggHelp(inv))
+		yggPeers := strings.Join(inv.YggPeers, ",")
+		if yggPeers == "" {
+			yggPeers = defaultYggPeers
+		}
+		yggKey := filepath.Join(*dir, "ygg.key")
+		node, err := startBuiltin(yggKey, yggPeers, "", true, *port)
+		if err != nil {
+			return err
+		}
+		defer node.Close()
+		ip = node.Addr()
+		builtin = []string{"-transport", "builtin", "-ygg-key", yggKey, "-ygg-peers", yggPeers}
+		fmt.Println("This machine has no Yggdrasil running, so the node will use its own, built in.")
 	}
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
-
-	if err := os.MkdirAll(*dir, 0o700); err != nil {
-		return err
-	}
 	keyPath := filepath.Join(*dir, "sharing.key")
 	id, err := share.LoadOrCreate(keyPath)
 	if err != nil {
@@ -68,6 +82,10 @@ func cmdJoin(ctx context.Context, args []string) error {
 	if err != nil {
 		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "400") {
 			return fmt.Errorf("the group did not accept this machine: %v", err)
+		}
+		if builtin != nil {
+			return fmt.Errorf("could not reach the group (%s at %s) through Yggdrasil peers %s: %v\n"+
+				"Check this machine is online and can reach them, or ask %s for an invite with other peers.", inv.Admin.Name, inv.Admin.Addr, builtin[5], err, inv.From)
 		}
 		return fmt.Errorf("could not reach the group (%s at %s): %v\n\n%s", inv.Admin.Name, inv.Admin.Addr, err, yggHelp(inv))
 	}
@@ -87,6 +105,7 @@ func cmdJoin(ctx context.Context, args []string) error {
 	node := []string{exe, "serve", "-peers", peersPath, "-data", filepath.Join(*dir, "shards"), "-port", strconv.Itoa(*port),
 		"-name", resp.Node, "-quota", strconv.FormatFloat(*quotaGB, 'f', -1, 64),
 		"-sharing-key", keyPath, "-contacts", contactsPath, "-invites", filepath.Join(*dir, "invites.json")}
+	node = append(node, builtin...)
 	if *customers {
 		node = append(node, "-customers")
 	}
@@ -112,12 +131,12 @@ func cmdJoin(ctx context.Context, args []string) error {
 
 func yggHelp(inv invite.Invite) string {
 	var b strings.Builder
-	b.WriteString("Install Yggdrasil (https://yggdrasil-network.github.io/installation.html),\n")
-	b.WriteString("add these peers to its config (Peers: [...] in /etc/yggdrasil.conf or /etc/yggdrasil/yggdrasil.conf):\n")
+	b.WriteString("This machine's Yggdrasil can't reach the group. Check it has peers (`sudo yggdrasilctl getPeers`);\n")
+	b.WriteString("these are the group's (Peers: [...] in /etc/yggdrasil.conf or /etc/yggdrasil/yggdrasil.conf):\n")
 	for _, p := range inv.YggPeers {
 		fmt.Fprintf(&b, "  %s\n", p)
 	}
-	b.WriteString("restart it, check it shows peers with `sudo yggdrasilctl getPeers`, then run this again.")
+	b.WriteString("Or stop Yggdrasil and run this again: the node then uses its own, built in.")
 	return b.String()
 }
 
