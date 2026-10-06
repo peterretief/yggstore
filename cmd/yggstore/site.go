@@ -304,6 +304,11 @@ func waitServed(ctx context.Context, peersPath, domain, id string) {
 // nodes through Cloudflare. It reports whether the routes are in place.
 func addRoutes(ctx context.Context, domain, cfTokenPath, tunTokenPath, service string) bool {
 	manual := func(why string) bool {
+		// Without a token, routes were added by hand; say nothing if they were.
+		if answers(ctx, domain) {
+			fmt.Printf("Online: https://%s/\n", domain)
+			return false
+		}
 		fmt.Printf("\n%s. To put it online, add a published application route for %s\n"+
 			"(service HTTP, URL %s) to the web nodes' tunnel in the Cloudflare dashboard,\n"+
 			"or save an API token as %s and publish again (see docs/sites.md).\n",
@@ -340,6 +345,18 @@ func addRoutes(ctx context.Context, domain, cfTokenPath, tunTokenPath, service s
 		}
 	}
 	return ok
+}
+
+// answers reports whether https://domain/ answers 200 now.
+func answers(ctx context.Context, domain string) bool {
+	c := http.Client{Timeout: 10 * time.Second}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+domain+"/", nil)
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 // waitPublic waits for https://domain/ to answer through Cloudflare.
