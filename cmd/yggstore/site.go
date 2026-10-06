@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,7 +23,9 @@ import (
 const siteUsage = `yggstore site: static websites hosted on the group
 
   yggstore site publish FOLDER [-name DOMAIN]   store a new version and serve it (DOMAIN
-                                                defaults to the folder's name)
+                                                defaults to the folder's name); with a
+                                                Cloudflare API token it also adds the
+                                                site's tunnel route and DNS (and www.)
   yggstore site list                            sites published from this machine
   yggstore site versions DOMAIN                 a site's versions, newest first
   yggstore site rollback DOMAIN [VERSION]       serve an earlier version (default: the one before)
@@ -32,7 +35,9 @@ const siteUsage = `yggstore site: static websites hosted on the group
 
 Publishing needs this machine's node running (it announces through its
 messaging). Web nodes are nodes started with -web. See docs/sites.md.
-Options: -peers FILE, -api 127.0.0.1:7401, -token ~/.yggstore/msg.token.
+Options: -peers FILE, -api 127.0.0.1:7401, -token ~/.yggstore/msg.token,
+-cloudflare-token ~/.yggstore/cloudflare-api.token,
+-tunnel-token ~/.yggstore/group-sites.token, -no-route, -no-wait.
 `
 
 // localAnnouncer publishes through this machine's node.
@@ -55,6 +60,11 @@ func cmdSite(ctx context.Context, args []string) error {
 	tokenPath := fs.String("token", filepath.Join(yggstoreHome(), "msg.token"), "the node's messaging token file")
 	name := fs.String("name", "", "the domain the site is served at")
 	yes := fs.Bool("yes", false, "confirm removing a site")
+	cfToken := fs.String("cloudflare-token", filepath.Join(yggstoreHome(), "cloudflare-api.token"), "Cloudflare API token file, for adding routes")
+	tunToken := fs.String("tunnel-token", filepath.Join(yggstoreHome(), "group-sites.token"), "the web nodes' tunnel token file")
+	service := fs.String("service", "http://localhost:8480", "where the web nodes serve, as the tunnel reaches them")
+	noRoute := fs.Bool("no-route", false, "don't add Cloudflare routes")
+	noWait := fs.Bool("no-wait", false, "don't wait for the web nodes and the public address")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, siteUsage) }
 	fs.Parse(reorder(args[1:]))
 
@@ -97,7 +107,19 @@ func cmdSite(ctx context.Context, args []string) error {
 		if reused > 0 {
 			fmt.Printf(", %d unchanged parts reused", reused)
 		}
-		fmt.Println(").\nWeb nodes switch to it within seconds; check with: yggstore site status")
+		fmt.Println(").")
+		if *noWait {
+			fmt.Println("Web nodes switch to it within seconds; check with: yggstore site status")
+		} else {
+			waitServed(ctx, *peersPath, domain, v.ID)
+		}
+		routed := false
+		if !*noRoute {
+			routed = addRoutes(ctx, domain, *cfToken, *tunToken, *service)
+		}
+		if routed && !*noWait {
+			waitPublic(ctx, domain)
+		}
 	case "list":
 		for _, s := range pub.Sites() {
 			vs, _ := pub.Versions(s)
@@ -230,6 +252,116 @@ func siteStatus(ctx context.Context, path string) error {
 		fmt.Printf("%s\n  %s\n", n, strings.Join(bySite[n], "\n  "))
 	}
 	return nil
+}
+
+// waitServed waits until every web node serves version id of domain.
+func waitServed(ctx context.Context, peersPath, domain, id string) {
+	list, err := peers.Load(peersPath)
+	if err != nil {
+		return
+	}
+	c := client.New()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		var have, lacking []string
+		for _, p := range list {
+			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			info, err := c.Info(pctx, p.Addr)
+			cancel()
+			if err != nil || len(info.Web) == 0 {
+				continue
+			}
+			var st site.NodeStatus
+			if json.Unmarshal(info.Web, &st) != nil {
+				json.Unmarshal(info.Web, &st.Sites)
+			}
+			ok := false
+			for _, s := range st.Sites {
+				ok = ok || (s.Site == domain && s.Serving == id)
+			}
+			if ok {
+				have = append(have, p.Name)
+			} else {
+				lacking = append(lacking, p.Name)
+			}
+		}
+		if len(lacking) == 0 || time.Now().After(deadline) || ctx.Err() != nil {
+			switch {
+			case len(have)+len(lacking) == 0:
+				fmt.Println("No web nodes answer. Start a node with -web 127.0.0.1:8480 to make it one.")
+			case len(lacking) == 0:
+				fmt.Printf("Served by %s.\n", strings.Join(have, ", "))
+			default:
+				fmt.Printf("Served by %s; not yet by %s (see yggstore site status).\n", orNone(strings.Join(have, ", ")), strings.Join(lacking, ", "))
+			}
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// addRoutes makes domain (and www.domain, for a bare domain) reach the web
+// nodes through Cloudflare. It reports whether the routes are in place.
+func addRoutes(ctx context.Context, domain, cfTokenPath, tunTokenPath, service string) bool {
+	manual := func(why string) bool {
+		fmt.Printf("\n%s. To put it online, add a published application route for %s\n"+
+			"(service HTTP, URL %s) to the web nodes' tunnel in the Cloudflare dashboard,\n"+
+			"or save an API token as %s and publish again (see docs/sites.md).\n",
+			why, domain, strings.TrimPrefix(service, "http://"), cfTokenPath)
+		return false
+	}
+	apiTok, err := os.ReadFile(cfTokenPath)
+	if err != nil {
+		return manual("No Cloudflare API token")
+	}
+	tunTok, err := os.ReadFile(tunTokenPath)
+	if err != nil {
+		return manual("Can't read the tunnel token " + tunTokenPath)
+	}
+	account, tunnel, err := site.TunnelFromToken(string(tunTok))
+	if err != nil {
+		return manual(tunTokenPath + " doesn't hold a tunnel token")
+	}
+	cf := &site.Cloudflare{APIToken: strings.TrimSpace(string(apiTok)), Account: account, Tunnel: tunnel}
+	hosts := []string{domain}
+	if _, zone, err := cf.Zone(ctx, domain); err == nil && zone == domain {
+		hosts = append(hosts, "www."+domain)
+	}
+	ok := true
+	for _, h := range hosts {
+		added, err := cf.Route(ctx, h, service)
+		if err != nil {
+			fmt.Printf("\nCloudflare: %v\n", err)
+			ok = ok && h != domain // a www that can't be added doesn't stop the site
+			continue
+		}
+		for _, a := range added {
+			fmt.Printf("Added %s.\n", a)
+		}
+	}
+	return ok
+}
+
+// waitPublic waits for https://domain/ to answer through Cloudflare.
+func waitPublic(ctx context.Context, domain string) {
+	c := http.Client{Timeout: 10 * time.Second}
+	deadline := time.Now().Add(2 * time.Minute)
+	last := ""
+	for time.Now().Before(deadline) && ctx.Err() == nil {
+		resp, err := c.Get("https://" + domain + "/")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				fmt.Printf("Online: https://%s/\n", domain)
+				return
+			}
+			last = resp.Status
+		} else {
+			last = err.Error()
+		}
+		time.Sleep(3 * time.Second)
+	}
+	fmt.Printf("https://%s/ doesn't answer yet (%s); new DNS names can take a few minutes.\n", domain, last)
 }
 
 func short(id string) string {

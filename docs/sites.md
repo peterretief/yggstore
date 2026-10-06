@@ -128,6 +128,46 @@ file and doesn't touch it.
 Every web node runs the **same** tunnel. Cloudflare counts each as a
 replica and sends visitors only to replicas that are connected.
 
+### Let publishing add the routes
+
+With a Cloudflare API token on the publishing machine, `yggstore site
+publish` adds the site's route and DNS record itself, plus `www.` for a bare
+domain, so a new site needs no trip to the dashboard. Create the token once
+in the dashboard (My Profile → API Tokens → Create Token → Custom token)
+with these permissions:
+
+- Account › Cloudflare Tunnel › Edit
+- Zone › Zone › Read
+- Zone › DNS › Edit (all zones, or just the ones your sites are in)
+
+and save it on the publishing machine:
+
+```sh
+(umask 077; nano ~/.yggstore/cloudflare-api.token)
+```
+
+The tunnel is the one in `~/.yggstore/group-sites.token` (`-tunnel-token`
+to use another), which the publishing machine has if it is a web node. A
+name that already has a DNS record pointing somewhere else is left alone:
+publish says so, and you delete the old record or route when you're ready
+to move the site. `-no-route` skips this.
+
+Then putting a new site online is one command:
+
+```sh
+$ yggstore site publish ./example.org
+example.org: serving version 1a2b3c4d (12 files, 340.2 KiB).
+Served by desktop, localmail.
+Added tunnel route example.org → http://localhost:8480.
+Added DNS record example.org.
+Added tunnel route www.example.org → http://localhost:8480.
+Added DNS record www.example.org.
+Online: https://example.org/
+```
+
+The domain has to be on Cloudflare already (added as a site in the
+dashboard, with its nameservers changed).
+
 To move a site that is on a server now: publish it, add the public hostname,
 and check it, before you remove the old copy.
 
