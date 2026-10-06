@@ -15,10 +15,10 @@ func perMachineOf(online []peers.Peer, to []int) map[string]int {
 }
 
 func TestTargetsGiveSlowPeersOneShard(t *testing.T) {
-	online := []peers.Peer{{Name: "desktop"}, {Name: "pi", Slow: true}, {Name: "pi2", Slow: true}, {Name: "localmail"}}
+	online := []peers.Peer{{Name: "desktop"}, {Name: "pi", Slow: true}, {Name: "pi2", Slow: true}, {Name: "office"}}
 	for start := range 8 {
 		got := perMachineOf(online, targets(online, 6, start, 2))
-		if got["pi"] != 1 || got["pi2"] != 1 || got["desktop"] != 2 || got["localmail"] != 2 {
+		if got["pi"] != 1 || got["pi2"] != 1 || got["desktop"] != 2 || got["office"] != 2 {
 			t.Fatalf("start %d: %v, want the Pis 1 each and the others 2", start, got)
 		}
 	}
@@ -56,20 +56,20 @@ func TestTargetsWithTooFewPeersStillPlaceEverything(t *testing.T) {
 }
 
 func TestTargetsCapShardsPerMachine(t *testing.T) {
-	online := []peers.Peer{{Name: "desktop"}, {Name: "pi", Slow: true}, {Name: "pi2", Slow: true}, {Name: "localmail"}}
+	online := []peers.Peer{{Name: "desktop"}, {Name: "pi", Slow: true}, {Name: "pi2", Slow: true}, {Name: "office"}}
 	for _, n := range []string{"t1", "t2", "t3", "t4", "t5"} {
 		online = append(online, peers.Peer{Name: n, Host: "desktop"})
 	}
 	for _, n := range []string{"l1", "l2", "l3"} {
-		online = append(online, peers.Peer{Name: n, Host: "localmail"})
+		online = append(online, peers.Peer{Name: n, Host: "office"})
 	}
 	for start := range 24 {
 		got := map[string]int{}
 		for _, i := range targets(online, 6, start, 2) {
 			got[online[i].Machine()]++
 		}
-		if got["desktop"] != 2 || got["localmail"] != 2 || got["pi"] != 1 || got["pi2"] != 1 {
-			t.Fatalf("start %d: per machine %v, want desktop 2, localmail 2, pi 1, pi2 1", start, got)
+		if got["desktop"] != 2 || got["office"] != 2 || got["pi"] != 1 || got["pi2"] != 1 {
+			t.Fatalf("start %d: per machine %v, want desktop 2, office 2, pi 1, pi2 1", start, got)
 		}
 	}
 }

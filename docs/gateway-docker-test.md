@@ -37,7 +37,7 @@ if you use a short trial (see 4.1).
 > **Opted-in machines.** An upload needs at least 3 separate machines whose
 > owners opted in to customers' data. Right now only the desktop's test
 > nodes (t1–t5) are opted in, and they all count as one machine. Until the
-> Pis and localmail are updated and opted in, set `MIN_MACHINES=1` in
+> Pis and the office node are updated and opted in, set `MIN_MACHINES=1` in
 > `deploy/gateway/.env` (step 1.4). It is for testing only: data stored
 > that way doesn't survive the desktop failing.
 

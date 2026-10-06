@@ -32,7 +32,7 @@ database, logins) needs a server of its own.
 ## 1. Choose the web nodes
 
 Two or three machines in different places are enough: say the desktop at
-home and localmail at the other site. Add `-web 127.0.0.1:8480` to each
+home and the office machine at the other site. Add `-web 127.0.0.1:8480` to each
 one's node command and restart it:
 
 ```sh
@@ -113,7 +113,7 @@ visitor away with error 502, even when other web nodes are fine. With
 connector down with it, and Cloudflare moves visitors to the others within
 seconds. If `cloudflared` isn't on the PATH, give it with `-cloudflared PATH`.
 
-For a node that runs as a service user (`yggstore` on localmail), put the
+For a node that runs as a service user (say `yggstore`), put the
 token where that user can read it:
 
 ```sh
@@ -157,7 +157,7 @@ Then putting a new site online is one command:
 ```sh
 $ yggstore site publish ./example.org
 example.org: serving version 1a2b3c4d (12 files, 340.2 KiB).
-Served by desktop, localmail.
+Served by desktop, office.
 Added tunnel route example.org → http://localhost:8480.
 Added DNS record example.org.
 Added tunnel route www.example.org → http://localhost:8480.

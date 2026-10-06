@@ -131,8 +131,9 @@ entry, runs `yggstore serve`, and you paste what `yggstore id -name NAME`
 prints. New uploads use it straight away; files already stored stay put.
 
 Nodes on older software show "update yggstore" on the dashboard and are not
-sent lists. `scripts/update-node.sh pi|pi2|localmail` installs the binary from
-`bin/` and, the first time, marks the desktop admin in that node's peers.json.
+sent lists. Install the new binary on them and restart them; a node that has
+never been sent a list also needs `"admin": true` on the admin node's entry in
+its own peers.json, so that it accepts lists from it.
 
 ## Sharing
 

@@ -10,7 +10,7 @@ Every node can message the others in the group:
 flowchart LR
   P1["t1 publishes<br/>alerts: disk 91% full"] --> D["desktop<br/>follows alerts"]
   P1 --> T3["t3<br/>follows alerts"]
-  P2["pi sends a direct message"] --> L["localmail"]
+  P2["pi sends a direct message"] --> L["office"]
 ```
 
 Messages travel over Yggdrasil between members only, so you always know which
@@ -42,7 +42,7 @@ be delivered, and to whom.
 ```sh
 yggstore msg sub alerts                       # follow a topic
 yggstore msg pub alerts "pi2 is back online"  # publish to everyone following it
-yggstore msg send localmail "backup done"     # a direct message to one node
+yggstore msg send office "backup done"     # a direct message to one node
 yggstore msg read                             # the latest messages
 yggstore msg read -topic alerts -follow       # keep showing new ones as they come
 yggstore msg status                           # topics, who follows what, anything undelivered

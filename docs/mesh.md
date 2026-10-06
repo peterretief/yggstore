@@ -23,11 +23,11 @@ members:
 flowchart LR
   subgraph before["Before"]
     direction LR
-    a1["pi"] --- w1(("public peers<br/>(Europe)")) --- b1["localmail"]
+    a1["pi"] --- w1(("public peers<br/>(Europe)")) --- b1["office"]
   end
   subgraph after["With the mesh"]
     direction LR
-    a2["pi"] -- "direct" --- b2["localmail"]
+    a2["pi"] -- "direct" --- b2["office"]
     a2 --- w2(("public peers")) --- b2
   end
 ```
@@ -75,7 +75,7 @@ can reach: a public IP and port, or a tunnel such as Cloudflare's. On the
 admin machine:
 
 ```sh
-yggstore mesh set localmail wss://ygg.yourgroup.example:443
+yggstore mesh set office wss://ygg.yourgroup.example:443
 yggstore mesh set vps tls://203.0.113.5:14415
 ```
 
@@ -100,10 +100,10 @@ yggstore mesh
 
 ```
 NODE         LINKED DIRECTLY TO     NOTES
-desktop      localmail, pi
-pi           desktop, localmail
-pi2          localmail
-localmail    desktop, pi, pi2       listens at wss://ygg.yourgroup.example:443
+desktop      office, pi
+pi           desktop, office
+pi2          office
+office       desktop, pi, pi2       listens at wss://ygg.yourgroup.example:443
 ```
 
 Each node card on the dashboard shows the same, with "trying NAME?" for a
