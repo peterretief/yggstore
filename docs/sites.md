@@ -96,41 +96,34 @@ Once, in the Cloudflare dashboard (Zero Trust → Networks → Tunnels):
    URL `localhost:8480`. To try a site under a spare name first, set
    *HTTP Settings → HTTP Host Header* to the site's real domain.
 
-On each web node, run the connector with that token:
+On each web node, save the token in a file that only the node's user can
+read, and give it to the node with `-web-tunnel`:
 
 ```sh
-sudo cloudflared service install TOKEN      # Linux with systemd
+umask 077; nano ~/.yggstore/group-sites.token     # paste the token (it starts with eyJ)
+yggstore serve ... -web 127.0.0.1:8480 -web-tunnel ~/.yggstore/group-sites.token
 ```
 
-If the machine already runs `cloudflared` for another tunnel, that command
-refuses, and you must not uninstall the other one. Run this tunnel as a
-second service instead, with its own (nearly empty) settings file: without
-it, cloudflared also reads `/etc/cloudflared/config.yml` and joins the other
-tunnel.
+The node then runs `cloudflared` itself, **only while its web server
+answers** (it checks every 5 seconds). This matters: Cloudflare sends
+visitors to any connected connector without checking what is behind it, so
+a connector left running in front of a stopped web node turns every nearby
+visitor away with error 502, even when other web nodes are fine. With
+`-web-tunnel`, a node that stops, crashes or stops answering takes its
+connector down with it, and Cloudflare moves visitors to the others within
+seconds. If `cloudflared` isn't on the PATH, give it with `-cloudflared PATH`.
+
+For a node that runs as a service user (`yggstore` on localmail), put the
+token where that user can read it:
 
 ```sh
-sudo sh -c 'umask 077; cat > /etc/cloudflared/group-sites.token'   # paste the token, Enter, Ctrl+D
-echo 'no-autoupdate: true' | sudo tee /etc/cloudflared/group-sites.yml >/dev/null
-sudo tee /etc/systemd/system/cloudflared-sites.service >/dev/null <<'UNIT'
-[Unit]
-Description=cloudflared tunnel for the group's websites
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=/usr/bin/cloudflared --config /etc/cloudflared/group-sites.yml tunnel run --token-file /etc/cloudflared/group-sites.token
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-sudo systemctl daemon-reload && sudo systemctl enable --now cloudflared-sites
-journalctl -u cloudflared-sites -n 30 | grep -o 'tunnelID=[0-9a-f-]*' | tail -1   # must be this tunnel's ID
+sudo -u yggstore sh -c 'umask 077; cat > /var/lib/yggstore/group-sites.token'   # paste, Enter, Ctrl+D
 ```
 
-On Alpine, run `cloudflared tunnel run --token TOKEN` from an OpenRC
-service, as the Pis did for the old Yggdrasil link.
+Don't also run the tunnel as a separate `cloudflared` service on a web node:
+that brings back the 502 problem. A machine that already runs `cloudflared`
+for another tunnel can keep it; the node's connector uses its own settings
+file and doesn't touch it.
 
 Every web node runs the **same** tunnel. Cloudflare counts each as a
 replica and sends visitors only to replicas that are connected.
@@ -145,5 +138,9 @@ curl -H 'Host: example.org' http://127.0.0.1:8480/      # on a web node
 yggstore site status                                   # on any machine
 ```
 
-To test failover, stop one web node's connector
-(`sudo systemctl stop cloudflared`) and reload the site in a browser.
+To test failover, stop one web node (or its whole machine) and reload the
+site in a browser: it should keep loading from the others.
+
+```sh
+yggstore site status     # shows each web node's tunnel: connected, or why it is stopped
+```

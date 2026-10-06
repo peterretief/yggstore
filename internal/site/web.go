@@ -53,6 +53,12 @@ type webEntry struct {
 	Error     string             `json:"error,omitempty"`
 }
 
+// NodeStatus is what a web node reports in its info.
+type NodeStatus struct {
+	Tunnel string       `json:"tunnel,omitempty"` // its connector, if it runs one
+	Sites  []SiteStatus `json:"sites"`
+}
+
 // SiteStatus is one site as a web node has it.
 type SiteStatus struct {
 	Site    string `json:"site"`
@@ -105,9 +111,12 @@ func (w *Web) Run(ctx context.Context) error {
 		w.mu.Lock()
 		after := w.st.After
 		w.mu.Unlock()
+		// Handle a batch (say, the history a node catches up on) before
+		// fetching, so only each site's latest version is fetched.
 		for _, s := range w.Msgs.Wait(ctx, after, Topic) {
-			w.handle(ctx, s)
+			w.handle(s)
 		}
+		w.fetchWanted(ctx)
 	}
 	return nil
 }
@@ -124,7 +133,7 @@ func (w *Web) retry(ctx context.Context) {
 	}
 }
 
-func (w *Web) handle(ctx context.Context, s msg.Stored) {
+func (w *Web) handle(s msg.Stored) {
 	w.mu.Lock()
 	w.st.After = max(w.st.After, s.N)
 	a, ok := decode(s)
@@ -160,7 +169,6 @@ func (w *Web) handle(ctx context.Context, s msg.Stored) {
 	}
 	w.save()
 	w.mu.Unlock()
-	w.fetchWanted(ctx)
 }
 
 // mayChange: the node that first published a site may change it, and so
@@ -269,6 +277,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	host := Normalise(r.Host)
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
+	}
+	if host == HealthHost {
+		rw.Write([]byte("ok\n"))
+		return
 	}
 	w.mu.Lock()
 	root, ok := w.roots[host]

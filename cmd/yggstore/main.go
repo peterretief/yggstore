@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -172,6 +173,8 @@ func cmdServe(ctx context.Context, args []string) error {
 	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "token file for the local messaging API")
 	customers := fs.Bool("customers", false, "also hold paying customers' files, stored through the group's gateway (it earns you credit)")
 	webAddr := fs.String("web", "", `serve the group's websites on this address, e.g. 127.0.0.1:8480 ("" for none; see docs/sites.md)`)
+	webTunnel := fs.String("web-tunnel", "", "a Cloudflare Tunnel token file: run its connector while this web node serves (see docs/sites.md)")
+	cloudflared := fs.String("cloudflared", "cloudflared", "the cloudflared program, for -web-tunnel")
 	yggAdmin := fs.String("ygg-admin", "auto", `Yggdrasil's admin socket, for linking to other members ("none" to leave Yggdrasil's links alone)`)
 	fs.Parse(args)
 
@@ -245,10 +248,26 @@ func cmdServe(ctx context.Context, args []string) error {
 				log.Printf("web: %v", err)
 			}
 		}()
+		var tun *site.Tunnel
+		if *webTunnel != "" {
+			tun = &site.Tunnel{Bin: *cloudflared, TokenFile: *webTunnel, Dir: filepath.Join(*dataDir, "web"), WebAddr: *webAddr, Log: log.Printf}
+			if err := tun.Check(); err != nil {
+				log.Printf("tunnel: not started: %v", err)
+				tun = nil
+			} else {
+				go tun.Run(ctx)
+			}
+		}
 		webStatus = func() json.RawMessage {
-			b, _ := json.Marshal(web.Status())
+			st := site.NodeStatus{Sites: web.Status()}
+			if tun != nil {
+				st.Tunnel = tun.State()
+			}
+			b, _ := json.Marshal(st)
 			return b
 		}
+	} else if *webTunnel != "" {
+		return errors.New("-web-tunnel needs -web")
 	}
 
 	store := localstore.WithQuota(*dataDir, int64(*quotaGB*(1<<30)))

@@ -192,8 +192,17 @@ func siteStatus(ctx context.Context, path string) error {
 			continue
 		}
 		webNodes++
-		var sites []site.SiteStatus
-		json.Unmarshal(info.Web, &sites)
+		var st site.NodeStatus
+		if json.Unmarshal(info.Web, &st) != nil {
+			// older nodes report just the list of sites
+			json.Unmarshal(info.Web, &st.Sites)
+		}
+		tunnel := "no tunnel"
+		if st.Tunnel != "" {
+			tunnel = "tunnel " + st.Tunnel
+		}
+		fmt.Printf("%-12s %s\n", p.Name, tunnel)
+		sites := st.Sites
 		for _, s := range sites {
 			line := p.Name + " "
 			switch {
@@ -216,7 +225,7 @@ func siteStatus(ctx context.Context, path string) error {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	fmt.Printf("%d web node(s).\n", webNodes)
+	fmt.Printf("\n%d web node(s).\n", webNodes)
 	for _, n := range names {
 		fmt.Printf("%s\n  %s\n", n, strings.Join(bySite[n], "\n  "))
 	}
