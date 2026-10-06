@@ -605,6 +605,27 @@ func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []P
 }
 
 // handleInvite makes a one-time invite for someone to join the group.
+// inviteYggPeers are the Yggdrasil peers a newcomer connects through: the
+// members' own (ygg_listen) first, then the public ones.
+func inviteYggPeers(peersPath string, public []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	list, _ := peers.Load(peersPath)
+	for _, p := range list {
+		for _, u := range p.YggListen {
+			if !seen[u] {
+				out, seen[u] = append(out, u), true
+			}
+		}
+	}
+	for _, u := range public {
+		if !seen[u] {
+			out, seen[u] = append(out, u), true
+		}
+	}
+	return out
+}
+
 func (d *Dashboard) handleInvite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		For string `json:"for"`
@@ -624,7 +645,7 @@ func (d *Dashboard) handleInvite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	inv.Group, inv.From, inv.Admin, inv.YggPeers = d.cfg.Group, d.cfg.Name, admin, d.cfg.YggPeers
+	inv.Group, inv.From, inv.Admin, inv.YggPeers = d.cfg.Group, d.cfg.Name, admin, inviteYggPeers(d.cfg.PeersPath, d.cfg.YggPeers)
 	if d.cfg.Identity != nil {
 		inv.SharingCode = d.cfg.Identity.Code()
 	}

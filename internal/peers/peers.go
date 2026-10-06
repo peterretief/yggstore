@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -22,7 +24,8 @@ import (
 // every node a new list (see Live). Owner names the person who runs the
 // node, for accounting; it defaults to the machine. A gateway peer stores
 // paying customers' files (see package gateway); nodes only take its shards
-// if their owner has opted in.
+// if their owner has opted in. YggListen lists where other members can
+// open a Yggdrasil link to the peer's machine (see package mesh).
 type Peer struct {
 	Name    string `json:"name"`
 	Addr    string `json:"addr"`
@@ -31,6 +34,8 @@ type Peer struct {
 	Admin   bool   `json:"admin,omitempty"`
 	Owner   string `json:"owner,omitempty"`
 	Gateway bool   `json:"gateway,omitempty"`
+
+	YggListen []string `json:"ygg_listen,omitempty"`
 }
 
 // Operator is the person the peer's space and uploads count towards.
@@ -99,6 +104,38 @@ func Validate(list []Peer) error {
 			return fmt.Errorf("peer %d (%s): name or address listed twice", i, p.Name)
 		}
 		names[p.Name], addrs[p.Addr] = true, true
+		for _, u := range p.YggListen {
+			if err := ValidListen(u); err != nil {
+				return fmt.Errorf("peer %d (%s): ygg_listen %q: %w", i, p.Name, u, err)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidListen checks a Yggdrasil peering address that other members will
+// connect to, such as "tls://203.0.113.5:14415" or "wss://ygg.example:443".
+// It must name a port and a host others can reach, not this machine's own
+// loopback.
+func ValidListen(uri string) error {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return err
+	}
+	switch u.Scheme {
+	case "tls", "tcp", "quic", "ws", "wss":
+	default:
+		return errors.New("use tls://, quic://, tcp://, ws:// or wss://")
+	}
+	host, port, err := net.SplitHostPort(u.Host)
+	if err != nil || port == "" {
+		return errors.New("give host:port, e.g. tls://203.0.113.5:14415 (wss:// needs :443 too)")
+	}
+	if host == "localhost" {
+		return errors.New("localhost can't be reached from other machines")
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
+		return errors.New("a loopback or unspecified address can't be reached from other machines")
 	}
 	return nil
 }

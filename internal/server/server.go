@@ -17,6 +17,7 @@ import (
 	"github.com/peterretief/yggstore/internal/invite"
 	"github.com/peterretief/yggstore/internal/localstore"
 	"github.com/peterretief/yggstore/internal/manifest"
+	"github.com/peterretief/yggstore/internal/mesh"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/transport"
 )
@@ -39,6 +40,8 @@ type Info struct {
 	// Customers is whether the node's owner lets it hold paying customers'
 	// files, stored through a gateway.
 	Customers bool `json:"customers,omitempty"`
+	// Mesh is the node's Yggdrasil links to other members (see package mesh).
+	Mesh *mesh.Status `json:"mesh,omitempty"`
 }
 
 type Options struct {
@@ -58,6 +61,8 @@ type Options struct {
 	Messages interface {
 		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
 	}
+	// Mesh, if set, reports the node's Yggdrasil links in its info.
+	Mesh func() mesh.Status
 }
 
 func Handler(store localstore.Store, opts Options) http.Handler {
@@ -162,6 +167,10 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 				info.PeersHash = opts.Peers.Hash()
 			}
 			info.ByWriter = byWriter()
+			if opts.Mesh != nil {
+				st := opts.Mesh()
+				info.Mesh = &st
+			}
 			writeJSON(w, info)
 			return
 		case r.URL.Path == "/v1/peers" && r.Method == http.MethodPut:

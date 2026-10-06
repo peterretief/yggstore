@@ -21,6 +21,7 @@ import (
 	"github.com/peterretief/yggstore/internal/files"
 	"github.com/peterretief/yggstore/internal/invite"
 	"github.com/peterretief/yggstore/internal/localstore"
+	"github.com/peterretief/yggstore/internal/mesh"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
@@ -46,6 +47,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
                                                            live status page; with -outfiles it also
                                                            runs the outbox watcher (see watch)
   yggstore msg     send|pub|sub|unsub|read|status ...      message other nodes (see docs/messaging.md)
+  yggstore mesh    [set NODE URI...]                        Yggdrasil links between members (see docs/mesh.md)
   yggstore gateway serve|customer|report ...               S3 service for paying customers (see docs/gateway.md)
   yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
                                                            with a .ystub); restore stubs dropped into
@@ -117,6 +119,8 @@ func main() {
 		err = cmdGateway(ctx, args)
 	case "msg":
 		err = cmdMsg(ctx, args)
+	case "mesh":
+		err = cmdMesh(ctx, args)
 	case "history":
 		err = cmdHistory(ctx, args)
 	default:
@@ -161,6 +165,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	msgAPI := fs.String("msg-api", "127.0.0.1:7401", `local messaging API for programs on this machine ("" for none)`)
 	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "token file for the local messaging API")
 	customers := fs.Bool("customers", false, "also hold paying customers' files, stored through the group's gateway (it earns you credit)")
+	yggAdmin := fs.String("ygg-admin", "auto", `Yggdrasil's admin socket, for linking to other members ("none" to leave Yggdrasil's links alone)`)
 	fs.Parse(args)
 
 	t, err := transport.ByName(*tname)
@@ -207,12 +212,19 @@ func cmdServe(ctx context.Context, args []string) error {
 		}()
 	}
 
+	var meshStatus func() mesh.Status
+	if *yggAdmin != "none" && *tname == "ygg" {
+		m := mesh.New(mesh.Find(*yggAdmin), ip.String(), live.List, filepath.Join(*dataDir, "mesh.json"), log.Printf)
+		go m.Run(ctx, time.Minute)
+		meshStatus = m.Status
+	}
+
 	store := localstore.WithQuota(*dataDir, int64(*quotaGB*(1<<30)))
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
 	srv := &http.Server{
 		Addr: addr,
 		Handler: server.Handler(store, server.Options{
-			Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine,
+			Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus,
 			Join: func(caller string, req invite.Request) (invite.Response, error) {
 				own := ""
 				if id, err := share.Load(*keyPath); err == nil {

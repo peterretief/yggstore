@@ -26,6 +26,8 @@ independent. Don't make it the only copy of anything you can't lose.
 - Nodes can [message each other](docs/messaging.md): direct messages, and
   topics any node can publish to and follow, delivered even to nodes that
   were off at the time. Programs can use it too, through a local API.
+- The [mesh](docs/mesh.md) keeps members' Yggdrasil linked directly to each
+  other, so losing one tunnel or public peer doesn't cut anyone off.
 - Licence: see [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
   Security issues: [SECURITY.md](SECURITY.md).
 

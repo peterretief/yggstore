@@ -325,6 +325,14 @@ function renderTiles(all) {
     tile("Stored on nodes", `${size(used)}<small> · ${shards} shards</small>`);
 }
 
+// meshLine says which members a node has its own Yggdrasil link to.
+function meshLine(m) {
+  if (!m) return "";
+  if (!m.on) return `<div class="sub" title="${esc(m.error || "")}">links: not managed (see docs/mesh.md)</div>`;
+  const trying = Object.entries(m.trying || {}).map(([n, e]) => `<span title="${esc(e)}">${esc(n)}?</span>`).join(", ");
+  return `<div class="sub">linked to ${m.direct && m.direct.length ? esc(m.direct.join(", ")) : "nobody directly"}${trying ? ` · trying ${trying}` : ""}</div>`;
+}
+
 function renderNodes(s, list, el) {
   $(el).innerHTML = list.map(p => {
     const i = p.info || {};
@@ -342,7 +350,8 @@ function renderNodes(s, list, el) {
           <div><span>shards</span><b>${i.shard_count ?? "–"}</b></div>
           <div><span>uptime</span><b>${i.started_at ? dur(i.started_at) : "–"}</b></div></div>
         <div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
-        <div class="barlabel"><span>${size(i.used_bytes)} used</span><span>${i.quota_bytes ? size(i.quota_bytes) + " quota" : "no quota"}</span></div>`
+        <div class="barlabel"><span>${size(i.used_bytes)} used</span><span>${i.quota_bytes ? size(i.quota_bytes) + " quota" : "no quota"}</span></div>
+        ${meshLine(i.mesh)}`
       : `<div class="err">${esc(p.error)}</div><div class="sub" style="margin-top:4px">last seen ${ago(p.last_seen)}</div>`}
       ${spark(p.history || [])}
     </div>`;
