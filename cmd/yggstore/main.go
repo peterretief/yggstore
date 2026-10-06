@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -27,6 +28,7 @@ import (
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/server"
 	"github.com/peterretief/yggstore/internal/share"
+	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/transport"
 )
 
@@ -47,6 +49,8 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
                                                            live status page; with -outfiles it also
                                                            runs the outbox watcher (see watch)
   yggstore msg     send|pub|sub|unsub|read|status ...      message other nodes (see docs/messaging.md)
+  yggstore site    publish|list|versions|rollback|announce|remove|status ...
+                                                           host static websites on the group (see docs/sites.md)
   yggstore mesh    [set NODE URI...]                        Yggdrasil links between members (see docs/mesh.md)
   yggstore gateway serve|customer|report ...               S3 service for paying customers (see docs/gateway.md)
   yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
@@ -119,6 +123,8 @@ func main() {
 		err = cmdGateway(ctx, args)
 	case "msg":
 		err = cmdMsg(ctx, args)
+	case "site":
+		err = cmdSite(ctx, args)
 	case "mesh":
 		err = cmdMesh(ctx, args)
 	case "history":
@@ -165,6 +171,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	msgAPI := fs.String("msg-api", "127.0.0.1:7401", `local messaging API for programs on this machine ("" for none)`)
 	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "token file for the local messaging API")
 	customers := fs.Bool("customers", false, "also hold paying customers' files, stored through the group's gateway (it earns you credit)")
+	webAddr := fs.String("web", "", `serve the group's websites on this address, e.g. 127.0.0.1:8480 ("" for none; see docs/sites.md)`)
 	yggAdmin := fs.String("ygg-admin", "auto", `Yggdrasil's admin socket, for linking to other members ("none" to leave Yggdrasil's links alone)`)
 	fs.Parse(args)
 
@@ -219,12 +226,37 @@ func cmdServe(ctx context.Context, args []string) error {
 		meshStatus = m.Status
 	}
 
+	var webStatus func() json.RawMessage
+	if *webAddr != "" {
+		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf}
+		go func() {
+			if err := web.Run(ctx); err != nil {
+				log.Printf("web: %v", err)
+			}
+		}()
+		ws := &http.Server{Addr: *webAddr, Handler: web, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			<-ctx.Done()
+			ws.Close()
+		}()
+		go func() {
+			log.Printf("serving the group's websites on http://%s", *webAddr)
+			if err := ws.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("web: %v", err)
+			}
+		}()
+		webStatus = func() json.RawMessage {
+			b, _ := json.Marshal(web.Status())
+			return b
+		}
+	}
+
 	store := localstore.WithQuota(*dataDir, int64(*quotaGB*(1<<30)))
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
 	srv := &http.Server{
 		Addr: addr,
 		Handler: server.Handler(store, server.Options{
-			Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus,
+			Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
 			Join: func(caller string, req invite.Request) (invite.Response, error) {
 				own := ""
 				if id, err := share.Load(*keyPath); err == nil {

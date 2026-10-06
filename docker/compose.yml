@@ -16,12 +16,12 @@ services:
   t1:
     <<: *node
     hostname: t1
-    environment: { NODE_NAME: t1, CUSTOMERS: 1 }
+    environment: { NODE_NAME: t1, CUSTOMERS: 1, WEB: "127.0.0.1:8480" }
     volumes: ["../testnet/t1:/data", "../testnet/shared:/etc/yggstore:ro"]
   t2:
     <<: *node
     hostname: t2
-    environment: { NODE_NAME: t2, CUSTOMERS: 1 }
+    environment: { NODE_NAME: t2, CUSTOMERS: 1, WEB: "127.0.0.1:8480" }
     volumes: ["../testnet/t2:/data", "../testnet/shared:/etc/yggstore:ro"]
   t3:
     <<: *node

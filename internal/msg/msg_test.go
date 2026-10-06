@@ -229,12 +229,14 @@ func TestGapIsRepaired(t *testing.T) {
 func TestSurvivesRestart(t *testing.T) {
 	g := newGroup(t, 2)
 	g.nodes[1].Subscribe("t")
+	// node1 knows node2 follows t, so both messages wait for node2.
+	g.eventually("subscription known", func() bool { return len(g.nodes[0].Status().Subscribers["t"]) == 1 })
 	g.setDown(1, true)
 	g.nodes[0].Send("node2", "", "queued")
 	g.nodes[0].Publish("t", "", "kept")
 	g.stop[0]()
 	g.start(0) // the sender restarts with its queue
-	if st := g.nodes[0].Status(); len(st.Pending) != 1 {
+	if st := g.nodes[0].Status(); len(st.Pending) != 2 {
 		t.Fatalf("outbox not kept across a restart: %+v", st.Pending)
 	}
 	g.setDown(1, false)
@@ -290,5 +292,26 @@ func TestRejectsBadMessages(t *testing.T) {
 	}
 	if err := e.Subscribe("Bad Topic!"); err == nil {
 		t.Fatal("accepted a bad topic name")
+	}
+}
+
+// A node that subscribes while it can't reach a publisher (say, its network
+// is still coming up) gets the messages soon after, without waiting for the
+// next regular announce.
+func TestSubscriberCutOffAtStartCatchesUp(t *testing.T) {
+	retryFirst = 50 * time.Millisecond
+	defer func() { retryFirst = 30 * time.Second }()
+	g := newGroup(t, 2)
+	g.setDown(0, true)
+	g.nodes[1].Subscribe("sites")
+	time.Sleep(100 * time.Millisecond) // its announce and catch-up fail
+	g.setDown(0, false)
+	g.nodes[0].Publish("sites", "", "new version")
+	deadline := time.Now().Add(5 * time.Second)
+	for len(g.nodes[1].Messages(0, "sites", 0)) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the subscriber never got the message")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

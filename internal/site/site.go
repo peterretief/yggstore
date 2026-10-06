@@ -1,0 +1,78 @@
+// Package site hosts static websites on the group. A site is a folder,
+// stored as one item like any other, so every version is kept and an update
+// costs only what changed. Publishing announces the version on the "sites"
+// topic; web nodes fetch it, unpack it beside the one they serve, switch over
+// at once, and serve it to visitors by domain name.
+package site
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/peterretief/yggstore/internal/manifest"
+	"github.com/peterretief/yggstore/internal/msg"
+)
+
+// Topic is where sites are announced.
+const Topic = "sites"
+
+const (
+	typePublish = "site"
+	typeRemove  = "site-remove"
+)
+
+// Announcement is the body of a message on Topic.
+type Announcement struct {
+	Site string             `json:"site"`
+	Stub *manifest.Manifest `json:"stub,omitempty"` // the version to serve; nil when removed
+}
+
+var domain = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+
+// ValidName reports whether name is a domain a site can be published as,
+// such as example.org or www.example.org.
+func ValidName(name string) error {
+	if !domain.MatchString(name) || len(name) > 253 {
+		return fmt.Errorf("%q is not a domain name: a site is published under the domain it is served at, such as example.org", name)
+	}
+	return nil
+}
+
+// Normalise turns a typed domain into the form sites are kept under.
+func Normalise(name string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
+}
+
+func encode(a Announcement) (typ, body string, err error) {
+	b, err := json.Marshal(a)
+	if err != nil {
+		return "", "", err
+	}
+	if len(b) > msg.MaxBody {
+		return "", "", errors.New("the site has too many parts to announce in one message; split it into smaller sites")
+	}
+	typ = typePublish
+	if a.Stub == nil {
+		typ = typeRemove
+	}
+	return typ, string(b), nil
+}
+
+func decode(s msg.Stored) (Announcement, bool) {
+	var a Announcement
+	if s.Topic != Topic || (s.Type != typePublish && s.Type != typeRemove) {
+		return a, false
+	}
+	if json.Unmarshal([]byte(s.Body), &a) != nil || ValidName(a.Site) != nil {
+		return a, false
+	}
+	if s.Type == typeRemove {
+		a.Stub = nil
+	} else if a.Stub == nil {
+		return a, false
+	}
+	return a, true
+}

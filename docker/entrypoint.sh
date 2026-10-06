@@ -3,6 +3,7 @@
 # shards once /etc/yggstore/peers.json exists (written by scripts/testnet.sh).
 # CUSTOMERS=1 lets the node hold paying customers' data. ROLE=gateway also
 # runs the S3 gateway on port 9000, keeping its files in /data/gateway.
+# WEB=ADDR makes it a web node, serving the group's sites on ADDR.
 set -e
 mkdir -p /data/shards
 if [ ! -s /data/yggdrasil.conf ]; then
@@ -24,6 +25,7 @@ done
 set -- serve -peers /etc/yggstore/peers.json -data /data/shards \
   -name "${NODE_NAME:-$(hostname)}" -quota 5
 [ "${CUSTOMERS:-}" = 1 ] && set -- "$@" -customers
+[ -n "${WEB:-}" ] && set -- "$@" -web "$WEB"
 if [ "${ROLE:-}" = gateway ]; then
   yggstore "$@" &
   exec yggstore gateway serve -dir /data/gateway -peers /etc/yggstore/peers.json \

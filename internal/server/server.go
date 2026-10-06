@@ -42,6 +42,9 @@ type Info struct {
 	Customers bool `json:"customers,omitempty"`
 	// Mesh is the node's Yggdrasil links to other members (see package mesh).
 	Mesh *mesh.Status `json:"mesh,omitempty"`
+	// Web is the sites this node serves, if it is a web node (see package
+	// site).
+	Web json.RawMessage `json:"web,omitempty"`
 }
 
 type Options struct {
@@ -63,6 +66,8 @@ type Options struct {
 	}
 	// Mesh, if set, reports the node's Yggdrasil links in its info.
 	Mesh func() mesh.Status
+	// Web, if set, reports the sites the node serves in its info.
+	Web func() json.RawMessage
 }
 
 func Handler(store localstore.Store, opts Options) http.Handler {
@@ -167,6 +172,9 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 				info.PeersHash = opts.Peers.Hash()
 			}
 			info.ByWriter = byWriter()
+			if opts.Web != nil {
+				info.Web = opts.Web()
+			}
 			if opts.Mesh != nil {
 				st := opts.Mesh()
 				info.Mesh = &st

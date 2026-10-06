@@ -28,6 +28,8 @@ independent. Don't make it the only copy of anything you can't lose.
   were off at the time. Programs can use it too, through a local API.
 - The [mesh](docs/mesh.md) keeps members' Yggdrasil linked directly to each
   other, so losing one tunnel or public peer doesn't cut anyone off.
+- [Websites](docs/sites.md) can live on the group: publish a folder, and
+  several machines serve it, so a site stays up when one of them goes down.
 - Licence: see [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
   Security issues: [SECURITY.md](SECURITY.md).
 

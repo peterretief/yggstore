@@ -155,6 +155,10 @@ type Engine struct {
 	catchUp chan string // topics to catch up on, "" for all
 	noMsg   map[string]time.Time
 	sending chan struct{} // limits deliveries in flight
+	// retryIn is how soon to announce again after some member couldn't be
+	// reached; it doubles up to announceEach while they stay unreachable.
+	retryIn    time.Duration
+	retryFirst time.Duration
 }
 
 // Open loads the engine kept in dir. self is this node's ID (its overlay IP).
@@ -167,7 +171,7 @@ func Open(dir, self string, list func() []peers.Peer, net Network, logf func(str
 	}
 	e := &Engine{dir: dir, self: self, peers: list, net: net, logf: logf, now: time.Now,
 		seen: map[string]bool{}, ahead: map[string]map[uint64]bool{}, outbox: map[string]*pending{},
-		kick: make(chan struct{}, 1), catchUp: make(chan string, 16), noMsg: map[string]time.Time{},
+		kick: make(chan struct{}, 1), catchUp: make(chan string, 16), noMsg: map[string]time.Time{}, retryFirst: retryFirst,
 		sending: make(chan struct{}, 8)}
 	if err := readJSON(filepath.Join(dir, "state.json"), &e.st); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -863,11 +867,24 @@ func (e *Engine) catchUpLoop(ctx context.Context) {
 				break drain
 			}
 		}
-		e.syncWithMembers(ctx, all, topic)
+		if missed := e.syncWithMembers(ctx, all, topic); missed {
+			// Some member didn't hear this node's subscriptions (often
+			// because the network was still coming up): try again soon,
+			// not at the next announce.
+			e.retryIn = min(max(2*e.retryIn, e.retryFirst), announceEach)
+			time.AfterFunc(e.retryIn, func() { e.requestCatchUp("") })
+		} else {
+			e.retryIn = 0
+		}
 	}
 }
 
-func (e *Engine) syncWithMembers(ctx context.Context, all bool, topic string) {
+// retryFirst is the first wait before announcing again to unreachable
+// members. Engines take it when opened.
+var retryFirst = 30 * time.Second
+
+// syncWithMembers reports whether some member couldn't be reached.
+func (e *Engine) syncWithMembers(ctx context.Context, all bool, topic string) (missed bool) {
 	e.mu.Lock()
 	subs := append([]string{}, e.st.Subs...)
 	e.mu.Unlock()
@@ -876,6 +893,7 @@ func (e *Engine) syncWithMembers(ctx context.Context, all bool, topic string) {
 		topics = []string{topic}
 	}
 	var wg sync.WaitGroup
+	var missedMu sync.Mutex
 	sem := make(chan struct{}, 8)
 	for _, p := range e.peers() {
 		if p.IP() == e.self {
@@ -899,6 +917,10 @@ func (e *Engine) syncWithMembers(ctx context.Context, all bool, topic string) {
 					e.mu.Lock()
 					e.noMsg[p.IP()] = e.now().Add(time.Hour)
 					e.mu.Unlock()
+				} else {
+					missedMu.Lock()
+					missed = true
+					missedMu.Unlock()
 				}
 				return
 			}
@@ -908,6 +930,7 @@ func (e *Engine) syncWithMembers(ctx context.Context, all bool, topic string) {
 		}()
 	}
 	wg.Wait()
+	return missed
 }
 
 func (e *Engine) fetchHistory(ctx context.Context, p peers.Peer, topic string) {
