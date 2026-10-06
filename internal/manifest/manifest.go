@@ -159,6 +159,19 @@ func Marshal(m Manifest) ([]byte, error) {
 	return append(stub, '\n'), nil
 }
 
+// validID: letters, digits, '-' and '_' only (yggstore makes 32 hex digits).
+func validID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func Unmarshal(data []byte) (Manifest, error) {
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -182,6 +195,11 @@ func Unmarshal(data []byte) (Manifest, error) {
 	layout, err := erasure.NewLayout(m.DataShards, m.ParityShards)
 	if err != nil {
 		return m, fmt.Errorf("unsupported shard layout: %w", err)
+	}
+	// The file ID names folders and files on disk (restores, web nodes), and a
+	// stub can come from someone else, so it must not be able to leave them.
+	if !validID(m.FileID) {
+		return m, fmt.Errorf("invalid manifest file ID")
 	}
 	if m.FileName == "" || m.FileName == "." || m.FileName == ".." || filepath.Base(m.FileName) != m.FileName || strings.ContainsAny(m.FileName, "/\\\x00") {
 		return m, fmt.Errorf("invalid manifest filename")

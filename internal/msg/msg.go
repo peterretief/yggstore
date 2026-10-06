@@ -146,6 +146,7 @@ type Engine struct {
 	st      state
 	inbox   []Stored
 	seen    map[string]bool
+	held    map[string]int64           // bytes of messages kept, per sender
 	ahead   map[string]map[uint64]bool // received out of order, per cursor key
 	outbox  map[string]*pending        // by message ID
 	failed  []Failed
@@ -170,7 +171,7 @@ func Open(dir, self string, list func() []peers.Peer, net Network, logf func(str
 		return nil, err
 	}
 	e := &Engine{dir: dir, self: self, peers: list, net: net, logf: logf, now: time.Now,
-		seen: map[string]bool{}, ahead: map[string]map[uint64]bool{}, outbox: map[string]*pending{},
+		seen: map[string]bool{}, held: map[string]int64{}, ahead: map[string]map[uint64]bool{}, outbox: map[string]*pending{},
 		kick: make(chan struct{}, 1), catchUp: make(chan string, 16), noMsg: map[string]time.Time{}, retryFirst: retryFirst,
 		sending: make(chan struct{}, 8)}
 	if err := readJSON(filepath.Join(dir, "state.json"), &e.st); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -246,6 +247,7 @@ func (e *Engine) loadInbox() error {
 		}
 		e.inbox = append(e.inbox, s)
 		e.seen[s.ID] = true
+		e.held[s.From] += int64(len(s.Body))
 	}
 	if err := sc.Err(); err != nil {
 		return err
@@ -455,6 +457,7 @@ func (e *Engine) store(m Message, from string) bool {
 		return false
 	}
 	e.seen[m.ID] = true
+	e.held[from] += int64(len(m.Body))
 	e.inbox = append(e.inbox, s)
 	if m.Topic != "" {
 		e.advance(from, m.Topic, m.Seq)
@@ -506,6 +509,9 @@ func (e *Engine) Receive(caller string, m Message) error {
 	if m.Topic != "" && !contains(e.st.Subs, m.Topic) {
 		return nil // no longer subscribed; taking it stops the retries
 	}
+	if !e.seen[m.ID] && e.held[caller]+int64(len(m.Body)) > MaxHeld {
+		return ErrFull // the sender keeps it and tries again later
+	}
 	if e.store(m, caller) && m.Topic != "" {
 		if len(e.ahead[cursorKey(caller, m.Topic)]) > 0 {
 			e.requestCatchUp(m.Topic)
@@ -513,6 +519,13 @@ func (e *Engine) Receive(caller string, m Message) error {
 	}
 	return nil
 }
+
+// MaxHeld is how much of one member's messages a node keeps at a time, so
+// one member can't fill another's memory and disk.
+const MaxHeld = 32 << 20
+
+// ErrFull means a node holds as many of the sender's messages as it will.
+var ErrFull = errors.New("this node holds too many of your messages; try again later")
 
 // Announced records the topics a member subscribes to.
 func (e *Engine) Announced(caller string, topics []string) error {
@@ -718,6 +731,9 @@ func (e *Engine) prune() {
 	i := 0
 	for i < len(e.inbox) && e.inbox[i].Received < cutoff {
 		delete(e.seen, e.inbox[i].ID)
+		if e.held[e.inbox[i].From] -= int64(len(e.inbox[i].Body)); e.held[e.inbox[i].From] <= 0 {
+			delete(e.held, e.inbox[i].From)
+		}
 		i++
 	}
 	if i > 0 {
@@ -950,7 +966,9 @@ func (e *Engine) fetchHistory(ctx context.Context, p peers.Peer, topic string) {
 		}
 		for _, m := range msgs {
 			if m.Topic == topic && validate(m) == nil {
-				e.store(m, p.IP())
+				if e.seen[m.ID] || e.held[p.IP()]+int64(len(m.Body)) <= MaxHeld {
+					e.store(m, p.IP())
+				}
 				e.advance(p.IP(), topic, m.Seq) // already-seen ones still move the cursor
 			}
 		}

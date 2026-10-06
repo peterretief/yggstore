@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -313,5 +314,29 @@ func TestSubscriberCutOffAtStartCatchesUp(t *testing.T) {
 			t.Fatal("the subscriber never got the message")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// One member can't fill another node with messages: past MaxHeld of theirs,
+// more are refused (and the sender keeps them to try later), while other
+// members' messages still get through.
+func TestOneSenderCantFillANode(t *testing.T) {
+	g := newGroup(t, 1)
+	e := g.nodes[0]
+	body := strings.Repeat("x", MaxBody)
+	n := 0
+	for ; n < MaxHeld/MaxBody+10; n++ {
+		if err := e.Receive("200::9", Message{ID: newID(), To: "200::1", Body: body}); err != nil {
+			if !errors.Is(err, ErrFull) {
+				t.Fatal(err)
+			}
+			break
+		}
+	}
+	if n != MaxHeld/MaxBody {
+		t.Fatalf("took %d messages of %d KB, want %d", n, MaxBody>>10, MaxHeld/MaxBody)
+	}
+	if err := e.Receive("200::8", Message{ID: newID(), To: "200::1", Body: "hello"}); err != nil {
+		t.Fatalf("another member's message refused: %v", err)
 	}
 }

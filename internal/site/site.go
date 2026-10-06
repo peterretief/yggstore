@@ -71,8 +71,21 @@ func decode(s msg.Stored) (Announcement, bool) {
 	}
 	if s.Type == typeRemove {
 		a.Stub = nil
-	} else if a.Stub == nil {
+		return a, true
+	}
+	if a.Stub == nil {
 		return a, false
 	}
+	// The stub comes from another member: check it as a stub read from disk
+	// is checked. (Web.handle checks where its shards are.)
+	b, err := manifest.Marshal(*a.Stub)
+	if err != nil {
+		return a, false
+	}
+	m, err := manifest.Unmarshal(b)
+	if err != nil {
+		return a, false
+	}
+	a.Stub = &m
 	return a, true
 }

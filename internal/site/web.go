@@ -146,6 +146,8 @@ func (w *Web) handle(s msg.Stored) {
 	switch {
 	case e != nil && !w.mayChange(s.From, e.Owner):
 		w.logf("web: ignored a change to %s from %s, who didn't publish it", a.Site, s.FromName)
+	case e == nil && a.Stub != nil && !w.mayClaim(a.Site, s.From):
+		w.logf("web: ignored %s from %s: www. of a site belongs to that site's publisher", a.Site, s.FromName)
 	case e != nil && s.Time <= e.Announced:
 		// an older announcement, arriving late
 	case a.Stub == nil:
@@ -155,6 +157,8 @@ func (w *Web) handle(s msg.Stored) {
 			os.RemoveAll(filepath.Join(w.Dir, "sites", a.Site))
 			w.logf("web: %s removed", a.Site)
 		}
+	case !w.shardsAtMembers(*a.Stub):
+		w.logf("web: ignored %s from %s: its parts aren't on the group's nodes", a.Site, s.FromName)
 	default:
 		if e == nil {
 			e = &webEntry{Owner: s.From}
@@ -183,6 +187,36 @@ func (w *Web) mayChange(from, owner string) bool {
 		}
 	}
 	return false
+}
+
+// mayClaim: www.NAME is served as NAME until it is a site of its own, so
+// only NAME's publisher (or an admin) may make it one.
+func (w *Web) mayClaim(site, from string) bool {
+	parent, ok := strings.CutPrefix(site, "www.")
+	if !ok {
+		return true
+	}
+	if p := w.st.Sites[parent]; p != nil {
+		return w.mayChange(from, p.Owner)
+	}
+	return true
+}
+
+// shardsAtMembers: a site's parts must be on overlay addresses or members'
+// nodes, so an announcement can't send the web node to other addresses.
+func (w *Web) shardsAtMembers(m manifest.Manifest) bool {
+	known := map[string]bool{}
+	for _, p := range w.Peers() {
+		known[p.Addr] = true
+	}
+	for _, ch := range m.Chunks {
+		for _, ref := range ch.Shards {
+			if !peers.IsOverlay(ref.Peer) && !known[ref.Peer] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 var fetchMu sync.Mutex // one fetch at a time
