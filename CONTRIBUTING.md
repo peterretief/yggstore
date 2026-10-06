@@ -24,6 +24,22 @@ GOOS=linux GOARCH=arm GOARM=7  go build -o bin/yggstore-linux-armv7 ./cmd/yggsto
 Yggdrasil, so you can try uploads and node failures on one machine (see the
 README).
 
+## Releases
+
+Pushing a version tag builds and publishes a release (see
+`.github/workflows/release.yml`): binaries for Linux (amd64, arm64, armv7),
+Windows and macOS, with a `SHA256SUMS` file and notes made from the commits
+since the last tag. Versions before 1.0, and tags with a suffix such as
+`-rc1`, are marked as pre-releases.
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+`yggstore version` prints the version a binary was built as (or, for
+your own builds, the commit).
+
 ## Pull requests
 
 - Keep changes small and focused; open an issue first for anything large.

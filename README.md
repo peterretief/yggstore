@@ -59,6 +59,11 @@ the original writer delete a shard.
 
 ## Usage
 
+Download yggstore for your system from the
+[releases](https://github.com/peterretief/yggstore/releases) page (Linux on
+PCs, Raspberry Pis and arm64 boards, Windows, macOS), and check it against
+`SHA256SUMS`. Or build it yourself with Go 1.24 or later:
+
 ```sh
 go build -o bin/yggstore ./cmd/yggstore
 

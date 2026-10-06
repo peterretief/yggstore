@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -57,7 +58,38 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
                                                            with a .ystub); restore stubs dropped into
                                                            DIR/restore/ into DIR/restored/
+  yggstore version                                         which version this is
 `
+
+// version is set by release builds (-ldflags "-X main.version=v1.2.3").
+var version = "dev"
+
+// versionString is the release, or for other builds the commit they were
+// built from, if Go recorded it.
+func versionString() string {
+	if version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		rev, dirty := "", false
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				rev = s.Value
+			case "vcs.modified":
+				dirty = s.Value == "true"
+			}
+		}
+		if len(rev) >= 12 {
+			rev = rev[:12]
+			if dirty {
+				rev += "+changes"
+			}
+			return "dev (" + rev + ")"
+		}
+	}
+	return version
+}
 
 // defaultYggPeers are public Yggdrasil peers put in invites, so a newcomer
 // has somewhere to connect.
@@ -130,6 +162,8 @@ func main() {
 		err = cmdMesh(ctx, args)
 	case "history":
 		err = cmdHistory(ctx, args)
+	case "version", "-version", "--version":
+		fmt.Println("yggstore", versionString())
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -297,7 +331,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		defer cancel()
 		srv.Shutdown(shutdown)
 	}()
-	log.Printf("%s serving shards from %s on %s (%s, %d peers in list %s)", *name, *dataDir, addr, t.Name(), len(live.List()), live.Hash())
+	log.Printf("%s serving shards from %s on %s (%s, %d peers in list %s, yggstore %s)", *name, *dataDir, addr, t.Name(), len(live.List()), live.Hash(), versionString())
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}

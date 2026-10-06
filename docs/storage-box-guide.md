@@ -153,6 +153,17 @@ Then, back in the window connected to the box:
 sudo install -m 755 yggstore-linux-amd64 /usr/local/bin/yggstore
 ```
 
+Or, instead of copying it over, download the latest release straight onto the box and check it isn't damaged:
+
+```sh
+curl -fLO https://github.com/peterretief/yggstore/releases/latest/download/yggstore-linux-amd64
+curl -fLO https://github.com/peterretief/yggstore/releases/latest/download/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+sudo install -m 755 yggstore-linux-amd64 /usr/local/bin/yggstore
+```
+
+The check should say `yggstore-linux-amd64: OK`.
+
 ## 8. Join the group — *on the box*
 
 Change the space you give (in GB; stay below your drive's size), your box's name and your name, and paste your invite between the quotes:

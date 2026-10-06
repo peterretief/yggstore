@@ -1,0 +1,42 @@
+name: release
+# Pushing a version tag (git tag v0.1.0 && git push origin v0.1.0) tests the
+# code, builds yggstore for each platform and publishes a GitHub release
+# with the binaries and their checksums.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir dist
+          build() { # GOOS GOARCH NAME [GOARM]
+            GOOS=$1 GOARCH=$2 GOARM=$4 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/$3" ./cmd/yggstore
+          }
+          build linux   amd64 yggstore-linux-amd64
+          build linux   arm64 yggstore-linux-arm64
+          build linux   arm   yggstore-linux-armv7 7
+          build windows amd64 yggstore-windows-amd64.exe
+          build darwin  amd64 yggstore-macos-intel
+          build darwin  arm64 yggstore-macos-apple-silicon
+          cd dist && sha256sum * > SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "${{ github.ref_name }}" in v0.*|*-*) pre="--prerelease" ;; esac
+          gh release create "${{ github.ref_name }}" dist/* --title "yggstore ${{ github.ref_name }}" --generate-notes $pre
