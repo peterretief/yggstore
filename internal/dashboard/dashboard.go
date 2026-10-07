@@ -256,6 +256,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mail/raw", d.handleMailRaw)
 	mux.HandleFunc("GET /api/mail/attachment", d.handleMailAttachment)
 	mux.HandleFunc("POST /api/mail/delete", d.handleMailDelete)
+	mux.HandleFunc("POST /api/mail/send", d.handleMailSend)
 	return d.guard(mux)
 }
 

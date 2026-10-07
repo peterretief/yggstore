@@ -144,7 +144,13 @@ details.add .opts input[type=text] { width: 160px; }
 .mail .reader .text { white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--line); padding-top: 10px; max-height: 520px; overflow-y: auto; }
 .mail .reader .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; }
 .mail .reader .acts a { font-size: 13px; }
+.mail .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.mail .tabs button.on { border-color: var(--info); color: var(--info); }
+.mail .tabs #mailWrite { margin-left: auto; }
 @media (max-width: 760px) { .mail { grid-template-columns: 1fr; } }
+#mailDlg { width: min(640px, calc(100vw - 32px)); max-width: none; }
+#mailDlg .field input { display: block; width: 100%; margin-top: 4px; font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+#mailDlg textarea { display: block; width: 100%; min-height: 220px; margin-top: 4px; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); resize: vertical; }
 .sharing table td, .sharing table th { padding: 6px 8px; }
 .sharing .addc { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .sharing .addc input { font: 12px var(--mono); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
@@ -249,11 +255,27 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   <h2>Mail</h2>
   <section class="mail" id="mail">
     <div>
+      <div class="tabs"><button id="mailInbox" class="on">Inbox</button><button id="mailSentTab">Sent</button>
+        <button id="mailWrite">Write</button></div>
       <div id="mailError" class="err"></div>
       <div class="list" id="mailList"></div>
     </div>
     <div class="reader" id="mailReader"><div class="empty">Choose a message to read it.</div></div>
   </section>
+
+  <dialog id="mailDlg">
+    <form method="dialog" id="mailForm">
+      <h3 style="margin:0 0 8px" id="mailDlgTitle">New message</h3>
+      <div class="sub" id="mailFrom"></div>
+      <label class="field">To <input type="text" id="mailTo" placeholder="name@example.org, …" autocomplete="off"></label>
+      <label class="field">Cc <input type="text" id="mailCc" autocomplete="off"></label>
+      <label class="field">Bcc <input type="text" id="mailBcc" autocomplete="off"></label>
+      <label class="field">Subject <input type="text" id="mailSubject" maxlength="300"></label>
+      <label class="field">Message <textarea id="mailText"></textarea></label>
+      <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap"><span class="sub" id="mailNote" style="min-width:0;flex:1"></span>
+        <button type="button" id="mailCancel">Cancel</button><button id="mailSend" value="default">Send</button></div>
+    </form>
+  </dialog>
 
   <dialog id="shareDlg">
     <form method="dialog" id="shareForm">
@@ -889,7 +911,7 @@ $("msgTopics").addEventListener("click", async ev => {
 refreshMsgs();
 setInterval(refreshMsgs, 2000);
 
-let mailOpen = "", mailKey = "";
+let mailOpen = "", mailKey = "", mailSent = false, mailAddress = "", mailReply = "";
 async function refreshMail() {
   let m;
   try {
@@ -898,15 +920,17 @@ async function refreshMail() {
     m = await r.json();
   } catch (e) { return; }
   $("mailError").textContent = m.available ? "" : m.error;
-  const key = JSON.stringify(m.messages.map(x => x.id)) + mailOpen;
+  mailAddress = m.address || "";
+  const shown = m.messages.filter(x => !!x.sent === mailSent);
+  const key = JSON.stringify(shown.map(x => x.id)) + mailOpen + mailSent;
   if (key === mailKey) return;
   mailKey = key;
-  $("mailList").innerHTML = m.messages.map(x => x.error
+  $("mailList").innerHTML = shown.map(x => x.error
     ? `<div class="item" data-id="${esc(x.id)}"><b>Can't open this message</b><time></time><span>${esc(x.error)}</span></div>`
-    : `<div class="item${x.id === mailOpen ? " on" : ""}" data-id="${esc(x.id)}"><b>${esc(x.from || "(no sender)")}</b>
+    : `<div class="item${x.id === mailOpen ? " on" : ""}" data-id="${esc(x.id)}"><b>${esc(mailSent ? "To " + (x.to || "?") : x.from || "(no sender)")}</b>
         <time>${new Date(x.date || x.received).toLocaleString([], {dateStyle: "medium", timeStyle: "short"})}</time>
         <span>${esc(x.subject || "(no subject)")}</span></div>`).join("")
-    || `<div class="empty">No mail yet. Email to your address arrives here; see docs/mail.md to set one up.</div>`;
+    || `<div class="empty">${mailSent ? "Nothing sent yet." : "No mail yet. Email to your address arrives here; see docs/mail.md to set one up."}</div>`;
 }
 async function openMail(id) {
   mailOpen = id; mailKey = "";
@@ -926,7 +950,14 @@ async function openMail(id) {
     <div class="acts">${(m.attachments || []).map((a, i) =>
       `<a href="api/mail/attachment?${q}&n=${i}">📎 ${esc(a.name)} (${size(a.size)})</a>`).join("")}
       <a href="api/mail/raw?${q}">Download message (.eml)</a>
-      <button id="mailDelete" style="margin-left:auto">Delete</button></div>`;
+      <span style="margin-left:auto"></span>${m.sent ? "" : `<button id="mailReplyBtn">Reply</button>`}
+      <button id="mailDelete">Delete</button></div>`;
+  if (!m.sent) $("mailReplyBtn").addEventListener("click", () => {
+    const quoted = (m.text || "").split("\n").map(l => "> " + l).join("\n");
+    const when = m.date ? new Date(m.date).toLocaleString() : "";
+    writeMail({to: m.reply_to || m.from, subject: /^re:/i.test(m.subject || "") ? m.subject : "Re: " + (m.subject || ""),
+      text: `\n\n${when ? "On " + when + ", " : ""}${m.from} wrote:\n${quoted}\n`, reply: id});
+  });
   $("mailDelete").addEventListener("click", async () => {
     if (!confirm("Delete this message, here and from the group?")) return;
     const r = await post("api/mail/delete", {body: JSON.stringify({id})});
@@ -935,6 +966,42 @@ async function openMail(id) {
     refreshMail();
   });
 }
+function writeMail({to = "", subject = "", text = "", reply = ""} = {}) {
+  mailReply = reply;
+  $("mailDlgTitle").textContent = reply ? "Reply" : "New message";
+  $("mailFrom").textContent = mailAddress ? "From " + mailAddress
+    : "No address to send from yet: run yggstore mail address you@example.org on this machine.";
+  $("mailTo").value = to; $("mailCc").value = ""; $("mailBcc").value = "";
+  $("mailSubject").value = subject; $("mailText").value = text; $("mailNote").textContent = ""; $("mailNote").className = "sub";
+  $("mailSend").disabled = !mailAddress;
+  $("mailDlg").showModal();
+  (to ? $("mailText") : $("mailTo")).focus();
+  if (to) $("mailText").setSelectionRange(0, 0);
+}
+$("mailWrite").addEventListener("click", () => writeMail());
+$("mailCancel").addEventListener("click", () => $("mailDlg").close());
+// Enter in a one-line field moves on; only the Send button sends.
+$("mailForm").addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target.tagName === "INPUT") ev.preventDefault(); });
+$("mailForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const note = $("mailNote");
+  if (!$("mailTo").value.trim() && !$("mailCc").value.trim() && !$("mailBcc").value.trim()) { note.textContent = "Who is it to?"; return; }
+  $("mailSend").disabled = true; note.className = "sub"; note.textContent = "Sending…";
+  const r = await post("api/mail/send", {body: JSON.stringify({to: $("mailTo").value, cc: $("mailCc").value,
+    bcc: $("mailBcc").value, subject: $("mailSubject").value, text: $("mailText").value, reply_to: mailReply})});
+  $("mailSend").disabled = false;
+  if (!r.ok) { note.className = "err"; note.textContent = "Not sent: " + await r.text(); return; }
+  const res = await r.json();
+  $("mailDlg").close();
+  if (res.warning) alert(res.warning);
+  mailKey = ""; refreshMail();
+});
+for (const [b, sent] of [["mailInbox", false], ["mailSentTab", true]])
+  $(b).addEventListener("click", () => {
+    mailSent = sent; mailKey = "";
+    $("mailInbox").classList.toggle("on", !sent); $("mailSentTab").classList.toggle("on", sent);
+    refreshMail();
+  });
 $("mailList").addEventListener("click", ev => {
   const it = ev.target.closest(".item[data-id]");
   if (it) openMail(it.dataset.id);

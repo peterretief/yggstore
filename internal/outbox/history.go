@@ -418,3 +418,6 @@ func freeDir(path string) string {
 		p = path + " " + strconv.Itoa(i)
 	}
 }
+
+// HistoryDir holds the older versions' stubs.
+func (w *Watcher) HistoryDir() string { return w.historyRoot() }

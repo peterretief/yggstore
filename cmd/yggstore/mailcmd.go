@@ -8,24 +8,32 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/mail"
+	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/transport"
 )
 
 const mailUsage = `yggstore mail: the group's email (see docs/mail.md)
 
-  yggstore mail address ADDRESS   this machine's entry for the mail Worker's MAILBOXES
+  yggstore mail address ADDRESS   set your address; prints your entries for the mail
+                                  Worker's MAILBOXES and the web nodes' -mail-out file
   yggstore mail token   FILE      make the Worker's token (if FILE is missing) and print it
+  yggstore mail relay   FILE      make a -mail-out file to fill in (if FILE is missing)
   yggstore mail list              your mailbox, newest first
   yggstore mail read    ID        one message (-raw for it as it arrived)
+  yggstore mail send -to ADDRESSES -subject TEXT [-cc ...] [-bcc ...] < BODY
+                                  send a plain-text message from your address
 
-Options: -mailbox ~/.yggstore/mail, -sharing-key ~/.yggstore/sharing.key.
+Options: -mailbox ~/.yggstore/mail, -sharing-key ~/.yggstore/sharing.key,
+-peers (send).
 `
 
 func cmdMail(ctx context.Context, args []string) error {
@@ -39,6 +47,12 @@ func cmdMail(ctx context.Context, args []string) error {
 	keyPath := fs.String("sharing-key", filepath.Join(yggstoreHome(), "sharing.key"), "your sharing key")
 	tname := fs.String("transport", "ygg", "ygg or loopback (address)")
 	raw := fs.Bool("raw", false, "print the message as it arrived (read)")
+	peersPath := fs.String("peers", defaultPeers(), "allow-list of peers (send)")
+	to := fs.String("to", "", "recipients, comma-separated (send)")
+	cc := fs.String("cc", "", "copies (send)")
+	bcc := fs.String("bcc", "", "hidden copies (send)")
+	subject := fs.String("subject", "", "subject (send)")
+	name := fs.String("name", "", "your name, shown with your address (send)")
 	fs.Parse(args[1:])
 	box := func() (*mail.Box, error) {
 		id, err := share.Load(*keyPath)
@@ -65,8 +79,66 @@ func cmdMail(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		addr := strings.ToLower(fs.Arg(0))
+		if err := (&mail.Box{Dir: *boxDir}).SetAddress(addr); err != nil {
+			return err
+		}
 		entry, _ := json.Marshal(map[string]string{"node": ip.String(), "code": id.Code()})
-		fmt.Printf("%q: %s\n", strings.ToLower(fs.Arg(0)), entry)
+		fmt.Printf("For the mail Worker's MAILBOXES (receiving):\n  %q: %s\n", addr, entry)
+		fmt.Printf("For \"senders\" in the web nodes' -mail-out file (sending):\n  %q: %q\n", addr, ip.String())
+		return nil
+
+	case "relay":
+		if fs.NArg() != 1 {
+			return errors.New("usage: yggstore mail relay FILE")
+		}
+		f, err := os.OpenFile(fs.Arg(0), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("%s is there already", fs.Arg(0))
+		} else if err != nil {
+			return err
+		}
+		if _, err := f.WriteString(mail.RelayExample); err != nil {
+			f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+		fmt.Printf("made %s: fill in the relay's user and password, and the senders (see docs/mail.md)\n", fs.Arg(0))
+		return nil
+
+	case "send":
+		b, err := box()
+		if err != nil {
+			return err
+		}
+		from := b.Address()
+		if from == "" {
+			return errors.New("no address to send from: set yours with yggstore mail address you@example.org")
+		}
+		body, err := io.ReadAll(io.LimitReader(os.Stdin, mail.MaxSize))
+		if err != nil {
+			return err
+		}
+		raw, rcpts, err := mail.Draft{From: from, Name: *name, To: *to, Cc: *cc, Bcc: *bcc, Subject: *subject, Text: string(body)}.Compose()
+		if err != nil {
+			return err
+		}
+		list, err := peers.Load(*peersPath)
+		if err != nil {
+			return err
+		}
+		c := client.New()
+		if err := mail.Send(ctx, c, list, raw, rcpts); err != nil {
+			return err
+		}
+		fmt.Printf("sent to %s\n", strings.Join(rcpts, ", "))
+		if id, err := b.KeepSent(ctx, c, list, raw); err != nil {
+			fmt.Fprintf(os.Stderr, "the sent copy: %v\n", err)
+		} else {
+			fmt.Printf("kept as %s\n", id)
+		}
 		return nil
 
 	case "token":
@@ -114,7 +186,11 @@ func cmdMail(ctx context.Context, args []string) error {
 				fmt.Printf("%s  (%s)\n", s.ID, s.Error)
 				continue
 			}
-			fmt.Printf("%s  %s  %-30.30s  %s\n", s.ID, time.UnixMilli(s.Received).Format("2006-01-02 15:04"), s.From, s.Subject)
+			who := s.From
+			if s.Sent {
+				who = "to " + s.To
+			}
+			fmt.Printf("%s  %s  %-30.30s  %s\n", s.ID, time.UnixMilli(s.Received).Format("2006-01-02 15:04"), who, s.Subject)
 		}
 		return nil
 

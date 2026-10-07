@@ -8,9 +8,11 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/mail"
+	"github.com/peterretief/yggstore/internal/peers"
 )
 
 // The mail section reads the mailbox this machine's node collects into
@@ -32,11 +34,13 @@ func (d *Dashboard) handleMailList(w http.ResponseWriter, r *http.Request) {
 	out := struct {
 		Available bool           `json:"available"`
 		Error     string         `json:"error,omitempty"`
+		Address   string         `json:"address,omitempty"` // to send from
 		Messages  []mail.Summary `json:"messages"`
 	}{Messages: []mail.Summary{}}
 	box, err := d.mailBox()
 	if err == nil {
 		out.Messages, err = box.List()
+		out.Address = box.Address()
 	}
 	if err != nil {
 		out.Error = err.Error()
@@ -123,4 +127,55 @@ func (d *Dashboard) handleMailDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	d.event("info", "deleted a message")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d *Dashboard) handleMailSend(w http.ResponseWriter, r *http.Request) {
+	box, err := d.mailBox()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	var req struct {
+		To, Cc, Bcc, Subject, Text string
+		ReplyTo                    string `json:"reply_to"` // the ID of the message answered
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	from := box.Address()
+	if from == "" {
+		http.Error(w, "no address to send from: set yours with yggstore mail address you@example.org", http.StatusBadRequest)
+		return
+	}
+	draft := mail.Draft{From: from, Name: d.cfg.Name, To: req.To, Cc: req.Cc, Bcc: req.Bcc, Subject: req.Subject, Text: req.Text}
+	if req.ReplyTo != "" {
+		if orig, err := box.Read(req.ReplyTo); err == nil {
+			draft.InReplyTo, draft.References = orig.MessageID, orig.References
+		}
+	}
+	raw, rcpts, err := draft.Compose()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
+	defer cancel()
+	if err := mail.Send(ctx, d.cfg.Client, list, raw, rcpts); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	d.event("info", "sent a message to "+strings.Join(rcpts, ", "))
+	out := map[string]string{}
+	if id, err := box.KeepSent(ctx, d.cfg.Client, list, raw); err != nil {
+		out["warning"] = "Sent, but the copy in Sent: " + err.Error()
+	} else {
+		out["id"] = id
+	}
+	writeJSONResp(w, out)
 }

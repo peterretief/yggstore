@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"io"
 	"mime"
@@ -18,9 +19,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/files"
+	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/share"
 )
 
@@ -39,8 +43,9 @@ type Summary struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Subject  string `json:"subject"`
-	Date     int64  `json:"date"`     // unix ms, from the Date header
-	Received int64  `json:"received"` // unix ms, when the group took it
+	Date     int64  `json:"date"`           // unix ms, from the Date header
+	Received int64  `json:"received"`       // unix ms, when the group took it (or it was sent)
+	Sent     bool   `json:"sent,omitempty"` // written here, not received
 	Size     int    `json:"size"`
 	Error    string `json:"error,omitempty"`
 }
@@ -52,6 +57,8 @@ type Message struct {
 	ReplyTo     string       `json:"reply_to,omitempty"`
 	Text        string       `json:"text"`
 	FromHTML    bool         `json:"from_html,omitempty"` // Text was made from the HTML part
+	MessageID   string       `json:"message_id,omitempty"`
+	References  string       `json:"references,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
@@ -132,7 +139,7 @@ func (b *Box) Read(id string) (Message, error) {
 	if data, err := os.ReadFile(filepath.Join(b.Dir, id+".json")); err == nil {
 		json.Unmarshal(data, &meta)
 	}
-	m.Received = meta.Received
+	m.Received, m.Sent = meta.Received, meta.Sent
 	return m, err
 }
 
@@ -202,6 +209,8 @@ func Parse(raw []byte) (Message, error) {
 	m.Cc = header(msg.Header, "Cc")
 	m.ReplyTo = header(msg.Header, "Reply-To")
 	m.Subject = header(msg.Header, "Subject")
+	m.MessageID = strings.TrimSpace(msg.Header.Get("Message-ID"))
+	m.References = strings.Join(strings.Fields(msg.Header.Get("References")), " ")
 	if t, err := msg.Header.Date(); err == nil {
 		m.Date = t.UnixMilli()
 	}
@@ -342,4 +351,50 @@ func HTMLToText(s string) string {
 	s = strings.Join(lines, "\n")
 	s = blankLines.ReplaceAllString(s, "\n\n")
 	return strings.TrimSpace(s)
+}
+
+// addressFile, in the mailbox, is the owner's own address, for sending.
+const addressFile = "address"
+
+// Address is the mailbox owner's address ("" if not set).
+func (b *Box) Address() string {
+	data, _ := os.ReadFile(filepath.Join(b.Dir, addressFile))
+	return strings.TrimSpace(string(data))
+}
+
+// SetAddress keeps the owner's address.
+func (b *Box) SetAddress(addr string) error {
+	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
+		return err
+	}
+	return atomicfile.Replace(filepath.Join(b.Dir, addressFile), []byte(addr+"\n"), 0o600)
+}
+
+// KeepSent puts a sent message in the mailbox, sealed for the owner, and
+// stores a copy in the group. The message is kept even if the group copy
+// fails; that error is returned with its ID.
+func (b *Box) KeepSent(ctx context.Context, c client.Client, list []peers.Peer, raw []byte) (string, error) {
+	if b.ID == nil {
+		return "", errors.New("no sharing key to keep mail with")
+	}
+	sealed, err := Seal(b.ID.Code(), raw)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
+		return "", err
+	}
+	id := "sent-" + randomID()
+	meta, _ := json.Marshal(Meta{Received: time.Now().UnixMilli(), Sent: true})
+	if err := atomicfile.Replace(filepath.Join(b.Dir, id+".json"), meta, 0o600); err != nil {
+		return "", err
+	}
+	if err := atomicfile.Replace(filepath.Join(b.Dir, id+".sealed"), sealed, 0o600); err != nil {
+		return "", err
+	}
+	m, _, _, err := files.PutReader(ctx, c, bytes.NewReader(sealed), "mail-"+id, online(ctx, c, list), files.PutOptions{})
+	if err != nil {
+		return id, fmt.Errorf("kept here, but not stored in the group: %w", err)
+	}
+	return id, files.WriteJSON(filepath.Join(b.Dir, id+".ystub"), m)
 }

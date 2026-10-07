@@ -40,6 +40,10 @@ It is not yet suitable as the only copy of important or sensitive data.
   message before the mail Worker seals it for the recipient; after that the
   web nodes and members see ciphertext. Anyone with the Worker's token can
   put messages in a member's mailbox, so keep it as secret as a password.
+  Outgoing mail is seen by the web node that relays it and by the SMTP
+  relay. Only web nodes hold the relay's password (`-mail-out`, a file
+  that must be private), and a web node sends only from the addresses its
+  file gives the calling node.
 - **Yggdrasil** is trusted for transport: node identities and the encryption
   between nodes come from it. Nodes speak HTTP/3, whose TLS is not checked
   (it is there because QUIC needs it); the caller is still its Yggdrasil

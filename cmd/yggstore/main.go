@@ -29,6 +29,7 @@ import (
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/repair"
 	"github.com/peterretief/yggstore/internal/server"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
@@ -55,7 +56,8 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore msg     send|pub|sub|unsub|read|status ...      message other nodes (see docs/messaging.md)
   yggstore site    publish|list|versions|rollback|announce|remove|status ...
                                                            host static websites on the group (see docs/sites.md)
-  yggstore mail    address|token|list|read ...             the group's email (see docs/mail.md)
+  yggstore mail    address|token|list|read|send ...        the group's email (see docs/mail.md)
+  yggstore repair  [-after 24h] [-outfiles DIR]            rebuild shards of nodes down that long (see docs/repair.md)
   yggstore mesh    [set NODE URI...]                        Yggdrasil links between members (see docs/mesh.md)
   yggstore gateway serve|customer|report ...               S3 service for paying customers (see docs/gateway.md)
   yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
@@ -167,6 +169,8 @@ func main() {
 		err = cmdMesh(ctx, args)
 	case "mail":
 		err = cmdMail(ctx, args)
+	case "repair":
+		err = cmdRepair(ctx, args)
 	case "history":
 		err = cmdHistory(ctx, args)
 	case "version", "-version", "--version":
@@ -218,6 +222,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	cloudflared := fs.String("cloudflared", "cloudflared", "the cloudflared program, for -web-tunnel")
 	mailIn := fs.String("mail-in", "", "take the group's email from the mail Worker; the file holds its token (needs -web; see docs/mail.md)")
 	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), `where your email is collected ("" for none; see docs/mail.md)`)
+	mailOut := fs.String("mail-out", "", "send members' email through the SMTP relay in this file (see docs/mail.md)")
 	yggAdmin := fs.String("ygg-admin", "auto", `Yggdrasil's admin socket, for linking to other members ("none" to leave Yggdrasil's links alone)`)
 	yggKey := fs.String("ygg-key", filepath.Join(yggstoreHome(), "ygg.key"), "builtin: the node's Yggdrasil key, made if missing (a yggdrasil.conf works too, keeping that machine's address)")
 	yggPeers := fs.String("ygg-peers", defaultYggPeers, "builtin: comma-separated Yggdrasil peers to link to")
@@ -329,6 +334,18 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 	go mailNode.Run(ctx)
 
+	var relay *mail.Relay
+	if *mailOut != "" {
+		// A mistake here stops only sending, not the node.
+		if relay, err = mail.LoadRelay(*mailOut); err != nil {
+			log.Printf("mail: not sending members' email: -mail-out: %v", err)
+			relay = nil
+		} else {
+			relay.Log = log.Printf
+			log.Printf("mail: sending members' email through %s", relay.SMTP)
+		}
+	}
+
 	var webStatus func() json.RawMessage
 	if *webAddr != "" {
 		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf}
@@ -377,6 +394,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
+		MailOut: mailOutHandler(relay),
 		Join: func(caller string, req invite.Request) (invite.Response, error) {
 			own := ""
 			if id, err := share.Load(*keyPath); err == nil {
@@ -610,6 +628,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	msgAPI := fs.String("msg-api", "127.0.0.1:7401", "this machine's node's local messaging API")
 	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "the node's messaging token file")
 	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), "where this machine's node collects your email")
+	repairAfter := fs.Duration("repair-after", repair.DefaultGrace, "rebuild shards held by a node down this long on nodes that are up (0 = never)")
 	fs.Parse(args)
 
 	id, err := share.LoadOrCreate(*keyPath)
@@ -658,6 +677,15 @@ func cmdDashboard(ctx context.Context, args []string) error {
 				log.Printf("outbox: %v", err)
 			}
 		}()
+	}
+	if *repairAfter > 0 {
+		history := ""
+		if w != nil {
+			history = w.HistoryDir()
+		}
+		r := newRepairer(*peersPath, *repairAfter, absStubs, history, *mailbox)
+		r.Log = d.Event
+		go r.Run(ctx, 30*time.Minute)
 	}
 
 	srv := &http.Server{Addr: *listen, Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second}
@@ -742,4 +770,14 @@ func startBuiltin(keyPath, peerList, listen string, lan bool, port int) (*yggnet
 	}
 	yggnet.Default.UseNode(node)
 	return node, nil
+}
+
+// mailOutHandler keeps a nil relay a nil interface.
+func mailOutHandler(r *mail.Relay) interface {
+	Serve(http.ResponseWriter, *http.Request, string) bool
+} {
+	if r == nil {
+		return nil
+	}
+	return r
 }

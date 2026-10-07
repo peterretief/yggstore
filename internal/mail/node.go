@@ -308,6 +308,7 @@ func (n *Node) collect(ctx context.Context, no notice) error {
 // Meta is what the mailbox keeps beside a message.
 type Meta struct {
 	Received int64 `json:"received"` // unix ms
+	Sent     bool  `json:"sent,omitempty"`
 }
 
 func (n *Node) atMembers(m manifest.Manifest) bool {
@@ -325,15 +326,18 @@ func (n *Node) atMembers(m manifest.Manifest) bool {
 	return true
 }
 
-func (n *Node) online(ctx context.Context) []peers.Peer {
+func (n *Node) online(ctx context.Context) []peers.Peer { return online(ctx, n.Client, n.Peers()) }
+
+// online is the members (not gateways) that answer, to store mail on.
+func online(ctx context.Context, c client.Client, all []peers.Peer) []peers.Peer {
 	var list []peers.Peer
-	for _, p := range n.Peers() {
+	for _, p := range all {
 		if !p.Gateway {
 			list = append(list, p)
 		}
 	}
 	return peers.Online(ctx, list, func(ctx context.Context, p peers.Peer) error {
-		_, err := n.Client.Info(ctx, p.Addr)
+		_, err := c.Info(ctx, p.Addr)
 		return err
 	})
 }

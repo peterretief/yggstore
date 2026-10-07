@@ -33,22 +33,30 @@ independent. Don't make it the only copy of anything you can't lose.
 - [Websites](docs/sites.md) can live on the group: publish a folder, and
   several machines serve it, so a site stays up when one of them goes down.
 - [Email](docs/mail.md) to your domain can arrive on the group: each message
-  is encrypted for you as it comes in and read on your dashboard.
+  is encrypted for you as it comes in and read on your dashboard, where you
+  can also write and reply (sent through an SMTP relay the web nodes hold).
 - Licence: see [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
   Security issues: [SECURITY.md](SECURITY.md).
 
 ## How it works
 
 1. `put` splits the file into 4 MiB chunks, encrypts each with AES-256-GCM
-   (one random key per file, fresh nonce per chunk), and erasure-codes each
-   chunk into **4 data + 2 parity** shards.
+   (one random key per file, fresh nonce per chunk), and erasure-codes
+   (Reed-Solomon) each chunk into data and parity shards. How many depends
+   on how many separate machines are online ([repair](docs/repair.md)):
+   **4+2** with up to 3 machines, **2+2** with 4, **3+2** with 5, **4+2**
+   with 6-8 and **6+3** from 9, so that with 4 or more no machine holds two
+   shards of a chunk.
 2. Shards are content-addressed (filename = SHA-256) and spread over the
-   online peers, at most one shard of a chunk per peer when there are 6+.
+   online peers, as few per machine as the machines allow.
 3. A stub `FILE.ystub` holds the manifest, **including the key**. Anyone with
    the stub and access to the peers can read the file.
 4. `get` fetches shards in parallel, rejects any whose hash doesn't match,
-   and rebuilds each chunk from any 4 of its 6 shards.
-5. At upload time, while it still has the shards, the uploader precomputes
+   and rebuilds each chunk from any data-count of its shards (4 of 6 for
+   4+2).
+5. Shards on a node that has been down for a day, or has left the group,
+   are rebuilt on nodes that are up ([repair](docs/repair.md)).
+6. At upload time, while it still has the shards, the uploader precomputes
    20 single-use challenges per shard into `FILE.ystub.challenges.json`
    (keep this private). `verify` sends one per shard: "hash this byte range
    with this nonce", and checks the answer.

@@ -45,6 +45,8 @@ type Info struct {
 	// Web is the sites this node serves, if it is a web node (see package
 	// site).
 	Web json.RawMessage `json:"web,omitempty"`
+	// MailOut is whether the node sends members' email (see package mail).
+	MailOut bool `json:"mail_out,omitempty"`
 }
 
 type Options struct {
@@ -68,6 +70,10 @@ type Options struct {
 	Mesh func() mesh.Status
 	// Web, if set, reports the sites the node serves in its info.
 	Web func() json.RawMessage
+	// MailOut, if set, sends members' email (/v1/mail/send).
+	MailOut interface {
+		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
+	}
 }
 
 func Handler(store localstore.Store, opts Options) http.Handler {
@@ -158,6 +164,9 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 				return
 			}
 		}
+		if opts.MailOut != nil && opts.MailOut.Serve(w, r, caller) {
+			return
+		}
 		switch {
 		case r.URL.Path == "/v1/info" && r.Method == http.MethodGet:
 			count, used, err := store.Stats()
@@ -175,6 +184,7 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			if opts.Web != nil {
 				info.Web = opts.Web()
 			}
+			info.MailOut = opts.MailOut != nil
 			if opts.Mesh != nil {
 				st := opts.Mesh()
 				info.Mesh = &st

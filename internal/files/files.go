@@ -32,7 +32,8 @@ const (
 	ChallengesExt = ".challenges.json"
 )
 
-// Layout is 4 data + 2 parity, as in the credit spec (1.5x raw per logical GB).
+// Layout is 4 data + 2 parity, as in the credit spec (1.5x raw per logical
+// GB). New items use it when there are few machines; see LayoutFor.
 func Layout() erasure.Layout { return erasure.Layout{DataShards: 4, ParityShards: 2} }
 
 type PutOptions struct {
@@ -100,7 +101,20 @@ func PutReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 }
 
 func putReader(ctx context.Context, c client.Client, r io.Reader, name string, online []peers.Peer, opts PutOptions) (manifest.Manifest, Challenges, error) {
-	layout := Layout()
+	layout, perMachine := LayoutFor(online)
+	switch prev := opts.Previous; {
+	case prev != nil && opts.Key == nil && prev.SharedBy == nil && len(prev.Key) == cryptofile.KeySize:
+		// A new version keeps the old one's layout, so its unchanged chunks
+		// can be reused (and it doesn't change as machines come and go).
+		if l, err := erasure.NewLayout(prev.DataShards, prev.ParityShards); err == nil {
+			layout = l
+		}
+	case opts.Key != nil:
+		// Items with a given key may be joined (see Concat), which needs
+		// them all split alike.
+		layout = Layout()
+	}
+	perMachine = PerMachine(layout, machineCount(online))
 	if len(online) == 0 {
 		return manifest.Manifest{}, Challenges{}, errors.New("no peers online")
 	}
@@ -226,7 +240,7 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			refs, err := place(ctx, c, lim, shards, online, idx, layout.ParityShards)
+			refs, err := place(ctx, c, lim, shards, online, idx, perMachine)
 			strand := func() {
 				mu.Lock()
 				for _, r := range refs {

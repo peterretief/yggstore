@@ -112,3 +112,19 @@ func (w appendWriter) Write(p []byte) (int, error) {
 func BalancedLayout() Layout {
 	return Layout{DataShards: BalancedDataShards, ParityShards: BalancedParityShards}
 }
+
+// Reconstruct fills in the missing (nil) shards, data and parity, from the
+// ones present. It needs at least DataShards of them.
+func (l Layout) Reconstruct(shards [][]byte) error {
+	if err := l.Validate(); err != nil {
+		return err
+	}
+	if len(shards) != l.TotalShards() {
+		return fmt.Errorf("invalid shard count: got %d want %d", len(shards), l.TotalShards())
+	}
+	enc, err := reedsolomon.New(l.DataShards, l.ParityShards)
+	if err != nil {
+		return fmt.Errorf("new encoder: %w", err)
+	}
+	return enc.Reconstruct(shards)
+}
