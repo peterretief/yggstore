@@ -1,8 +1,8 @@
 # yggstore
 
-Your files, mail and websites kept among people and organisations you
-trust, on machines you own, instead of on a provider's servers. Each member
-of the group runs a node on their own box, linked over the
+Your files, mail and websites kept among people and organisations who pool
+their own machines, instead of on a provider's servers. Each member of the
+group runs a node on their own box, linked over the
 [Yggdrasil](https://yggdrasil-network.github.io/) overlay with no central
 server or coordinator. Together the nodes hold everything for everyone,
 encrypted, so nothing depends on one machine and no provider keeps your data.
@@ -18,8 +18,12 @@ encrypted, so nothing depends on one machine and no provider keeps your data.
 - **Messaging** between nodes, **websites** served by several machines at
   once, and an **S3 gateway** for people without a box.
 
-Node IDs come from public keys, each node only answers group members, and
-storage challenges check that peers still hold what they were given.
+Members don't have to take each other on trust; the software enforces it.
+Nodes hold only encrypted pieces they can't read, and only the node that
+stored a piece can delete it. Each node sets how much space it lends, and
+storage challenges check that peers still hold what they were given. Node
+IDs come from public keys, members join by invite, and each node only
+answers the group.
 
 **Status: experimental.** The cryptography has not been reviewed by anyone
 independent. Don't make it the only copy of anything you can't lose.
