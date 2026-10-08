@@ -1,17 +1,20 @@
 # yggstore
 
-A small group's own cloud over the
-[Yggdrasil](https://yggdrasil-network.github.io/) overlay, with no central
-server or VPN coordinator. People in a group lend each other disk space and
-run a node each; together the nodes keep the group's files, mail, messages
-and websites, so none of it depends on one machine or on a cloud company.
+The anti-cloud: your files, mail and websites kept among people you know,
+on machines you own, instead of on a company's servers. Friends, a family or
+a neighbourhood each run a node on their own box, linked over the
+[Yggdrasil](https://yggdrasil-network.github.io/) overlay with no central
+server or coordinator. Together the nodes hold everything for everyone,
+encrypted, so nothing depends on one machine and no company keeps your data.
 
 - **Storage**: each file is encrypted, cut into pieces and spread over
   everyone's machines, so it survives machines failing. The small stub left
   behind holds the key, so sending someone a stub (sealed for them) is a
   way to send them the file.
 - **Email** for your own domain, encrypted for you as it arrives, read on
-  the dashboard or in Thunderbird and other mail programs.
+  the dashboard or in Thunderbird and other mail programs. (It comes in
+  through Cloudflare Email Routing and goes out through an SMTP relay;
+  neither keeps it.)
 - **Messaging** between nodes, **websites** served by several machines at
   once, and an **S3 gateway** for people without a box.
 
