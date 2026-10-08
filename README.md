@@ -18,14 +18,6 @@ encrypted, so nothing depends on one machine and no provider keeps your data.
 - **Messaging** between nodes, **websites** served by several machines at
   once, and an **S3 gateway** for people without a box.
 
-A group can run on trust between its members, or rely on what the
-software enforces, which holds either way. Nodes hold only encrypted pieces
-they can't read, and only the node that
-stored a piece can delete it. Each node sets how much space it lends, and
-storage challenges check that peers still hold what they were given. Node
-IDs come from public keys, members join by invite, and each node only
-answers the group.
-
 It's free software ([AGPL-3.0](LICENSE)): use it as you see fit, for
 yourselves or commercially, and use as much or as little of it as you need.
 If you change it and let others use your version over a network, share your
@@ -60,6 +52,43 @@ independent. Don't make it the only copy of anything you can't lose.
   months (a lost stub, a delete that missed a node), without reading them.
 - Licence: see [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
   Security issues: [SECURITY.md](SECURITY.md).
+
+## An example
+
+A shop, a web developer and an NGO share one network, each with a small box
+running a node:
+
+- **The shop** has its website and email on the group. When products or
+  prices change, the owner edits the site's files and publishes them again
+  (`yggstore site publish`); within seconds every web node serves the new
+  version. No hosting provider in between.
+- **The developer** hosts several clients' websites and email domains on
+  the same network.
+- **The NGO** keeps its website and email there too.
+
+Their files are spread across all the boxes, encrypted, so each survives
+another box failing and none can read another's. The websites keep serving
+when a box goes down.
+
+**Messaging** comes with it. A node publishes to a topic, and every node
+following it gets the message, even one that was off at the time. A door
+sensor or camera script can publish to `alarms`, and every box following
+it hears; a disk filling up, a backup finishing or a site going down can be
+messages too. Scripts use the node's local API
+([messaging](docs/messaging.md)).
+
+Sites are static (HTML, CSS, images, JavaScript): taking payments online
+needs a server of its own for that part. Every member can follow any topic,
+so anything private goes as a direct message.
+
+## Trust
+
+A group can run on trust between its members, or rely on what the
+software enforces, which holds either way. Nodes hold only encrypted pieces
+they can't read, and only the node that stored a piece can delete it. Each
+node sets how much space it lends, and storage challenges check that peers
+still hold what they were given. Node IDs come from public keys, members
+join by invite, and each node only answers the group.
 
 ## How it works
 
