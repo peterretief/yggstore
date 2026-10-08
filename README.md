@@ -18,8 +18,9 @@ encrypted, so nothing depends on one machine and no provider keeps your data.
 - **Messaging** between nodes, **websites** served by several machines at
   once, and an **S3 gateway** for people without a box.
 
-Members don't have to take each other on trust; the software enforces it.
-Nodes hold only encrypted pieces they can't read, and only the node that
+A group can run on trust between its members, or rely on what the
+software enforces, which holds either way. Nodes hold only encrypted pieces
+they can't read, and only the node that
 stored a piece can delete it. Each node sets how much space it lends, and
 storage challenges check that peers still hold what they were given. Node
 IDs come from public keys, members join by invite, and each node only
