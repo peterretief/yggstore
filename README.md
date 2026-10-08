@@ -1,7 +1,7 @@
 # yggstore
 
-The anti-cloud: your files, mail and websites kept among people you know,
-on machines you own, instead of on a company's servers. Friends, a family or
+Your files, mail and websites kept among people you know, on machines you
+own, instead of on a company's servers. Friends, a family or
 a neighbourhood each run a node on their own box, linked over the
 [Yggdrasil](https://yggdrasil-network.github.io/) overlay with no central
 server or coordinator. Together the nodes hold everything for everyone,
