@@ -364,6 +364,31 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	node := r.URL.Query().Get("node")
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxSize))
+	if err != nil {
+		http.Error(w, "message too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	id, err := n.Take(r.Context(), node, data)
+	var bad badRequest
+	switch {
+	case errors.As(err, &bad):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": id})
+}
+
+type badRequest struct{ error }
+
+// Take stores a sealed message in the group for a member's node and tells
+// that node, which collects it into its owner's mailbox. It returns once
+// both are done, so a caller told of an error can have the sender retry.
+func (n *Node) Take(ctx context.Context, node string, data []byte) (string, error) {
 	member := false
 	for _, p := range n.Peers() {
 		if p.IP() == node && !p.Gateway {
@@ -371,25 +396,20 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !member {
-		http.Error(w, "no member node "+node, http.StatusBadRequest)
-		return
+		return "", badRequest{errors.New("no member node " + node)}
 	}
-	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxSize))
-	if err != nil {
-		http.Error(w, "message too large", http.StatusRequestEntityTooLarge)
-		return
+	if len(data) > MaxSize || !IsSealed(data) {
+		return "", badRequest{errors.New("not a sealed message")}
 	}
-	if !IsSealed(data) {
-		http.Error(w, "not a sealed message", http.StatusBadRequest)
-		return
+	if node == n.Self && n.Box == "" {
+		return "", errors.New("that node collects no mail")
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	m, _, _, err := files.PutReader(ctx, n.Client, bytes.NewReader(data), "mail", n.online(ctx), files.PutOptions{})
 	if err != nil {
 		n.logf("mail: storing a message for %s: %v", node, err)
-		http.Error(w, "can't store the message now", http.StatusServiceUnavailable)
-		return
+		return "", errors.New("can't store the message now")
 	}
 	stub, _ := manifest.Marshal(m)
 	no := notice{ID: m.FileID, Received: time.Now().UnixMilli(), Stub: stub}
@@ -397,23 +417,19 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer n.mu.Unlock()
 	n.st.Taken[no.ID] = &taken{Node: node, Time: no.Received, Stub: m}
 	if node == n.Self {
-		if n.Box != "" {
-			no.From = n.Self
-			n.st.Todo[no.ID] = &no
-		}
+		no.From = n.Self
+		n.st.Todo[no.ID] = &no
 	} else {
 		body, _ := json.Marshal(no)
 		if _, err := n.Msgs.Send(node, typeMail, string(body)); err != nil {
 			delete(n.st.Taken, no.ID)
 			files.Delete(ctx, n.Client, m)
 			n.logf("mail: telling %s: %v", node, err)
-			http.Error(w, "can't reach the recipient's node now", http.StatusServiceUnavailable)
-			return
+			return "", errors.New("can't reach the recipient's node now")
 		}
 	}
 	n.save()
 	n.logf("mail: took %s for %s (%d bytes)", no.ID, node, len(data))
 	n.poke()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": no.ID})
+	return no.ID, nil
 }

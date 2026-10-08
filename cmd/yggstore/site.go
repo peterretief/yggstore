@@ -17,6 +17,7 @@ import (
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
 )
 
@@ -29,6 +30,9 @@ const siteUsage = `yggstore site: static websites hosted on the group
   yggstore site list                            sites published from this machine
   yggstore site versions DOMAIN                 a site's versions, newest first
   yggstore site rollback DOMAIN [VERSION]       serve an earlier version (default: the one before)
+  yggstore site contact DOMAIN on|off           the site's contact form: messages posted to
+                                                /_yggstore/contact arrive in this machine's
+                                                mailbox (see docs/sites.md)
   yggstore site announce                        tell web nodes about every site again
   yggstore site remove DOMAIN -yes              stop serving it and delete every version
   yggstore site status                          which web nodes serve which version
@@ -65,6 +69,7 @@ func cmdSite(ctx context.Context, args []string) error {
 	service := fs.String("service", "http://localhost:8480", "where the web nodes serve, as the tunnel reaches them")
 	noRoute := fs.Bool("no-route", false, "don't add Cloudflare routes")
 	noWait := fs.Bool("no-wait", false, "don't wait for the web nodes and the public address")
+	keyPath := fs.String("sharing-key", filepath.Join(yggstoreHome(), "sharing.key"), "your sharing key (contact)")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, siteUsage) }
 	fs.Parse(reorder(args[1:]))
 
@@ -129,7 +134,11 @@ func cmdSite(ctx context.Context, args []string) error {
 					cur = v.ID[:8] + " from " + time.Unix(v.StoredAt, 0).Format("2 Jan 2006 15:04")
 				}
 			}
-			fmt.Printf("%-30s %d version(s), serving %s\n", s, len(vs), cur)
+			form := ""
+			if pub.Contact(s) != "" {
+				form = ", contact form on"
+			}
+			fmt.Printf("%-30s %d version(s), serving %s%s\n", s, len(vs), cur, form)
 		}
 	case "versions":
 		vs, err := pub.Versions(site.Normalise(arg(0)))
@@ -156,6 +165,30 @@ func cmdSite(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("%s: serving version %s from %s again.\n", arg(0), v.ID[:8], time.Unix(v.StoredAt, 0).Format("2 Jan 2006 15:04"))
+	case "contact":
+		if fs.NArg() != 2 || (arg(1) != "on" && arg(1) != "off") {
+			return errors.New("usage: yggstore site contact DOMAIN on|off")
+		}
+		domain := site.Normalise(arg(0))
+		code := ""
+		if arg(1) == "on" {
+			id, err := share.Load(*keyPath)
+			if err != nil {
+				return fmt.Errorf("sharing key: %w", err)
+			}
+			code = id.Code()
+		}
+		if err := announcer(); err != nil {
+			return err
+		}
+		if err := pub.SetContact(ctx, domain, code); err != nil {
+			return err
+		}
+		if code == "" {
+			fmt.Printf("%s: contact form off.\n", domain)
+		} else {
+			fmt.Printf("%s: contact form on. Messages posted to https://%s%s arrive in this machine's mailbox.\n", domain, domain, site.ContactPath)
+		}
 	case "announce":
 		if err := announcer(); err != nil {
 			return err

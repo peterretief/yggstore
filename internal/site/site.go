@@ -14,6 +14,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/msg"
+	"github.com/peterretief/yggstore/internal/share"
 )
 
 // Topic is where sites are announced.
@@ -28,6 +29,10 @@ const (
 type Announcement struct {
 	Site string             `json:"site"`
 	Stub *manifest.Manifest `json:"stub,omitempty"` // the version to serve; nil when removed
+	// Contact, if set, is the publisher's sharing code: the site's contact
+	// form is on, and its messages are sealed for that code and go to the
+	// publishing node's mailbox (see ContactPath).
+	Contact string `json:"contact,omitempty"`
 }
 
 var domain = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
@@ -87,5 +92,10 @@ func decode(s msg.Stored) (Announcement, bool) {
 		return a, false
 	}
 	a.Stub = &m
+	if a.Contact != "" {
+		if _, err := share.ParseCode(a.Contact); err != nil {
+			a.Contact = ""
+		}
+	}
 	return a, true
 }

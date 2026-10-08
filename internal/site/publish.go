@@ -44,7 +44,8 @@ type Version struct {
 }
 
 type state struct {
-	Current string `json:"current"` // FileID being served
+	Current string `json:"current"`           // FileID being served
+	Contact string `json:"contact,omitempty"` // sharing code the contact form's messages go to; "" if off
 }
 
 func (p *Publisher) siteDir(name string) string { return filepath.Join(p.Dir, name) }
@@ -257,15 +258,46 @@ func (p *Publisher) Remove(ctx context.Context, name string) error {
 	return os.RemoveAll(p.siteDir(name))
 }
 
+// SetContact turns a site's contact form on, its messages sealed for code
+// (this machine's sharing code), or off with "", and announces the current
+// version again so web nodes know.
+func (p *Publisher) SetContact(ctx context.Context, name, code string) error {
+	vs, err := p.Versions(name)
+	if err != nil {
+		return err
+	}
+	s := p.readState(name)
+	s.Contact = code
+	if err := p.writeState(name, s); err != nil {
+		return err
+	}
+	for _, v := range vs {
+		if v.Current {
+			m, err := files.ReadStub(v.stub)
+			if err != nil {
+				return err
+			}
+			_, err = p.announce(ctx, name, m)
+			return err
+		}
+	}
+	return nil
+}
+
+// Contact is the sharing code a site's contact form goes to; "" if off.
+func (p *Publisher) Contact(name string) string { return p.readState(name).Contact }
+
 func (p *Publisher) announce(ctx context.Context, name string, m manifest.Manifest) (Version, error) {
-	typ, body, err := encode(Announcement{Site: name, Stub: &m})
+	s := p.readState(name)
+	typ, body, err := encode(Announcement{Site: name, Stub: &m, Contact: s.Contact})
 	if err != nil {
 		return Version{}, err
 	}
 	if err := p.Announce.Publish(ctx, Topic, typ, body); err != nil {
 		return Version{}, fmt.Errorf("stored, but the web nodes could not be told: %w (run: yggstore site announce)", err)
 	}
-	if err := p.writeState(name, state{Current: m.FileID}); err != nil {
+	s.Current = m.FileID
+	if err := p.writeState(name, s); err != nil {
 		return Version{}, err
 	}
 	return Version{ID: m.FileID, StoredAt: m.StoredAt, Bytes: m.ContentBytes, Files: m.FileCount, Current: true}, nil

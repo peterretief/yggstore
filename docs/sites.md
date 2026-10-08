@@ -27,7 +27,8 @@ flowchart LR
   an admin node.
 
 This suits plain-file sites. Anything that runs code on the server (PHP, a
-database, logins) needs a server of its own.
+database, logins) needs a server of its own. A contact form is the
+exception: web nodes take it themselves (see [A contact form](#a-contact-form)).
 
 ## 1. Choose the web nodes
 
@@ -170,6 +171,52 @@ dashboard, with its nameservers changed).
 
 To move a site that is on a server now: publish it, add the public hostname,
 and check it, before you remove the old copy.
+
+## A contact form
+
+A site's contact form can send its messages to your mailbox on the group,
+read on your dashboard or in your mail program like any other mail. They
+never go through a mail relay or a form service: the web node that takes the
+form writes it up as an email, seals it for your sharing code and hands it
+to your node.
+
+Turn it on from the machine that published the site (its node collects your
+mail):
+
+```sh
+yggstore site contact example.org on
+```
+
+and put a form on any page of the site:
+
+```html
+<form method="post" action="/_yggstore/contact">
+  <input type="hidden" name="_next" value="/thanks.html">
+  <label>Name <input name="name" required></label>
+  <label>Email <input name="email" type="email" required></label>
+  <label>Message <textarea name="message" required></textarea></label>
+  <input name="_gotcha" style="display:none" tabindex="-1" autocomplete="off">
+  <button>Send</button>
+</form>
+```
+
+- **Any fields** can be used; the message lists them in the form's order.
+  A field called `email` becomes the message's Reply-To, so replying answers
+  the visitor (from your dashboard or mail program, through the group's
+  [relay](mail.md#sending)). The subject is `_subject` if the form has one,
+  else a `subject` field, else the start of `message`.
+- **`_next`** is the page to show afterwards, on the same site. Without it
+  the visitor sees a short thank-you. A script posting with
+  `Accept: application/json` gets `{"ok":true}` or `{"ok":false,"error":"…"}`.
+- **`_gotcha`** is a trap for robots: people never see it, so a post with
+  anything in it is answered as if sent, and dropped.
+- **Limits**: 64 KiB a message (no attachments), five messages from one
+  address every ten minutes, and 100 a day per site on each web node.
+  Posts from forms on other sites are refused.
+
+The message shows the visitor's address and the page the form was on. The
+web node sees the form as it arrives, as Cloudflare does; from then on only
+you can read it. `yggstore site contact example.org off` turns it off.
 
 ## Checking it works
 

@@ -356,6 +356,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		if mailNode.Token != "" {
 			web.Mail = mailNode
 		}
+		web.Deliver = mailNode.Take
 		go func() {
 			if err := web.Run(ctx); err != nil {
 				log.Printf("web: %v", err)

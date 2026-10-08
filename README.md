@@ -43,6 +43,8 @@ independent. Don't make it the only copy of anything you can't lose.
   other, so losing one tunnel or public peer doesn't cut anyone off.
 - [Websites](docs/sites.md) can live on the group: publish a folder, and
   several machines serve it, so a site stays up when one of them goes down.
+  A site's [contact form](docs/sites.md#a-contact-form) sends to your
+  mailbox on the group.
 - [Email](docs/mail.md) to your domain can arrive on the group: each message
   is encrypted for you as it comes in and read on your dashboard, where you
   can also write and reply (sent through an SMTP relay the web nodes hold).
@@ -77,8 +79,9 @@ it hears; a disk filling up, a backup finishing or a site going down can be
 messages too. Scripts use the node's local API
 ([messaging](docs/messaging.md)).
 
-Sites are static (HTML, CSS, images, JavaScript): taking payments online
-needs a server of its own for that part. Every member can follow any topic,
+Sites are static (HTML, CSS, images, JavaScript), apart from a contact form
+whose messages arrive in the owner's mailbox on the group: taking payments
+online needs a server of its own for that part. Every member can follow any topic,
 so anything private goes as a direct message.
 
 ## Trust

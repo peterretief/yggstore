@@ -37,10 +37,14 @@ type Web struct {
 	Log    func(string, ...any)
 	// Mail, if set, takes the mail Worker's posts (see package mail).
 	Mail http.Handler
+	// Deliver, if set, takes sites' contact forms: it stores a sealed
+	// message for a member's node to collect (mail.Node.Take).
+	Deliver func(ctx context.Context, node string, sealed []byte) (string, error)
 
 	mu    sync.Mutex
 	st    webState
 	roots map[string]string // site → folder being served
+	limit limiter
 }
 
 type webState struct {
@@ -54,6 +58,7 @@ type webEntry struct {
 	Serving   string             `json:"serving,omitempty"`
 	Want      *manifest.Manifest `json:"want,omitempty"` // announced, not fetched yet
 	Error     string             `json:"error,omitempty"`
+	Contact   string             `json:"contact,omitempty"` // the contact form's sharing code; "" if off
 }
 
 // NodeStatus is what a web node reports in its info.
@@ -168,6 +173,7 @@ func (w *Web) handle(s msg.Stored) {
 			w.st.Sites[a.Site] = e
 		}
 		e.Announced = s.Time
+		e.Contact = a.Contact
 		if a.Stub.FileID == e.Serving {
 			e.Want = nil
 		} else {
@@ -324,13 +330,23 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.mu.Lock()
-	root, ok := w.roots[host]
+	name := host
+	root, ok := w.roots[name]
 	if !ok {
-		root, ok = w.roots[strings.TrimPrefix(host, "www.")]
+		name = strings.TrimPrefix(host, "www.")
+		root, ok = w.roots[name]
+	}
+	var owner, contact string
+	if e := w.st.Sites[name]; ok && e != nil {
+		owner, contact = e.Owner, e.Contact
 	}
 	w.mu.Unlock()
 	if !ok {
 		http.Error(rw, "There is no site called "+host+" here.", http.StatusNotFound)
+		return
+	}
+	if r.URL.Path == ContactPath {
+		w.contact(rw, r, name, owner, contact)
 		return
 	}
 	h := rw.Header()
