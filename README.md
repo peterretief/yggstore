@@ -12,13 +12,13 @@ encrypted, so nothing depends on one machine and no provider keeps your data.
   behind holds the key, so sending someone a stub (sealed for them) is a
   way to send them the file.
 - **Email** for your own domain, encrypted for you as it arrives, read on
-  the dashboard or in Thunderbird and other mail programs. (It comes in
+  the dashboard or in your mail program. (It comes in
   through Cloudflare Email Routing and goes out through an SMTP relay;
   neither keeps it.)
 - **Messaging** between nodes, **websites** served by several machines at
   once, and an **S3 gateway** for people without a box.
 
-It's free software ([AGPL-3.0](LICENSE)): use it as you see fit, for
+It's open source ([AGPL-3.0](LICENSE)): use it as you want, for
 yourselves or commercially, and use as much or as little of it as you need.
 If you change it and let others use your version over a network, share your
 changes.
