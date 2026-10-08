@@ -24,7 +24,9 @@ import (
 	"github.com/peterretief/yggstore/internal/mail"
 )
 
-// A site's contact form posts to ContactPath on the site itself. The web
+// A site's contact form posts to ContactPath on the site itself; opened in
+// a browser, ContactPath shows a plain form of its own, so a site needs only
+// a link to it. The web
 // node writes the fields up as an email, seals it for the publisher's
 // sharing code and hands it to the publisher's node, which collects it into
 // its mailbox like any other mail. Nothing goes through a mail relay.
@@ -49,12 +51,16 @@ type field struct{ name, value string }
 
 func (w *Web) contact(rw http.ResponseWriter, r *http.Request, site, owner, code string) {
 	rw.Header().Set("Cache-Control", "no-store")
-	if r.Method != http.MethodPost {
-		http.Error(rw, "The contact form is sent with POST.", http.StatusMethodNotAllowed)
-		return
-	}
-	if code == "" || w.Deliver == nil {
+	on := code != "" && w.Deliver != nil
+	switch {
+	case !on:
 		contactReply(rw, r, http.StatusNotFound, "This site's contact form is not turned on.")
+		return
+	case r.Method == http.MethodGet || r.Method == http.MethodHead:
+		contactPage(rw, site)
+		return
+	case r.Method != http.MethodPost:
+		http.Error(rw, "The contact form is sent with POST.", http.StatusMethodNotAllowed)
 		return
 	}
 	if o := r.Header.Get("Origin"); o != "" && o != "null" {
@@ -311,11 +317,37 @@ func contactReply(rw http.ResponseWriter, r *http.Request, code int, text string
 		json.NewEncoder(rw).Encode(body)
 		return
 	}
+	contactShell(rw, code, "Contact", `<p>`+html.EscapeString(text)+`</p><p><a href="/">Back to the site</a></p>`)
+}
+
+// contactPage is the built-in form, for sites without one of their own.
+func contactPage(rw http.ResponseWriter, site string) {
+	contactShell(rw, http.StatusOK, "Contact "+site, `<h1>Contact `+html.EscapeString(site)+`</h1>
+<form method="post" action="`+ContactPath+`">
+<label>Your name <input name="name" autocomplete="name" required maxlength="200"></label>
+<label>Your email <input name="email" type="email" autocomplete="email" required maxlength="200"></label>
+<label>Subject <input name="subject" maxlength="200"></label>
+<label>Message <textarea name="message" rows="8" required maxlength="20000"></textarea></label>
+<input name="_gotcha" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+<button>Send</button>
+</form>
+<p class="note">Your message goes to the people who run this site. <a href="/">Back to the site</a></p>`)
+}
+
+func contactShell(rw http.ResponseWriter, code int, title, body string) {
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	rw.Header().Set("X-Frame-Options", "DENY")
 	rw.WriteHeader(code)
-	fmt.Fprintf(rw, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Contact</title><body style="font-family:sans-serif;max-width:32em;margin:3em auto;padding:0 1em">
-<p>%s</p><p><a href="/">Back to the site</a></p>`, html.EscapeString(text))
+	fmt.Fprintf(rw, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>%s</title><style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1d1d1f;--muted:#666;--line:#ccc;--accent:#2563eb}
+@media (prefers-color-scheme:dark){:root{--bg:#18181b;--fg:#ececef;--muted:#a1a1aa;--line:#3f3f46;--accent:#60a5fa}}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif;max-width:34em;margin:3em auto;padding:0 16px}
+h1{font-size:1.5em}label{display:block;margin:0 0 1em;font-weight:600}
+input,textarea{display:block;box-sizing:border-box;width:100%%;margin-top:.3em;padding:.5em;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:6px}
+button{font:inherit;padding:.55em 1.4em;border:0;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer}
+a{color:var(--accent)}.note{color:var(--muted);font-size:.9em;margin-top:2em}.hp{position:absolute;left:-9999px}
+</style><body>%s</body></html>`, html.EscapeString(title), body)
 }
 
 // limiter counts recent events per key.

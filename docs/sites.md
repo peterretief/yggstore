@@ -187,7 +187,14 @@ mail):
 yggstore site contact example.org on
 ```
 
-and put a form on any page of the site:
+The site then has a contact page of its own at `/_yggstore/contact`
+(name, email, subject, message), so a link is all it needs:
+
+```html
+<a href="/_yggstore/contact">Contact us</a>
+```
+
+For a form in the site's own design, put one on any page instead:
 
 ```html
 <form method="post" action="/_yggstore/contact">

@@ -68,6 +68,9 @@ func TestContactForm(t *testing.T) {
 	}
 	eventually(t, web, "shop.example", "shop")
 
+	if code, _ := get(t, web, http.MethodGet, "shop.example", ContactPath); code != http.StatusNotFound {
+		t.Fatalf("form page while off: %d", code)
+	}
 	form := url.Values{"name": {"Ann"}, "email": {"ann@example.net"}, "message": {"Do you have\nblue ones?"}, "_next": {"/thanks.html"}}.Encode()
 	urlenc := "application/x-www-form-urlencoded"
 	if rec := post(web, "shop.example", urlenc, form, nil); rec.Code != http.StatusNotFound {
@@ -117,6 +120,12 @@ func TestContactForm(t *testing.T) {
 	}
 	if m.Header.Get("Reply-To") != "ann@example.net" || subject != "[shop.example] Do you have blue ones?" {
 		t.Errorf("Reply-To %q, Subject %q", m.Header.Get("Reply-To"), subject)
+	}
+
+	// Opened in a browser, it shows a form of its own.
+	if code, page := get(t, web, http.MethodGet, "www.shop.example", ContactPath); code != 200 ||
+		!strings.Contains(page, `action="`+ContactPath+`"`) || !strings.Contains(page, `name="_gotcha"`) {
+		t.Fatalf("form page: %d %s", code, page)
 	}
 
 	// Multipart works too, in the form's order, and JSON is answered to fetch.
