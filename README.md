@@ -1,9 +1,8 @@
 # yggstore
 
 Your files, mail and websites kept among people and organisations you
-trust, on machines you own, instead of on a provider's servers. Friends, a
-family, a neighbourhood, a few small businesses or NGOs pool their
-resources: each runs a node on their own box, linked over the
+trust, on machines you own, instead of on a provider's servers. Each member
+of the group runs a node on their own box, linked over the
 [Yggdrasil](https://yggdrasil-network.github.io/) overlay with no central
 server or coordinator. Together the nodes hold everything for everyone,
 encrypted, so nothing depends on one machine and no provider keeps your data.
