@@ -1,11 +1,12 @@
 # yggstore
 
-Your files, mail and websites kept among people you know, on machines you
-own, instead of on a company's servers. Friends, a family or
-a neighbourhood each run a node on their own box, linked over the
+Your files, mail and websites kept among people and businesses you trust,
+on machines you own, instead of on a provider's servers. Friends, a family,
+a neighbourhood or a few small businesses pool their resources: each runs a
+node on their own box, linked over the
 [Yggdrasil](https://yggdrasil-network.github.io/) overlay with no central
 server or coordinator. Together the nodes hold everything for everyone,
-encrypted, so nothing depends on one machine and no company keeps your data.
+encrypted, so nothing depends on one machine and no provider keeps your data.
 
 - **Storage**: each file is encrypted, cut into pieces and spread over
   everyone's machines, so it survives machines failing. The small stub left
