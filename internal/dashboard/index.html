@@ -921,7 +921,7 @@ async function refreshMail() {
   } catch (e) { return; }
   $("mailError").textContent = m.available ? "" : m.error;
   mailAddress = m.address || "";
-  const shown = m.messages.filter(x => !!x.sent === mailSent);
+  const shown = m.messages.filter(x => (x.folder || (x.sent ? "Sent" : "INBOX")) === (mailSent ? "Sent" : "INBOX"));
   const key = JSON.stringify(shown.map(x => x.id)) + mailOpen + mailSent;
   if (key === mailKey) return;
   mailKey = key;

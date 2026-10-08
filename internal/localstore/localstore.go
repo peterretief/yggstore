@@ -9,12 +9,14 @@ import (
 	"sync"
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
+	"github.com/peterretief/yggstore/internal/lease"
 	"github.com/peterretief/yggstore/internal/manifest"
 )
 
 var ErrInvalidHash = errors.New("invalid shard hash")
 var ErrQuota = errors.New("storage quota exceeded")
 var ErrNotOwner = errors.New("only the original writer can delete this shard")
+var ErrInvalidLease = errors.New("invalid lease ID")
 
 type Store struct {
 	dir   string
@@ -36,6 +38,16 @@ func (s Store) Put(shard []byte) (string, error) {
 }
 
 func (s Store) PutOwned(shard []byte, writer string) (string, error) {
+	return s.PutLeased(shard, writer, "")
+}
+
+// PutLeased stores a shard for writer under a lease (see package lease;
+// "" for none). Storing a shard already here adds the lease to it: a later
+// version, or another item, may hold the same shard.
+func (s Store) PutLeased(shard []byte, writer, leaseID string) (string, error) {
+	if leaseID != "" && !lease.Valid(leaseID) {
+		return "", ErrInvalidLease
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	unlock, err := s.lock()
@@ -57,7 +69,7 @@ func (s Store) PutOwned(shard []byte, writer string) (string, error) {
 		if manifest.Hash(existing) != hash {
 			return "", fmt.Errorf("existing shard hash mismatch for %s", hash)
 		}
-		return hash, nil
+		return hash, s.addLease(hash, leaseID)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("read existing shard: %w", err)
@@ -78,7 +90,7 @@ func (s Store) PutOwned(shard []byte, writer string) (string, error) {
 			return "", fmt.Errorf("write shard owner: %w", err)
 		}
 	}
-	return hash, nil
+	return hash, s.addLease(hash, leaseID)
 }
 
 func (s Store) Usage() (int64, error) {
@@ -134,6 +146,9 @@ func (s Store) DeleteOwned(hash, writer string) error {
 		return ErrNotOwner
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Remove(path + leasesExt); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return os.Remove(path + ".writer")

@@ -23,7 +23,10 @@ import (
 // chunk doesn't use yet, on a machine below its share of the chunk, fast
 // peers before slow ones. A shard with nowhere like that to go is left as
 // it was, and its error returned with the shards that were placed.
-func RepairChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch manifest.Chunk, bad []int, online []peers.Peer) (manifest.Chunk, int, error) {
+//
+// list is the whole peer list, to tell which machine a node is on. The
+// shards are stored under leaseID, the item's lease (see package lease).
+func RepairChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch manifest.Chunk, bad []int, leaseID string, online, list []peers.Peer) (manifest.Chunk, int, error) {
 	if len(ch.Shards) != layout.TotalShards() {
 		return ch, 0, fmt.Errorf("chunk has %d shards, its layout %d", len(ch.Shards), layout.TotalShards())
 	}
@@ -65,16 +68,7 @@ func RepairChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch
 		}
 	}
 
-	byAddr := map[string]peers.Peer{}
-	for _, p := range online {
-		byAddr[p.Addr] = p
-	}
-	machineOf := func(addr string) string {
-		if p, ok := byAddr[addr]; ok {
-			return p.Machine()
-		}
-		return addr
-	}
+	machineOf := machinesOf(append(append([]peers.Peer(nil), list...), online...))
 	used := map[string]bool{}
 	onMachine := map[string]int{}
 	for i, ref := range ch.Shards {
@@ -105,7 +99,7 @@ func RepairChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch
 		ok := false
 		var lastErr error = errors.New("no peer to hold it: every machine online has its share of this chunk")
 		for _, p := range cands {
-			hash, err := c.Put(ctx, p.Addr, shards[i])
+			hash, err := c.PutLeased(ctx, p.Addr, shards[i], leaseID)
 			if err != nil {
 				lastErr = fmt.Errorf("%s: %w", p.Name, err)
 				continue
@@ -122,4 +116,95 @@ func RepairChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch
 		}
 	}
 	return out, placed, errors.Join(errs...)
+}
+
+// Crowded is whether a machine holds more of ch's shards than the machines
+// online allow it to (see PerMachine): spread over more of them, the chunk
+// would survive losing more. list tells which machine a node is on.
+func Crowded(layout erasure.Layout, ch manifest.Chunk, online, list []peers.Peer) bool {
+	limit := PerMachine(layout, machineCount(online))
+	machineOf := machinesOf(list)
+	count := map[string]int{}
+	for _, ref := range ch.Shards {
+		if count[machineOf(ref.Peer)]++; count[machineOf(ref.Peer)] > limit {
+			return true
+		}
+	}
+	return false
+}
+
+// SpreadChunk copies shards off crowded machines (see Crowded) onto
+// machines online that hold fewer of the chunk, and returns the chunk with
+// their new places, stored under leaseID. The copies left behind are not
+// deleted: shares sent earlier may still name them.
+func SpreadChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch manifest.Chunk, leaseID string, online, list []peers.Peer) (manifest.Chunk, int, error) {
+	limit := PerMachine(layout, machineCount(online))
+	machineOf := machinesOf(list)
+	up := map[string]bool{}
+	for _, p := range online {
+		up[p.Addr] = true
+	}
+	out := ch
+	out.Shards = append([]manifest.ShardRef(nil), ch.Shards...)
+	count := map[string]int{}
+	used := map[string]bool{}
+	for _, ref := range out.Shards {
+		count[machineOf(ref.Peer)]++
+		used[ref.Peer] = true
+	}
+	moved := 0
+	var errs []error
+	for i, ref := range out.Shards {
+		from := machineOf(ref.Peer)
+		if count[from] <= limit || !up[ref.Peer] {
+			continue
+		}
+		var cands []peers.Peer
+		for _, p := range online {
+			if !p.Gateway && !used[p.Addr] && count[p.Machine()] < limit && p.Machine() != from {
+				cands = append(cands, p)
+			}
+		}
+		if len(cands) == 0 {
+			break
+		}
+		sort.SliceStable(cands, func(a, b int) bool {
+			ca, cb := count[cands[a].Machine()], count[cands[b].Machine()]
+			if ca != cb {
+				return ca < cb
+			}
+			return !cands[a].Slow && cands[b].Slow
+		})
+		data, err := c.Get(ctx, ref.Peer, ref.Hash)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("shard %d: %w", i, err))
+			continue
+		}
+		for _, p := range cands {
+			hash, err := c.PutLeased(ctx, p.Addr, data, leaseID)
+			if err != nil {
+				continue
+			}
+			out.Shards[i] = manifest.ShardRef{Hash: hash, Peer: p.Addr, URL: client.ShardURL(p.Addr, hash)}
+			count[from]--
+			count[p.Machine()]++
+			used[p.Addr] = true
+			moved++
+			break
+		}
+	}
+	return out, moved, errors.Join(errs...)
+}
+
+func machinesOf(list []peers.Peer) func(addr string) string {
+	byAddr := map[string]string{}
+	for _, p := range list {
+		byAddr[p.Addr] = p.Machine()
+	}
+	return func(addr string) string {
+		if m, ok := byAddr[addr]; ok {
+			return m
+		}
+		return addr
+	}
 }

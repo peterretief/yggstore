@@ -30,6 +30,9 @@ func (d *Dashboard) mailBox() (*mail.Box, error) {
 	return d.box, nil
 }
 
+// MailBox is the mailbox the dashboard shows, for the mail bridge to share.
+func (d *Dashboard) MailBox() (*mail.Box, error) { return d.mailBox() }
+
 func (d *Dashboard) handleMailList(w http.ResponseWriter, r *http.Request) {
 	out := struct {
 		Available bool           `json:"available"`
@@ -58,6 +61,9 @@ func (d *Dashboard) handleMailRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m, err := box.Read(r.URL.Query().Get("id"))
+	if err == nil && !m.Sent {
+		box.MarkSeen(m.ID)
+	}
 	if errors.Is(err, mail.ErrNoMessage) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

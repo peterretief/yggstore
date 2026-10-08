@@ -26,6 +26,7 @@ import (
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/erasure"
 	"github.com/peterretief/yggstore/internal/files"
+	"github.com/peterretief/yggstore/internal/lease"
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/peers"
 )
@@ -40,6 +41,11 @@ type Repairer struct {
 	Peers func() ([]peers.Peer, error)
 	// Stubs lists every stub to look after, older versions included.
 	Stubs func() []string
+	// Received lists the stubs of shares received: not this side's to
+	// repair, but their leases are renewed (see Renew).
+	Received func() []string
+	// RenewOnly makes a pass only renew leases, repairing nothing.
+	RenewOnly bool
 	// State is where it remembers since when each node has been down.
 	State string
 	Grace time.Duration
@@ -50,15 +56,18 @@ type Repairer struct {
 }
 
 type state struct {
-	DownSince map[string]int64 `json:"down_since"` // node address -> unix seconds
+	DownSince map[string]int64 `json:"down_since"`        // node address -> unix seconds
+	Renewed   map[string]int64 `json:"renewed,omitempty"` // node address -> unix seconds, when its leases were last renewed
 }
 
 // Report is what one pass did.
 type Report struct {
 	Items    int // stubs looked at
 	Rebuilt  int // shards rebuilt and stored again
+	Spread   int // shards copied off crowded machines onto others
 	Rewrote  int // stubs rewritten with the new places
 	Waiting  int // shards on nodes down, but not for long enough yet
+	Renewed  int // nodes whose leases were renewed
 	Problems []string
 }
 
@@ -75,6 +84,9 @@ func (r *Repairer) load() state {
 	}
 	if st.DownSince == nil {
 		st.DownSince = map[string]int64{}
+	}
+	if st.Renewed == nil {
+		st.Renewed = map[string]int64{}
 	}
 	return st
 }
@@ -149,7 +161,16 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 			delete(st.DownSince, addr)
 		}
 	}
+	for addr := range st.Renewed {
+		if !inList[addr] {
+			delete(st.Renewed, addr)
+		}
+	}
+	r.renew(ctx, online, &st, now, &rep)
 	r.save(st)
+	if r.RenewOnly {
+		return rep, nil
+	}
 
 	// If most machines seem down, the trouble is more likely this side's
 	// network than theirs: don't move anything.
@@ -184,6 +205,7 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	type work struct {
 		layout erasure.Layout
 		chunk  manifest.Chunk
+		lease  string
 	}
 	var items []item
 	chunks := map[string]work{}
@@ -202,7 +224,7 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 		}
 		items = append(items, item{path, m, info.ModTime()})
 		for _, ch := range m.Chunks {
-			chunks[chunkKey(ch)] = work{layout, ch}
+			chunks[chunkKey(ch)] = work{layout, ch, lease.ForKey(m.Key)}
 		}
 	}
 	rep.Items = len(items)
@@ -210,9 +232,10 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	// Which shards need rebuilding: those on gone nodes, and those a node
 	// that is up no longer has.
 	type job struct {
-		key string
-		w   work
-		bad []int
+		key     string
+		w       work
+		bad     []int
+		crowded bool
 	}
 	var jobs []job
 	var jmu sync.Mutex
@@ -239,10 +262,11 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 					}
 				}
 			}
+			crowded := files.Crowded(w.layout, w.chunk, online, list)
 			jmu.Lock()
 			rep.Waiting += waiting
-			if len(bad) > 0 {
-				jobs = append(jobs, job{key, w, bad})
+			if len(bad) > 0 || crowded {
+				jobs = append(jobs, job{key, w, bad, crowded})
 			}
 			jmu.Unlock()
 		}()
@@ -258,13 +282,28 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 		if ctx.Err() != nil {
 			return rep, ctx.Err()
 		}
-		out, n, err := files.RepairChunk(ctx, r.Client, j.w.layout, j.w.chunk, j.bad, online)
-		rep.Rebuilt += n
-		if n > 0 {
-			fixed[j.key] = out
+		out := j.w.chunk
+		if len(j.bad) > 0 {
+			var n int
+			var err error
+			out, n, err = files.RepairChunk(ctx, r.Client, j.w.layout, out, j.bad, j.w.lease, online, list)
+			rep.Rebuilt += n
+			if err != nil {
+				rep.Problems = append(rep.Problems, err.Error())
+			}
 		}
-		if err != nil {
-			rep.Problems = append(rep.Problems, err.Error())
+		// Spread chunks crowded onto few machines (stored while others were
+		// down, say) now that more are up.
+		if files.Crowded(j.w.layout, out, online, list) {
+			spread, n, err := files.SpreadChunk(ctx, r.Client, j.w.layout, out, j.w.lease, online, list)
+			rep.Spread += n
+			out = spread
+			if err != nil {
+				rep.Problems = append(rep.Problems, err.Error())
+			}
+		}
+		if chunkKey(out) != j.key {
+			fixed[j.key] = out
 		}
 	}
 
@@ -293,6 +332,9 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	}
 	if rep.Rebuilt > 0 {
 		r.log("ok", "repair: rebuilt %d shard(s) on nodes that are up, in %d item(s)", rep.Rebuilt, rep.Rewrote)
+	}
+	if rep.Spread > 0 {
+		r.log("ok", "repair: spread %d shard(s) over more machines, in %d item(s)", rep.Spread, rep.Rewrote)
 	}
 	if len(rep.Problems) > 0 {
 		r.log("warn", "repair: %s", strings.Join(rep.Problems, "; "))

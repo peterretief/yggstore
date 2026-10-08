@@ -25,6 +25,7 @@ import (
 	"github.com/peterretief/yggstore/internal/invite"
 	"github.com/peterretief/yggstore/internal/localstore"
 	"github.com/peterretief/yggstore/internal/mail"
+	"github.com/peterretief/yggstore/internal/mailbridge"
 	"github.com/peterretief/yggstore/internal/mesh"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
@@ -58,6 +59,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
                                                            host static websites on the group (see docs/sites.md)
   yggstore mail    address|token|list|read|send ...        the group's email (see docs/mail.md)
   yggstore repair  [-after 24h] [-outfiles DIR]            rebuild shards of nodes down that long (see docs/repair.md)
+  yggstore leases  [-days 90]                              on a node: how long since its shards were last wanted (see docs/leases.md)
   yggstore mesh    [set NODE URI...]                        Yggdrasil links between members (see docs/mesh.md)
   yggstore gateway serve|customer|report ...               S3 service for paying customers (see docs/gateway.md)
   yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
@@ -171,6 +173,8 @@ func main() {
 		err = cmdMail(ctx, args)
 	case "repair":
 		err = cmdRepair(ctx, args)
+	case "leases":
+		err = cmdLeases(ctx, args)
 	case "history":
 		err = cmdHistory(ctx, args)
 	case "version", "-version", "--version":
@@ -629,6 +633,9 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "the node's messaging token file")
 	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), "where this machine's node collects your email")
 	repairAfter := fs.Duration("repair-after", repair.DefaultGrace, "rebuild shards held by a node down this long on nodes that are up (0 = never)")
+	imapAddr := fs.String("imap", mailbridge.DefaultIMAP, `mail bridge: IMAP for your mail program, on this machine ("" for none; see docs/mail.md)`)
+	smtpAddr := fs.String("smtp", mailbridge.DefaultSMTP, `mail bridge: SMTP for your mail program ("" for none)`)
+	bridgePw := fs.String("mail-bridge-password", filepath.Join(yggstoreHome(), "mail-bridge.password"), "the mail bridge's password file (made if missing)")
 	fs.Parse(args)
 
 	id, err := share.LoadOrCreate(*keyPath)
@@ -678,12 +685,16 @@ func cmdDashboard(ctx context.Context, args []string) error {
 			}
 		}()
 	}
-	if *repairAfter > 0 {
+	if *imapAddr != "" || *smtpAddr != "" {
+		startMailBridge(ctx, d, *peersPath, *bridgePw, *imapAddr, *smtpAddr)
+	}
+	{
 		history := ""
 		if w != nil {
 			history = w.HistoryDir()
 		}
 		r := newRepairer(*peersPath, *repairAfter, absStubs, history, *mailbox)
+		r.RenewOnly = *repairAfter <= 0 // leases are renewed either way
 		r.Log = d.Event
 		go r.Run(ctx, 30*time.Minute)
 	}

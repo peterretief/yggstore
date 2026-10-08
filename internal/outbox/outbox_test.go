@@ -124,9 +124,9 @@ func TestFileAndFolderRoundTrip(t *testing.T) {
 
 func TestContainersOnTooFewMachinesKeepOriginal(t *testing.T) {
 	w, dir, events := setup(t, 6)
-	// Six nodes, but five are containers on one machine: two machines in all.
+	// Six nodes, all containers on one machine.
 	list, _ := peers.Load(w.cfg.PeersPath)
-	for i := 1; i < len(list); i++ {
+	for i := 0; i < len(list); i++ {
 		list[i].Host = "box"
 	}
 	b, _ := json.Marshal(list)
@@ -136,15 +136,15 @@ func TestContainersOnTooFewMachinesKeepOriginal(t *testing.T) {
 	os.WriteFile(p, randBytes(1000), 0o644)
 	settle(t, w, p)
 	if _, err := os.Stat(p + files.StubExt); !os.IsNotExist(err) {
-		t.Fatal("stored on two machines, where losing one could lose the file")
+		t.Fatal("stored on one machine, where losing it loses the file")
 	}
-	if len(*events) == 0 || !strings.Contains((*events)[len(*events)-1], "only 2 machines online") {
+	if len(*events) == 0 || !strings.Contains((*events)[len(*events)-1], "only 1 machine(s) online") {
 		t.Fatalf("expected a too-few-machines event, got %v", *events)
 	}
 }
 
 func TestTooFewNodesKeepsOriginal(t *testing.T) {
-	w, dir, events := setup(t, 2)
+	w, dir, events := setup(t, 1)
 	p := filepath.Join(dir, "doc.pdf")
 	os.WriteFile(p, randBytes(1000), 0o644)
 	settle(t, w, p)
@@ -154,7 +154,7 @@ func TestTooFewNodesKeepsOriginal(t *testing.T) {
 	if _, err := os.Stat(p + files.StubExt); !os.IsNotExist(err) {
 		t.Fatal("stub written although too few nodes were online")
 	}
-	if len(*events) == 0 || !strings.Contains((*events)[len(*events)-1], "only 2 machines online") {
+	if len(*events) == 0 || !strings.Contains((*events)[len(*events)-1], "only 1 machine(s) online") {
 		t.Fatalf("expected a too-few-nodes event, got %v", *events)
 	}
 }

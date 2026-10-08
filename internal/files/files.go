@@ -23,6 +23,7 @@ import (
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/cryptofile"
 	"github.com/peterretief/yggstore/internal/erasure"
+	"github.com/peterretief/yggstore/internal/lease"
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/peers"
 )
@@ -114,19 +115,21 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 		// them all split alike.
 		layout = Layout()
 	}
-	perMachine = PerMachine(layout, machineCount(online))
 	if len(online) == 0 {
 		return manifest.Manifest{}, Challenges{}, errors.New("no peers online")
 	}
+	machines := machineCount(online)
+	if !Happy(layout, machines) {
+		need := (layout.TotalShards() + layout.ParityShards - 1) / layout.ParityShards
+		return manifest.Manifest{}, Challenges{}, fmt.Errorf("%w: %d, and storing it so that losing one can't lose it takes %d", ErrTooFewMachines, machines, need)
+	}
+	perMachine = PerMachine(layout, machines)
 	if opts.ChunkSize <= 0 {
 		opts.ChunkSize = 4 << 20
 	}
 	logf := opts.Log
 	if logf == nil {
 		logf = func(string, ...any) {}
-	}
-	if len(online) < layout.TotalShards() {
-		logf("warning: only %d peers online; some peers will hold more than one shard of a chunk", len(online))
 	}
 
 	key := opts.Key
@@ -240,7 +243,7 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			refs, err := place(ctx, c, lim, shards, online, idx, perMachine)
+			refs, err := place(ctx, c, lim, shards, lease.ForKey(key), online, idx, perMachine, layout.ParityShards)
 			strand := func() {
 				mu.Lock()
 				for _, r := range refs {
@@ -346,16 +349,17 @@ func targets(online []peers.Peer, n, start, max int) []int {
 	return out
 }
 
-// place uploads a chunk's shards in parallel to the peers targets picks.
-// Shards whose peer fails then fall back, one at a time, to the next peer,
-// avoiding peers this chunk already uses while unused ones remain.
-func place(ctx context.Context, c client.Client, lim *peerLimit, shards [][]byte, online []peers.Peer, start, max int) ([]manifest.ShardRef, error) {
+// place uploads a chunk's shards in parallel to the peers targets picks,
+// under the item's lease. Shards whose peer fails then fall back, one at a
+// time, to the next peer, avoiding peers this chunk already uses while
+// unused ones remain.
+func place(ctx context.Context, c client.Client, lim *peerLimit, shards [][]byte, leaseID string, online []peers.Peer, start, max, safe int) ([]manifest.ShardRef, error) {
 	put := func(p peers.Peer, s []byte) (string, error) {
 		if err := lim.acquire(ctx, p.Addr); err != nil {
 			return "", err
 		}
 		defer lim.release(p.Addr)
-		return c.Put(ctx, p.Addr, s)
+		return c.PutLeased(ctx, p.Addr, s, leaseID)
 	}
 	refs := make([]manifest.ShardRef, len(shards))
 	errs := make([]error, len(shards))
@@ -391,12 +395,15 @@ func place(ctx context.Context, c client.Client, lim *peerLimit, shards [][]byte
 		lastErr := errs[i]
 		placed := false
 		// First try peers this chunk doesn't use yet, on machines below max;
-		// then anything that answers.
+		// then any that answers on a machine below safe (the parity).
 		for pass := 0; pass < 2 && !placed; pass++ {
 			for k := 1; k <= len(online); k++ {
 				p := online[(start+i+k)%len(online)]
 				if pass == 0 && (used[p.Addr] || onMachine[p.Machine()] >= max) {
 					continue
+				}
+				if onMachine[p.Machine()] >= safe {
+					continue // never so many on one machine that losing it loses the chunk
 				}
 				hash, err := put(p, s)
 				if err != nil {

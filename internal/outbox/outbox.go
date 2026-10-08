@@ -31,9 +31,10 @@ const (
 	WholeDir    = "whole"
 	ReceivedDir = "received"
 	privateDir  = ".yggstore"
-	// With 6 shards per chunk, 3 machines keep any single machine to at most
-	// 2 shards, so losing one machine never loses a chunk.
-	minPeers   = 3
+	// Two machines are the least an item can be stored on so that losing
+	// one never loses it; files refuses anything it can't store that way
+	// (see files.Happy).
+	minPeers   = 2
 	settleTime = 3 * time.Second
 	retryAfter = 2 * time.Minute
 )
@@ -450,7 +451,7 @@ func (w *Watcher) store(ctx context.Context, path string) {
 		return err
 	})
 	if n := peers.Machines(online); n < minPeers {
-		fail(fmt.Errorf("only %d machines online, need %d so that losing one cannot lose the file", n, minPeers))
+		fail(fmt.Errorf("only %d machine(s) online, need %d so that losing one cannot lose the file", n, minPeers))
 		return
 	}
 

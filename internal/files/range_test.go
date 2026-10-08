@@ -112,7 +112,7 @@ func TestFailedUploadLeavesNothing(t *testing.T) {
 	}
 	for _, n := range nodes {
 		filepath.WalkDir(n.dir, func(path string, d os.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && len(d.Name()) == 64 {
+			if err == nil && !d.IsDir() && filepath.Base(filepath.Dir(path)) != "leases" && len(d.Name()) == 64 {
 				t.Errorf("shard left behind: %s", path)
 			}
 			return nil

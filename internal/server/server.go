@@ -15,6 +15,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/challenge"
 	"github.com/peterretief/yggstore/internal/invite"
+	"github.com/peterretief/yggstore/internal/lease"
 	"github.com/peterretief/yggstore/internal/localstore"
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/mesh"
@@ -47,6 +48,18 @@ type Info struct {
 	Web json.RawMessage `json:"web,omitempty"`
 	// MailOut is whether the node sends members' email (see package mail).
 	MailOut bool `json:"mail_out,omitempty"`
+}
+
+// RenewRequest renews leases (see package lease): the tokens of stubs the
+// caller holds. It also says the caller is about, which keeps its shards
+// from before leases wanted.
+type RenewRequest struct {
+	Tokens []string `json:"tokens"`
+}
+
+// RenewResponse says how many of the leases the node holds shards under.
+type RenewResponse struct {
+	Known int `json:"known"`
 }
 
 type Options struct {
@@ -211,6 +224,19 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return
+		case r.URL.Path == "/v1/lease/renew" && r.Method == http.MethodPost:
+			var req RenewRequest
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+				http.Error(w, "bad renewal", http.StatusBadRequest)
+				return
+			}
+			known, err := store.Renew(caller, req.Tokens)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, RenewResponse{Known: known})
+			return
 		case r.URL.Path == "/v1/challenge" && r.Method == http.MethodPost:
 			var c challenge.Request
 			if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&c); err != nil {
@@ -280,7 +306,7 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 				http.Error(w, "shard hash does not match request path", http.StatusBadRequest)
 				return
 			}
-			if _, err := store.PutOwned(body, caller); err != nil {
+			if _, err := store.PutLeased(body, caller, r.Header.Get(lease.Header)); err != nil {
 				storeError(w, err)
 				return
 			}
@@ -334,7 +360,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 func storeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
-	case errors.Is(err, localstore.ErrInvalidHash):
+	case errors.Is(err, localstore.ErrInvalidHash), errors.Is(err, localstore.ErrInvalidLease):
 		status = http.StatusBadRequest
 	case errors.Is(err, os.ErrNotExist):
 		status = http.StatusNotFound

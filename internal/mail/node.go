@@ -307,8 +307,11 @@ func (n *Node) collect(ctx context.Context, no notice) error {
 
 // Meta is what the mailbox keeps beside a message.
 type Meta struct {
-	Received int64 `json:"received"` // unix ms
-	Sent     bool  `json:"sent,omitempty"`
+	Received int64    `json:"received"` // unix ms
+	Sent     bool     `json:"sent,omitempty"`
+	Folder   string   `json:"folder,omitempty"` // "" is the Inbox (or Sent, if Sent)
+	Flags    []string `json:"flags,omitempty"`  // IMAP flags: \Seen, \Flagged, ...
+	UID      uint32   `json:"uid,omitempty"`    // its number in its folder
 }
 
 func (n *Node) atMembers(m manifest.Manifest) bool {

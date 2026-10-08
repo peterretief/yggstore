@@ -5,13 +5,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/challenge"
 	"github.com/peterretief/yggstore/internal/invite"
+	"github.com/peterretief/yggstore/internal/lease"
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/server"
@@ -30,10 +33,18 @@ func (c Client) Info(ctx context.Context, addr string) (server.Info, error) {
 }
 
 func (c Client) Put(ctx context.Context, addr string, shard []byte) (string, error) {
+	return c.PutLeased(ctx, addr, shard, "")
+}
+
+// PutLeased stores a shard under a lease (see package lease; "" for none).
+func (c Client) PutLeased(ctx context.Context, addr string, shard []byte, leaseID string) (string, error) {
 	hash := manifest.Hash(shard)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, ShardURL(addr, hash), bytes.NewReader(shard))
 	if err != nil {
 		return "", err
+	}
+	if leaseID != "" {
+		req.Header.Set(lease.Header, leaseID)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -124,6 +135,20 @@ func (c Client) Delete(ctx context.Context, addr, hash string) error {
 const busyTries = 4
 
 var busyWait = time.Second
+
+// ErrNoLeases means the node predates leases: it doesn't track them.
+var ErrNoLeases = errors.New("node doesn't keep leases")
+
+// Renew renews the leases of tokens on a node, and returns how many of them
+// it holds shards under.
+func (c Client) Renew(ctx context.Context, addr string, tokens []string) (int, error) {
+	var resp server.RenewResponse
+	err := c.doJSON(ctx, http.MethodPost, "http://"+addr+"/v1/lease/renew", server.RenewRequest{Tokens: tokens}, &resp)
+	if err != nil && strings.HasPrefix(err.Error(), "404 ") {
+		return 0, ErrNoLeases
+	}
+	return resp.Known, err
+}
 
 func (c Client) Challenge(ctx context.Context, addr string, req challenge.Request) (string, error) {
 	var resp challenge.Response

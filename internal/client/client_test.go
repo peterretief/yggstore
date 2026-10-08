@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,5 +40,15 @@ func TestDeleteRetriesBusyNode(t *testing.T) {
 	}
 	if calls.Load() != busyTries {
 		t.Fatalf("%d requests, want %d", calls.Load(), busyTries)
+	}
+}
+
+// A node from before leases answers 404: told apart from a failure.
+func TestRenewOldNode(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	_, err := New().Renew(context.Background(), strings.TrimPrefix(srv.URL, "http://"), nil)
+	if !errors.Is(err, ErrNoLeases) {
+		t.Fatalf("got %v, want ErrNoLeases", err)
 	}
 }

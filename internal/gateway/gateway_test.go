@@ -47,7 +47,7 @@ func (tg *testGroup) shards(t *testing.T) int {
 	n := 0
 	for _, d := range tg.dirs {
 		filepath.WalkDir(d, func(path string, e os.DirEntry, err error) error {
-			if err == nil && !e.IsDir() && len(e.Name()) == 64 {
+			if err == nil && !e.IsDir() && filepath.Base(filepath.Dir(path)) != "leases" && len(e.Name()) == 64 {
 				n++
 			}
 			return nil

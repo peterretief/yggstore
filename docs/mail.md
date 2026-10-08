@@ -166,6 +166,35 @@ an hour through a web node. The web node's log says `mail: sent for NODE
 from ADDRESS to N recipient(s)`; the relay's own log (SMTP2GO › Reports)
 shows what happened after that.
 
+## Thunderbird and other mail programs
+
+The dashboard also serves your mailbox to mail programs on the same
+machine, like Proton Bridge: IMAP on `127.0.0.1:2143` for reading and
+filing, SMTP on `127.0.0.1:2587` for sending. Messages are opened on your
+machine; nothing leaves it unsealed.
+
+```sh
+yggstore mail bridge
+```
+
+prints the settings to enter in Thunderbird (Add Mail Account, Configure
+manually), with the password made for the bridge
+(`~/.yggstore/mail-bridge.password`). Connection security is None:
+Thunderbird warns about it, but the connection never leaves the machine.
+The bridge refuses to listen on any other address.
+
+- **Folders**: Inbox, Sent, Drafts, Trash, Archives and Junk, plus any you
+  make. Read and flagged marks are kept with each message.
+- **Deleting** moves a message to Trash; emptying Trash deletes it from
+  the group for good. New mail, and messages deleted from the dashboard,
+  show in Thunderbird within a few seconds.
+- **Sending** goes through the web nodes as from the dashboard. Thunderbird
+  keeps its copy in Sent, stored in the group like the rest.
+- Drafts and copies Thunderbird files are stored in the group too.
+
+Change the addresses with `-imap` and `-smtp` on `yggstore dashboard`
+(`""` turns one off). yggmail, if you also run it, uses 1143 and 1025.
+
 ## When something goes wrong
 
 - **Nothing arrives**: the Worker's logs (`npx wrangler tail`) show what

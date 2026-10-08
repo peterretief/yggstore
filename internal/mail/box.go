@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"html"
 	"io"
 	"mime"
@@ -39,15 +38,17 @@ type Box struct {
 
 // Summary is one message in a list.
 type Summary struct {
-	ID       string `json:"id"`
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Subject  string `json:"subject"`
-	Date     int64  `json:"date"`           // unix ms, from the Date header
-	Received int64  `json:"received"`       // unix ms, when the group took it (or it was sent)
-	Sent     bool   `json:"sent,omitempty"` // written here, not received
-	Size     int    `json:"size"`
-	Error    string `json:"error,omitempty"`
+	ID       string   `json:"id"`
+	From     string   `json:"from"`
+	To       string   `json:"to"`
+	Subject  string   `json:"subject"`
+	Date     int64    `json:"date"`           // unix ms, from the Date header
+	Received int64    `json:"received"`       // unix ms, when the group took it (or it was sent)
+	Sent     bool     `json:"sent,omitempty"` // written here, not received
+	Folder   string   `json:"folder"`
+	Flags    []string `json:"flags,omitempty"`
+	Size     int      `json:"size"`
+	Error    string   `json:"error,omitempty"`
 }
 
 // Message is one message, read.
@@ -104,6 +105,9 @@ func (b *Box) List() ([]Summary, error) {
 				b.mu.Unlock()
 			}
 		}
+		if m, err := b.meta(id); err == nil { // folder and flags change; the rest doesn't
+			s.Folder, s.Flags = folderOf(m), m.Flags
+		}
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Received > out[j].Received })
@@ -139,7 +143,7 @@ func (b *Box) Read(id string) (Message, error) {
 	if data, err := os.ReadFile(filepath.Join(b.Dir, id+".json")); err == nil {
 		json.Unmarshal(data, &meta)
 	}
-	m.Received, m.Sent = meta.Received, meta.Sent
+	m.Received, m.Sent, m.Folder, m.Flags = meta.Received, meta.Sent, folderOf(meta), meta.Flags
 	return m, err
 }
 
@@ -370,31 +374,7 @@ func (b *Box) SetAddress(addr string) error {
 	return atomicfile.Replace(filepath.Join(b.Dir, addressFile), []byte(addr+"\n"), 0o600)
 }
 
-// KeepSent puts a sent message in the mailbox, sealed for the owner, and
-// stores a copy in the group. The message is kept even if the group copy
-// fails; that error is returned with its ID.
+// KeepSent puts a sent message in the Sent folder (see Keep).
 func (b *Box) KeepSent(ctx context.Context, c client.Client, list []peers.Peer, raw []byte) (string, error) {
-	if b.ID == nil {
-		return "", errors.New("no sharing key to keep mail with")
-	}
-	sealed, err := Seal(b.ID.Code(), raw)
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
-		return "", err
-	}
-	id := "sent-" + randomID()
-	meta, _ := json.Marshal(Meta{Received: time.Now().UnixMilli(), Sent: true})
-	if err := atomicfile.Replace(filepath.Join(b.Dir, id+".json"), meta, 0o600); err != nil {
-		return "", err
-	}
-	if err := atomicfile.Replace(filepath.Join(b.Dir, id+".sealed"), sealed, 0o600); err != nil {
-		return "", err
-	}
-	m, _, _, err := files.PutReader(ctx, c, bytes.NewReader(sealed), "mail-"+id, online(ctx, c, list), files.PutOptions{})
-	if err != nil {
-		return id, fmt.Errorf("kept here, but not stored in the group: %w", err)
-	}
-	return id, files.WriteJSON(filepath.Join(b.Dir, id+".ystub"), m)
+	return b.Keep(ctx, c, list, raw, Sent, []string{`\Seen`}, time.Time{})
 }

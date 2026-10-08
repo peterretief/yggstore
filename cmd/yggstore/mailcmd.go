@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/mail"
+	"github.com/peterretief/yggstore/internal/mailbridge"
+	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/transport"
@@ -31,6 +34,7 @@ const mailUsage = `yggstore mail: the group's email (see docs/mail.md)
   yggstore mail read    ID        one message (-raw for it as it arrived)
   yggstore mail send -to ADDRESSES -subject TEXT [-cc ...] [-bcc ...] < BODY
                                   send a plain-text message from your address
+  yggstore mail bridge            settings for Thunderbird or another mail program
 
 Options: -mailbox ~/.yggstore/mail, -sharing-key ~/.yggstore/sharing.key,
 -peers (send).
@@ -106,6 +110,35 @@ func cmdMail(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("made %s: fill in the relay's user and password, and the senders (see docs/mail.md)\n", fs.Arg(0))
+		return nil
+
+	case "bridge":
+		addr := (&mail.Box{Dir: *boxDir}).Address()
+		if addr == "" {
+			return errors.New("set your address first: yggstore mail address you@example.org")
+		}
+		pw, err := msg.LoadOrCreateToken(filepath.Join(yggstoreHome(), "mail-bridge.password"))
+		if err != nil {
+			return err
+		}
+		ihost, iport, _ := net.SplitHostPort(mailbridge.DefaultIMAP)
+		shost, sport, _ := net.SplitHostPort(mailbridge.DefaultSMTP)
+		fmt.Printf(`The dashboard serves your mailbox to mail programs on this machine.
+In Thunderbird: Account Settings > Account Actions > Add Mail Account, then
+"Configure manually":
+
+  Your name:      as you like
+  Email address:  %[1]s
+  Password:       %[2]s
+
+  Incoming  IMAP  server %[3]s  port %[4]s  connection security: None  authentication: Normal password
+  Outgoing  SMTP  server %[5]s  port %[6]s  connection security: None  authentication: Normal password
+  Username (both): %[1]s
+
+Thunderbird warns that the connection isn't encrypted: it never leaves this
+machine, so confirm. Keep the password private; it is in
+%[7]s.
+`, addr, pw, ihost, iport, shost, sport, filepath.Join(yggstoreHome(), "mail-bridge.password"))
 		return nil
 
 	case "send":

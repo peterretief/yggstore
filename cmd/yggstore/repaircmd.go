@@ -9,19 +9,22 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/client"
+	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/repair"
 )
 
 // newRepairer looks after the items under outfiles (and their older
-// versions) and the mailbox's messages.
+// versions) and the mailbox's messages, and renews their leases and those
+// of shares received.
 func newRepairer(peersPath string, grace time.Duration, outfiles, history, mailbox string) *repair.Repairer {
 	c := client.New()
 	c.HTTP.Timeout = 2 * time.Minute
 	return &repair.Repairer{Client: c, Grace: grace,
-		State: filepath.Join(yggstoreHome(), "repair.json"),
-		Peers: func() ([]peers.Peer, error) { return peers.Load(peersPath) },
-		Stubs: func() []string { return append(repair.Find(outfiles, history), repair.Find(mailbox)...) }}
+		State:    filepath.Join(yggstoreHome(), "repair.json"),
+		Peers:    func() ([]peers.Peer, error) { return peers.Load(peersPath) },
+		Stubs:    func() []string { return append(repair.Find(outfiles, history), repair.Find(mailbox)...) },
+		Received: func() []string { return repair.Find(filepath.Join(outfiles, outbox.ReceivedDir)) }}
 }
 
 // cmdRepair makes one repair pass now, e.g. after retiring a node for good

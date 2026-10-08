@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -23,19 +24,22 @@ import (
 )
 
 type group struct {
-	t     *testing.T
-	srvs  []*httptest.Server
-	list  []peers.Peer
-	c     client.Client
-	dir   string
-	state string
+	t      *testing.T
+	srvs   []*httptest.Server
+	stores []localstore.Store
+	list   []peers.Peer
+	c      client.Client
+	dir    string
+	state  string
 }
 
 func newGroup(t *testing.T, n int) *group {
 	g := &group{t: t, c: client.New(), dir: t.TempDir()}
 	g.state = filepath.Join(g.dir, "repair.json")
 	for i := range n {
-		h := server.Handler(localstore.New(t.TempDir()), server.Options{Name: "n", Transport: transport.Loopback{}, Allowed: map[string]bool{"127.0.0.1": true}})
+		store := localstore.New(t.TempDir())
+		g.stores = append(g.stores, store)
+		h := server.Handler(store, server.Options{Name: "n", Transport: transport.Loopback{}, Allowed: map[string]bool{"127.0.0.1": true}})
 		srv := httptest.NewServer(h)
 		t.Cleanup(srv.Close)
 		g.srvs = append(g.srvs, srv)
@@ -193,5 +197,52 @@ func TestSharedItemsAreLeftAlone(t *testing.T) {
 	g.downSince(0, time.Unix(1, 0))
 	if rep, _ := g.repairer(time.Hour).Pass(context.Background()); rep.Items != 0 || rep.Rebuilt != 0 {
 		t.Fatalf("touched a share: %+v", rep)
+	}
+}
+
+// An item stored while most machines were down is spread over them once
+// they are back.
+func TestSpreadWhenMachinesReturn(t *testing.T) {
+	g := newGroup(t, 7)
+	all := g.list
+	g.list = all[:2] // only two machines up: 2+2, two shards on each
+	stub, m := g.put("f.bin", make([]byte, 200<<10))
+	if m.DataShards != 2 || m.ParityShards != 2 {
+		t.Fatalf("stored as %d+%d with two machines, want 2+2", m.DataShards, m.ParityShards)
+	}
+	g.list = all
+	rep, err := g.repairer(time.Hour).Pass(context.Background())
+	if err != nil || rep.Spread != 2*len(m.Chunks) || rep.Rewrote != 1 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	spread, _ := files.ReadStub(stub)
+	for ci, ch := range spread.Chunks {
+		seen := map[string]bool{}
+		for _, s := range ch.Shards {
+			if seen[s.Peer] {
+				t.Fatalf("chunk %d: still two shards on %s", ci, s.Peer)
+			}
+			seen[s.Peer] = true
+		}
+	}
+	// Now any two machines can go.
+	g.srvs[0].Close()
+	g.srvs[1].Close()
+	if got := g.get(spread); len(got) != 200<<10 {
+		t.Fatalf("read %d bytes", len(got))
+	}
+	if rep, _ := g.repairer(time.Hour).Pass(context.Background()); rep.Spread != 0 {
+		t.Fatalf("spread again: %+v", rep)
+	}
+}
+
+func TestOneMachineIsRefused(t *testing.T) {
+	g := newGroup(t, 3)
+	for i := range g.list {
+		g.list[i].Host = "box"
+	}
+	_, _, _, err := files.PutReader(context.Background(), g.c, bytes.NewReader([]byte("x")), "g", g.list, files.PutOptions{})
+	if !errors.Is(err, files.ErrTooFewMachines) {
+		t.Fatalf("stored on one machine: %v", err)
 	}
 }

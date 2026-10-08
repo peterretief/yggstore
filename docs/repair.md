@@ -20,8 +20,13 @@ The dashboard runs a repair pass every 30 minutes. A shard is rebuilt when:
 - its node has **left the peer list**, or
 - its node is **up but no longer has it** (a wiped or replaced disk).
 
-Each rebuilt shard goes to a node the chunk doesn't use yet, on a machine
-below its share of the chunk, fast nodes before slow ones. The stubs (and
+Repair also **spreads** chunks that sit on fewer machines than they could:
+an item stored while some machines were down gets some of its shards
+copied onto them once they're back, so it survives losing as many
+machines as its layout allows.
+
+Each rebuilt or moved shard goes to a node the chunk doesn't use yet, on a
+machine below its share of the chunk, fast nodes before slow ones. The stubs (and
 older versions sharing the chunk) are rewritten to point there. The
 dashboard's activity list says `repair: rebuilt N shard(s)`.
 
@@ -56,11 +61,19 @@ New items are split according to how many separate machines are online
 
 | Machines | Layout | Survives losing | Space used |
 |---|---|---|---|
-| 1-3 | 4+2 | 1 machine | 1.5x |
+| 1 | refused | | |
+| 2 | 2+2 | 1 machine | 2x |
+| 3 | 4+2 | 1 machine | 1.5x |
 | 4 | 2+2 | any 2 machines | 2x |
 | 5 | 3+2 | any 2 machines | 1.67x |
 | 6-8 | 4+2 | any 2 machines | 1.5x |
 | 9+ | 6+3 | any 3 machines | 1.5x |
+
+Like Tahoe-LAFS's "servers of happiness", an upload that can't survive
+losing any one machine is refused rather than stored anyway: with one
+machine online, or a new version whose layout needs more machines than are
+up. The outbox tries again every 2 minutes; mail coming in is retried by
+the sending server.
 
 An item keeps its layout: a new version is split like the old one (so
 unchanged chunks are reused), and repair rebuilds shards in the item's own
