@@ -26,6 +26,11 @@ storage challenges check that peers still hold what they were given. Node
 IDs come from public keys, members join by invite, and each node only
 answers the group.
 
+It's free software ([AGPL-3.0](LICENSE)): use it as you see fit, for
+yourselves or commercially, and use as much or as little of it as you need.
+If you change it and let others use your version over a network, share your
+changes.
+
 **Status: experimental.** The cryptography has not been reviewed by anyone
 independent. Don't make it the only copy of anything you can't lose.
 
