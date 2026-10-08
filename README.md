@@ -1,16 +1,22 @@
 # yggstore
 
-Proof of concept: sharded, encrypted file storage between peers on the
-[Yggdrasil](https://yggdrasil-network.github.io/) overlay, with no VPN
-coordinator: node IDs come from public keys, each node only answers group
-members, and storage challenges check that peers still hold what they were
-given.
+A small group's own cloud over the
+[Yggdrasil](https://yggdrasil-network.github.io/) overlay, with no central
+server or VPN coordinator. People in a group lend each other disk space and
+run a node each; together the nodes keep the group's files, mail, messages
+and websites, so none of it depends on one machine or on a cloud company.
 
-The idea: people in a group lend each other disk space. Each file is
-encrypted, cut into pieces and spread over everyone's machines, so it
-survives any one machine failing. The small stub left behind holds the key,
-so sending someone a stub (sealed for them, by email or anything else) is a
-way to send them the file, with no cloud service in between.
+- **Storage**: each file is encrypted, cut into pieces and spread over
+  everyone's machines, so it survives machines failing. The small stub left
+  behind holds the key, so sending someone a stub (sealed for them) is a
+  way to send them the file.
+- **Email** for your own domain, encrypted for you as it arrives, read on
+  the dashboard or in Thunderbird and other mail programs.
+- **Messaging** between nodes, **websites** served by several machines at
+  once, and an **S3 gateway** for people without a box.
+
+Node IDs come from public keys, each node only answers group members, and
+storage challenges check that peers still hold what they were given.
 
 **Status: experimental.** The cryptography has not been reviewed by anyone
 independent. Don't make it the only copy of anything you can't lose.
@@ -35,6 +41,10 @@ independent. Don't make it the only copy of anything you can't lose.
 - [Email](docs/mail.md) to your domain can arrive on the group: each message
   is encrypted for you as it comes in and read on your dashboard, where you
   can also write and reply (sent through an SMTP relay the web nodes hold).
+  Thunderbird or any mail program can use it too, through a local
+  [bridge](docs/mail.md#thunderbird-and-other-mail-programs) (IMAP and SMTP).
+- [Leases](docs/leases.md) let a node see which shards nobody has wanted for
+  months (a lost stub, a delete that missed a node), without reading them.
 - Licence: see [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
   Security issues: [SECURITY.md](SECURITY.md).
 

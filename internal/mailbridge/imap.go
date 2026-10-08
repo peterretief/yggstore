@@ -56,14 +56,15 @@ func (b *Bridge) logf(format string, args ...any) {
 	}
 }
 
-// login checks the user name (the mailbox's address) and password.
+// login checks the password. The user name isn't checked: the password is
+// the secret, the bridge serves one mailbox, and mail programs fill in the
+// user name in ways of their own (an identity's address, say), which would
+// only show as a wrong password.
 func (b *Bridge) login(username, password string) error {
-	addr := b.Box.Address()
-	if addr == "" {
+	if b.Box.Address() == "" {
 		return errors.New("this mailbox has no address yet (yggstore mail address you@example.org)")
 	}
-	if !strings.EqualFold(strings.TrimSpace(username), addr) ||
-		subtle.ConstantTimeCompare([]byte(password), []byte(b.Password)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(password), []byte(b.Password)) != 1 {
 		return backend.ErrInvalidCredentials
 	}
 	return nil
@@ -224,7 +225,7 @@ func (ib *imapBackend) Updates() <-chan backend.Update { return ib.updates }
 func (ib *imapBackend) Login(_ *imap.ConnInfo, username, password string) (backend.User, error) {
 	b := (*Bridge)(ib)
 	if err := b.login(username, password); err != nil {
-		b.logf("mail bridge: IMAP login refused for %q", username)
+		b.logf("mail bridge: IMAP login refused for %q: wrong password (yggstore mail bridge prints it)", username)
 		return nil, err
 	}
 	return &user{b: b, name: b.Box.Address()}, nil

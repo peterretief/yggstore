@@ -122,6 +122,16 @@ func TestIMAP(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The password is what counts: a mail program may give another user
+	// name (an identity's address).
+	if c2, err := imapclient.Dial(f.imap); err != nil {
+		t.Fatal(err)
+	} else if err := c2.Login("me@another.example", f.b.Password); err != nil {
+		t.Fatalf("refused another user name: %v", err)
+	} else {
+		c2.Logout()
+	}
+
 	ch := make(chan *imap.MailboxInfo, 20)
 	if err := c.List("", "*", ch); err != nil {
 		t.Fatal(err)
@@ -199,6 +209,10 @@ func TestSMTP(t *testing.T) {
 	}
 	if len(f.sent) != 1 || f.sent[0][0] != "a@example.net" || f.sent[0][1] != "b@example.net" || !strings.Contains(f.sent[0][2], "Subject: Hi") {
 		t.Fatalf("sent %q", f.sent)
+	}
+	other := smtp.PlainAuth("", "me@another.example", f.b.Password, "127.0.0.1")
+	if err := smtp.SendMail(f.smtp, other, "me@example.org", []string{"a@example.net"}, []byte(msg)); err != nil {
+		t.Fatalf("refused another user name: %v", err)
 	}
 	bad := smtp.PlainAuth("", "me@example.org", "wrong", "127.0.0.1")
 	if err := smtp.SendMail(f.smtp, bad, "me@example.org", []string{"a@example.net"}, []byte(msg)); err == nil {

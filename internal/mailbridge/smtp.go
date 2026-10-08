@@ -58,7 +58,7 @@ func (s *session) Auth(mech string) (sasl.Server, error) {
 	}
 	return sasl.NewPlainServer(func(identity, username, password string) error {
 		if err := s.b.login(username, password); err != nil {
-			s.b.logf("mail bridge: SMTP login refused for %q", username)
+			s.b.logf("mail bridge: SMTP login refused for %q: wrong password (yggstore mail bridge prints it)", username)
 			return smtp.ErrAuthFailed
 		}
 		s.authed = true
