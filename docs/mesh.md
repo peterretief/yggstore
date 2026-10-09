@@ -18,6 +18,9 @@ members:
 - If Yggdrasil restarts, the links come back within a minute.
 - Invites hand newcomers the members' addresses first, then the public
   peers.
+- The group's public peers are listed once, on the admin's entry, and every
+  node links to them too, so a box moved to another network still reaches
+  the group (see [step 3](#3-give-every-node-public-peers)).
 
 ```mermaid
 flowchart LR
@@ -92,7 +95,28 @@ restart Yggdrasil.
 > Yggdrasil, or set `AllowedPublicKeys` so only members may link.
 > `yggstore mesh` prints the line with every member's key.
 
-## 3. Check
+## 3. Give every node public peers
+
+A node that only has links on its home network is cut off when it's plugged
+in somewhere else. List a few [public Yggdrasil
+peers](https://publicpeers.neilalexander.dev/) for the whole group, on the
+admin machine:
+
+```sh
+yggstore mesh public tls://37.205.14.171:993 tls://91.98.161.68:9001 tls://5.252.118.13:443
+```
+
+They go in the node list as `"ygg_peers"` on the admin's entry; the dashboard
+sends it to every node, and each node links to them within a minute. Run it
+again with a different list to change them: links to peers no longer listed
+are closed. `yggstore mesh public` with no address stops listing them. Only
+an admin's `ygg_peers` count. Peers already in a node's `yggdrasil.conf` are
+left alone.
+
+Pick peers in more than one place, so losing one doesn't cut anyone off.
+Nodes on older versions of yggstore ignore the list until they're updated.
+
+## 4. Check
 
 ```sh
 yggstore mesh
@@ -100,10 +124,12 @@ yggstore mesh
 
 ```
 NODE         LINKED DIRECTLY TO     NOTES
-desktop      office, pi
-pi           desktop, office
-pi2          office
-office       desktop, pi, pi2       listens at wss://ygg.yourgroup.example:443
+desktop      office, pi             3 of 3 public peers up
+pi           desktop, office        3 of 3 public peers up
+pi2          office                 2 of 3 public peers up
+office       desktop, pi, pi2       listens at wss://ygg.yourgroup.example:443; 3 of 3 public peers up
+
+Public peers every node links to: tls://37.205.14.171:993, tls://91.98.161.68:9001, tls://5.252.118.13:443
 ```
 
 Each node card on the dashboard shows the same, with "trying NAME?" for a

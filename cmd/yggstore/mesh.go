@@ -22,6 +22,9 @@ const meshUsage = `yggstore mesh: Yggdrasil links between the group's machines
   yggstore mesh set NODE URI [URI...]  where other members can link to NODE, e.g.
                                      tls://203.0.113.5:14415 or wss://ygg.example.org:443
   yggstore mesh set NODE             stop listing addresses for NODE
+  yggstore mesh public URI [URI...]  public Yggdrasil peers every node links to, so
+                                     it reaches the group from any network
+  yggstore mesh public               stop listing public peers
 
 Run set on the admin machine; its dashboard sends the changed list to every
 node. All take -peers. See docs/mesh.md.
@@ -30,6 +33,9 @@ node. All take -peers. See docs/mesh.md.
 func cmdMesh(ctx context.Context, args []string) error {
 	if len(args) > 0 && args[0] == "set" {
 		return meshSet(args[1:])
+	}
+	if len(args) > 0 && args[0] == "public" {
+		return meshPublic(args[1:])
 	}
 	fs := flag.NewFlagSet("mesh", flag.ExitOnError)
 	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
@@ -75,11 +81,23 @@ func cmdMesh(ctx context.Context, args []string) error {
 			for _, n := range names {
 				notes = append(notes, fmt.Sprintf("can't reach %s (%s)", n, info.Mesh.Trying[n]))
 			}
+			if n := len(info.Mesh.Public); n > 0 {
+				up := 0
+				for _, why := range info.Mesh.Public {
+					if why == "up" {
+						up++
+					}
+				}
+				notes = append(notes, fmt.Sprintf("%d of %d public peers up", up, n))
+			}
 		}
 		if err == nil && info.Mesh != nil && info.Mesh.Key != "" {
 			keys = append(keys, info.Mesh.Key)
 		}
 		fmt.Printf("%-12s %-22s %s\n", p.Name, direct, strings.Join(notes, "; "))
+	}
+	if public := peers.PublicPeers(list); len(public) > 0 {
+		fmt.Printf("\nPublic peers every node links to: %s\n", strings.Join(public, ", "))
 	}
 	if len(keys) > 0 {
 		b, _ := json.Marshal(keys)
@@ -121,6 +139,47 @@ func meshSet(args []string) error {
 		fmt.Printf("%s: no addresses listed now.\n", name)
 	} else {
 		fmt.Printf("%s: other members will link to %s.\n", name, strings.Join(uris, ", "))
+	}
+	fmt.Println("The dashboard sends the changed list to every node within a minute.")
+	return nil
+}
+
+func meshPublic(args []string) error {
+	fs := flag.NewFlagSet("mesh public", flag.ExitOnError)
+	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
+	fs.Parse(reorder(args))
+	uris := fs.Args()
+	for _, u := range uris {
+		if err := peers.ValidListen(u); err != nil {
+			return fmt.Errorf("%s: %w", u, err)
+		}
+	}
+	list, err := peers.Load(*peersPath)
+	if err != nil {
+		return err
+	}
+	// The list goes on the first admin's entry; any kept on other entries
+	// is dropped, so what's given here is the whole list.
+	admin := -1
+	for i := range list {
+		if list[i].Admin && admin < 0 {
+			admin = i
+		}
+		list[i].YggPeers = nil
+	}
+	if admin < 0 {
+		return fmt.Errorf("no admin node in %s to keep the list on", *peersPath)
+	}
+	if len(uris) > 0 {
+		list[admin].YggPeers = uris
+	}
+	if err := peers.Write(*peersPath, list); err != nil {
+		return err
+	}
+	if len(uris) == 0 {
+		fmt.Println("No public peers listed now; nodes close the links they opened to them.")
+	} else {
+		fmt.Printf("Every node will link to %s.\n", strings.Join(uris, ", "))
 	}
 	fmt.Println("The dashboard sends the changed list to every node within a minute.")
 	return nil

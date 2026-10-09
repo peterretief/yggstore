@@ -64,7 +64,8 @@ func (f *fakeYgg) handle(c net.Conn) {
 		}
 		reply["response"] = map[string]any{"peers": list}
 	case "addpeer":
-		if _, ok := f.links[uri]; ok {
+		// Yggdrasil tells peers apart by scheme and host, not ?key= options.
+		if f.hasLink(uri) {
 			reply = map[string]any{"status": "error", "error": "peer is already configured"}
 			break
 		}
@@ -77,6 +78,15 @@ func (f *fakeYgg) handle(c net.Conn) {
 		delete(f.links, uri)
 	}
 	json.NewEncoder(c).Encode(reply)
+}
+
+func (f *fakeYgg) hasLink(uri string) bool {
+	for u := range f.links {
+		if linkKey(u) == linkKey(uri) {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *fakeYgg) has(uri string) bool {
@@ -151,6 +161,84 @@ func TestMeshLinksMembers(t *testing.T) {
 	m.Sync(ctx)
 	if !f.has("wss://ygg.mail.example:443") {
 		t.Fatal("link not restored after a restart")
+	}
+}
+
+func TestMeshLinksPublicPeers(t *testing.T) {
+	f := &fakeYgg{
+		self: Self{Key: "aa", Address: "200::1"},
+		links: map[string]Link{
+			// in this machine's yggdrasil.conf, and also listed for the group
+			"tls://hand.example:443": {URI: "tls://hand.example:443", Up: true, Address: "300::8"},
+		},
+		reachable: map[string]string{"tls://198.51.100.7:993": "300::7"},
+	}
+	admin := f.serve(t)
+	list := []peers.Peer{
+		{Name: "desktop", Addr: "[200::2]:7400", Admin: true,
+			YggPeers: []string{"tls://198.51.100.7:993", "tls://192.0.2.9:9001", "tls://hand.example:443?key=ab"}},
+		{Name: "pi", Addr: "[200::1]:7400", YggPeers: []string{"tls://192.0.2.66:443"}},
+	}
+	var mu sync.Mutex
+	current := list
+	m := New(admin, "200::1", func() []peers.Peer { mu.Lock(); defer mu.Unlock(); return current }, filepath.Join(t.TempDir(), "mesh.json"), t.Logf)
+	ctx := context.Background()
+	linkWait = 0
+
+	m.Sync(ctx)
+	if !f.has("tls://198.51.100.7:993") || !f.has("tls://192.0.2.9:9001") {
+		t.Fatal("the admin's public peers were not linked")
+	}
+	if f.has("tls://192.0.2.66:443") {
+		t.Fatal("linked to a public peer listed by a member who isn't an admin")
+	}
+	st := m.Status()
+	if f.has("tls://hand.example:443?key=ab") {
+		t.Fatal("linked again to a peer in yggdrasil.conf, given with its key")
+	}
+	if st.Public["tls://198.51.100.7:993"] != "up" || st.Public["tls://hand.example:443?key=ab"] != "up" {
+		t.Fatalf("public %v, want the reachable ones up", st.Public)
+	}
+	if why := st.Public["tls://192.0.2.9:9001"]; why == "" || why == "up" {
+		t.Fatalf("public %v, want the unreachable one with its error", st.Public)
+	}
+
+	// The admin drops them all: the links this node opened go, the one in
+	// its yggdrasil.conf stays.
+	mu.Lock()
+	current = []peers.Peer{{Name: "desktop", Addr: "[200::2]:7400", Admin: true}, list[1]}
+	mu.Unlock()
+	m.Sync(ctx)
+	if f.has("tls://198.51.100.7:993") || f.has("tls://192.0.2.9:9001") {
+		t.Fatal("links to unlisted public peers kept")
+	}
+	if !f.has("tls://hand.example:443") {
+		t.Fatal("removed a link this node didn't add")
+	}
+	if st := m.Status(); st.Public != nil {
+		t.Fatalf("public %v, want none listed", st.Public)
+	}
+}
+
+func TestPublicPeers(t *testing.T) {
+	list := []peers.Peer{
+		{Name: "a", Addr: "[200::1]:7400", Admin: true, YggPeers: []string{"tls://192.0.2.1:1", "tls://192.0.2.2:2"}},
+		{Name: "b", Addr: "[200::2]:7400", YggPeers: []string{"tls://192.0.2.3:3"}},
+		{Name: "c", Addr: "[200::3]:7400", Admin: true, YggPeers: []string{"tls://192.0.2.2:2", "tls://192.0.2.4:4"}},
+	}
+	got := peers.PublicPeers(list)
+	want := []string{"tls://192.0.2.1:1", "tls://192.0.2.2:2", "tls://192.0.2.4:4"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	list[0].YggPeers = []string{"tls://127.0.0.1:1"}
+	if peers.Validate(list) == nil {
+		t.Fatal("a loopback public peer was accepted")
 	}
 }
 

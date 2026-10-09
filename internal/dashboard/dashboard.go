@@ -616,7 +616,8 @@ func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []P
 
 // handleInvite makes a one-time invite for someone to join the group.
 // inviteYggPeers are the Yggdrasil peers a newcomer connects through: the
-// members' own (ygg_listen) first, then the public ones.
+// members' own (ygg_listen) first, then the group's public ones (ygg_peers),
+// then public.
 func inviteYggPeers(peersPath string, public []string) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -628,7 +629,7 @@ func inviteYggPeers(peersPath string, public []string) []string {
 			}
 		}
 	}
-	for _, u := range public {
+	for _, u := range append(peers.PublicPeers(list), public...) {
 		if !seen[u] {
 			out, seen[u] = append(out, u), true
 		}

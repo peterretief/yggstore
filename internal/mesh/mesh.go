@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/url"
 	"os"
 	"sort"
 	"sync"
@@ -26,6 +27,9 @@ type Status struct {
 	// Trying names members whose ygg_listen links are not up, with the
 	// latest error for each.
 	Trying map[string]string `json:"trying,omitempty"`
+	// Public maps each of the group's public Yggdrasil peers (ygg_peers in
+	// the peer list) to "up", or to why its link is not up.
+	Public map[string]string `json:"public,omitempty"`
 }
 
 // Yggdrasil is what the mesh needs from this machine's Yggdrasil: the
@@ -74,8 +78,9 @@ func (m *Mesh) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// Sync opens links to members this machine isn't linked to, and closes
-// links it opened earlier to addresses no longer listed.
+// Sync opens links to members this machine isn't linked to and to the
+// group's public peers, and closes links it opened earlier to addresses no
+// longer listed.
 func (m *Mesh) Sync(ctx context.Context) {
 	st, err := m.sync(ctx)
 	if err != nil {
@@ -102,8 +107,9 @@ func (m *Mesh) sync(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	up := linkedTo(links)
+	list := m.list()
 	others := []peers.Peer{}
-	for _, p := range m.list() {
+	for _, p := range list {
 		if ip := normal(p.IP()); ip != normal(m.self) && ip != normal(self.Address) {
 			others = append(others, p)
 		}
@@ -127,6 +133,19 @@ func (m *Mesh) sync(ctx context.Context) (Status, error) {
 				added[uri], opened = true, true
 				m.logf("mesh: linking to %s at %s", p.Name, uri)
 			}
+		}
+	}
+	public := peers.PublicPeers(list)
+	publicFailed := map[string]string{}
+	for _, uri := range public {
+		want[uri] = true
+		isNew, err := m.admin.AddLink(ctx, uri)
+		switch {
+		case err != nil:
+			publicFailed[uri] = err.Error()
+		case isNew:
+			added[uri], opened = true, true
+			m.logf("mesh: linking to public peer %s", uri)
 		}
 	}
 	for uri := range added {
@@ -156,7 +175,7 @@ func (m *Mesh) sync(ctx context.Context) (Status, error) {
 	}
 	byURI := map[string]Link{}
 	for _, l := range links {
-		byURI[l.URI] = l
+		byURI[linkKey(l.URI)] = l
 	}
 	st := Status{On: true, Key: self.Key, Trying: map[string]string{}}
 	for _, p := range others {
@@ -166,7 +185,7 @@ func (m *Mesh) sync(ctx context.Context) (Status, error) {
 		}
 		for _, uri := range p.YggListen {
 			why := "connecting"
-			if l, ok := byURI[uri]; ok && l.LastError != "" {
+			if l, ok := byURI[linkKey(uri)]; ok && l.LastError != "" {
 				why = l.LastError
 			}
 			if f, ok := failed[p.Name]; ok {
@@ -178,6 +197,22 @@ func (m *Mesh) sync(ctx context.Context) (Status, error) {
 	sort.Strings(st.Direct)
 	if len(st.Trying) == 0 {
 		st.Trying = nil
+	}
+	if len(public) > 0 {
+		st.Public = map[string]string{}
+	}
+	for _, uri := range public {
+		l, ok := byURI[linkKey(uri)]
+		switch {
+		case publicFailed[uri] != "":
+			st.Public[uri] = publicFailed[uri]
+		case ok && l.Up:
+			st.Public[uri] = "up"
+		case ok && l.LastError != "":
+			st.Public[uri] = l.LastError
+		default:
+			st.Public[uri] = "connecting"
+		}
 	}
 	return st, nil
 }
@@ -194,6 +229,18 @@ func linkedTo(links []Link) map[string]bool {
 		}
 	}
 	return up
+}
+
+// linkKey is uri without its options (such as ?key=), which Yggdrasil
+// leaves out when it lists a link: "tls://192.0.2.1:993?key=ab" and
+// "tls://192.0.2.1:993" are the same link to it.
+func linkKey(uri string) string {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return uri
+	}
+	u.RawQuery, u.Fragment = "", ""
+	return u.String()
 }
 
 func normal(addr string) string {

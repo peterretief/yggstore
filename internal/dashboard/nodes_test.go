@@ -135,3 +135,19 @@ func TestOldNodeNotPushedForever(t *testing.T) {
 		t.Fatal("the list was sent again")
 	}
 }
+
+func TestInviteYggPeers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "peers.json")
+	list := []peers.Peer{
+		{Name: "desktop", Addr: "[200::1]:7400", Admin: true, YggPeers: []string{"tls://192.0.2.7:993", "tls://192.0.2.8:443"}},
+		{Name: "office", Addr: "[200::2]:7400", YggListen: []string{"wss://ygg.office.example:443"}},
+	}
+	if err := peers.Write(path, list); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(inviteYggPeers(path, []string{"tls://192.0.2.8:443", "tls://192.0.2.9:1"}), " ")
+	want := "wss://ygg.office.example:443 tls://192.0.2.7:993 tls://192.0.2.8:443 tls://192.0.2.9:1"
+	if got != want {
+		t.Fatalf("got %s\nwant %s", got, want)
+	}
+}

@@ -3,7 +3,9 @@
 // the peer list); every minute the node asks its own Yggdrasil which links
 // are up and opens the missing ones. So the group stays connected when one
 // path (a tunnel, a VPN, a public peer) goes away, and traffic between
-// members takes the shortest way.
+// members takes the shortest way. It also links to the public Yggdrasil
+// peers the group's admins list (ygg_peers), so a node reaches the group
+// from any network without anyone editing its yggdrasil.conf.
 package mesh
 
 import (

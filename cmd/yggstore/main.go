@@ -60,7 +60,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore mail    address|token|list|read|send ...        the group's email (see docs/mail.md)
   yggstore repair  [-after 24h] [-outfiles DIR]            rebuild shards of nodes down that long (see docs/repair.md)
   yggstore leases  [-days 90]                              on a node: how long since its shards were last wanted (see docs/leases.md)
-  yggstore mesh    [set NODE URI...]                        Yggdrasil links between members (see docs/mesh.md)
+  yggstore mesh    [set NODE URI... | public URI...]       Yggdrasil links between members (see docs/mesh.md)
   yggstore gateway serve|customer|report ...               S3 service for paying customers (see docs/gateway.md)
   yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
                                                            with a .ystub); restore stubs dropped into

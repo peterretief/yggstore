@@ -25,7 +25,9 @@ import (
 // node, for accounting; it defaults to the machine. A gateway peer stores
 // paying customers' files (see package gateway); nodes only take its shards
 // if their owner has opted in. YggListen lists where other members can
-// open a Yggdrasil link to the peer's machine (see package mesh).
+// open a Yggdrasil link to the peer's machine (see package mesh). YggPeers,
+// on an admin's entry, lists public Yggdrasil peers every node links to, so
+// a node reaches the group from wherever it is plugged in.
 type Peer struct {
 	Name    string `json:"name"`
 	Addr    string `json:"addr"`
@@ -36,6 +38,7 @@ type Peer struct {
 	Gateway bool   `json:"gateway,omitempty"`
 
 	YggListen []string `json:"ygg_listen,omitempty"`
+	YggPeers  []string `json:"ygg_peers,omitempty"`
 }
 
 // Operator is the person the peer's space and uploads count towards.
@@ -109,8 +112,32 @@ func Validate(list []Peer) error {
 				return fmt.Errorf("peer %d (%s): ygg_listen %q: %w", i, p.Name, u, err)
 			}
 		}
+		for _, u := range p.YggPeers {
+			if err := ValidListen(u); err != nil {
+				return fmt.Errorf("peer %d (%s): ygg_peers %q: %w", i, p.Name, u, err)
+			}
+		}
 	}
 	return nil
+}
+
+// PublicPeers is the group's public Yggdrasil peers: the ygg_peers of its
+// admins, each once, in list order. Other members' ygg_peers are ignored.
+func PublicPeers(list []Peer) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range list {
+		if !p.Admin {
+			continue
+		}
+		for _, u := range p.YggPeers {
+			if !seen[u] {
+				seen[u] = true
+				out = append(out, u)
+			}
+		}
+	}
+	return out
 }
 
 // ValidListen checks a Yggdrasil peering address that other members will
