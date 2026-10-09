@@ -33,6 +33,8 @@ const siteUsage = `yggstore site: static websites hosted on the group
   yggstore site contact DOMAIN on|off           the site's contact form: messages posted to
                                                 /_yggstore/contact arrive in this machine's
                                                 mailbox (see docs/sites.md)
+  yggstore site route DOMAIN                    add the tunnel route and DNS only; for the
+                                                group's names: site route '*.example.org'
   yggstore site announce                        tell web nodes about every site again
   yggstore site remove DOMAIN -yes              stop serving it and delete every version
   yggstore site status                          which web nodes serve which version
@@ -188,6 +190,17 @@ func cmdSite(ctx context.Context, args []string) error {
 			fmt.Printf("%s: contact form off.\n", domain)
 		} else {
 			fmt.Printf("%s: contact form on. Messages posted to https://%s%s arrive in this machine's mailbox.\n", domain, domain, site.ContactPath)
+		}
+	case "route":
+		if fs.NArg() != 1 {
+			return errors.New("usage: yggstore site route DOMAIN (or '*.DOMAIN' for every name under it)")
+		}
+		host := site.Normalise(arg(0))
+		if err := site.ValidName(strings.TrimPrefix(host, "*.")); err != nil {
+			return err
+		}
+		if addRoutes(ctx, host, *cfToken, *tunToken, *service) {
+			fmt.Printf("%s reaches the web nodes.\n", host)
 		}
 	case "announce":
 		if err := announcer(); err != nil {

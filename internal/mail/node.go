@@ -30,6 +30,8 @@ const (
 	MaxSize = 32 << 20
 	// IngestPath is where the Worker posts messages on a web node.
 	IngestPath = "/_yggstore/mail"
+	// MailboxPath is where the Worker asks a web node whose an address is.
+	MailboxPath = "/_yggstore/mailbox"
 
 	typeMail = "mail"     // web node → recipient: a message is stored for you
 	typeGot  = "mail-got" // recipient → web node: I have my own copy now
@@ -345,22 +347,27 @@ func online(ctx context.Context, c client.Client, all []peers.Peer) []peers.Peer
 	})
 }
 
-// ServeHTTP takes a sealed message from the Worker: POST IngestPath?node=ID
-// with the token. It answers only once the message is stored in the group
-// and the recipient's notice is queued, so the Worker can tell the sender
-// to retry if anything fails.
+// ServeHTTP answers the Worker, which sends the token. POST IngestPath?node=ID
+// takes a sealed message; it answers only once the message is stored in the
+// group and the recipient's notice is queued, so the Worker can tell the
+// sender to retry if anything fails. GET MailboxPath?to=ADDRESS says whose
+// an address is (see lookup).
 func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if n.Token == "" {
 		http.NotFound(w, r)
 		return
 	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "use POST", http.StatusMethodNotAllowed)
-		return
-	}
 	got, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if subtle.ConstantTimeCompare([]byte(got), []byte(n.Token)) != 1 {
 		http.Error(w, "bad token", http.StatusForbidden)
+		return
+	}
+	if r.URL.Path == MailboxPath {
+		n.lookup(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "use POST", http.StatusMethodNotAllowed)
 		return
 	}
 	node := r.URL.Query().Get("node")
@@ -384,6 +391,23 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type badRequest struct{ error }
+
+// lookup answers which node an address's mail goes to, and the sharing code
+// to seal it for, from the names the admin gave in the group's list: 404 if
+// the address is no one's.
+func (n *Node) lookup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "use GET", http.StatusMethodNotAllowed)
+		return
+	}
+	p, ok := peers.MailOwner(n.Peers(), r.URL.Query().Get("to"))
+	if !ok || p.Gateway {
+		http.Error(w, "no such mailbox", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"node": p.IP(), "code": p.Code})
+}
 
 // Take stores a sealed message in the group for a member's node and tells
 // that node, which collects it into its owner's mailbox. It returns once

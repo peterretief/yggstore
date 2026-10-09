@@ -151,10 +151,14 @@ func (w *Web) handle(s msg.Stored) {
 		return
 	}
 	e := w.st.Sites[a.Site]
+	list := w.Peers()
+	keeper, given, under := peers.SiteKeeper(list, a.Site)
 	switch {
-	case e != nil && !w.mayChange(s.From, e.Owner):
+	case under && !(given && keeper.IP() == s.From) && !isAdmin(list, s.From):
+		w.logf("web: ignored %s from %s: names under %s are published by the node the group gives them to", a.Site, s.FromName, peers.GroupDomain(list))
+	case !under && e != nil && !w.mayChange(s.From, e.Owner):
 		w.logf("web: ignored a change to %s from %s, who didn't publish it", a.Site, s.FromName)
-	case e == nil && a.Stub != nil && !w.mayClaim(a.Site, s.From):
+	case !under && e == nil && a.Stub != nil && !w.mayClaim(a.Site, s.From):
 		w.logf("web: ignored %s from %s: www. of a site belongs to that site's publisher", a.Site, s.FromName)
 	case e != nil && s.Time <= e.Announced:
 		// an older announcement, arriving late
@@ -172,6 +176,9 @@ func (w *Web) handle(s msg.Stored) {
 			e = &webEntry{Owner: s.From}
 			w.st.Sites[a.Site] = e
 		}
+		if under && given && keeper.IP() == s.From {
+			e.Owner = s.From // its contact form goes to the name's node
+		}
 		e.Announced = s.Time
 		e.Contact = a.Contact
 		if a.Stub.FileID == e.Serving {
@@ -187,15 +194,24 @@ func (w *Web) handle(s msg.Stored) {
 // mayChange: the node that first published a site may change it, and so
 // may admin nodes.
 func (w *Web) mayChange(from, owner string) bool {
-	if from == owner {
-		return true
-	}
-	for _, p := range w.Peers() {
-		if p.IP() == from && p.Admin {
+	return from == owner || isAdmin(w.Peers(), from)
+}
+
+func isAdmin(list []peers.Peer, ip string) bool {
+	for _, p := range list {
+		if p.IP() == ip && p.Admin {
 			return true
 		}
 	}
 	return false
+}
+
+// servable: a site under the group's domain is served only while its
+// publisher still holds the name (or is an admin), so a name taken back
+// stops being served at once.
+func servable(list []peers.Peer, site, owner string) bool {
+	keeper, given, under := peers.SiteKeeper(list, site)
+	return !under || (given && keeper.IP() == owner) || isAdmin(list, owner)
 }
 
 // mayClaim: www.NAME is served as NAME until it is a site of its own, so
@@ -325,7 +341,7 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		rw.Write([]byte("ok\n"))
 		return
 	}
-	if w.Mail != nil && r.URL.Path == mail.IngestPath {
+	if w.Mail != nil && (r.URL.Path == mail.IngestPath || r.URL.Path == mail.MailboxPath) {
 		w.Mail.ServeHTTP(rw, r)
 		return
 	}
@@ -341,6 +357,9 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		owner, contact = e.Owner, e.Contact
 	}
 	w.mu.Unlock()
+	if ok && !servable(w.Peers(), name, owner) {
+		ok = false
+	}
 	if !ok {
 		http.Error(rw, "There is no site called "+host+" here.", http.StatusNotFound)
 		return

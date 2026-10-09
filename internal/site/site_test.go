@@ -296,3 +296,58 @@ func TestWebIgnoresUnsafeAnnouncements(t *testing.T) {
 		t.Fatal("a file ID wrote outside the web node's folder")
 	}
 }
+
+// Under the group's domain a name's site comes only from the node the list
+// gives the name to (or an admin), and stops being served when the name is
+// taken back.
+func TestGroupNamesBelongToTheirNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	nodes := storageNodes(t, 6)
+	var mu sync.Mutex
+	members := []peers.Peer{
+		{Name: "admin", Addr: "[200::9]:7400", Admin: true, Domain: "example.org"},
+		{Name: "anna", Addr: "[200::1]:7400", Names: []string{"anna.example.org"}},
+		{Name: "bob", Addr: "[200::2]:7400"},
+	}
+	list := func() []peers.Peer {
+		mu.Lock()
+		defer mu.Unlock()
+		return append(append([]peers.Peer{}, nodes...), members...)
+	}
+	b := newBus()
+	web := &Web{Dir: t.TempDir(), Msgs: b, Peers: list, Client: client.New(), Log: t.Logf}
+	go web.Run(ctx)
+	publish := func(from, name, body string) {
+		t.Helper()
+		b.mu.Lock()
+		b.from = from
+		b.mu.Unlock()
+		src := t.TempDir()
+		writeSite(t, src, map[string]string{"index.html": body})
+		pub := &Publisher{Dir: t.TempDir(), Client: client.New(), Announce: b, Log: t.Logf}
+		if _, _, err := pub.Publish(ctx, name, src, nodes); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	publish("200::2", "anna.example.org", "bob's")
+	publish("200::2", "bob.example.org", "unnamed")
+	publish("200::1", "anna.example.org", "anna's")
+	eventually(t, web, "anna.example.org", "anna's")
+	for _, s := range web.Status() {
+		if s.Site == "bob.example.org" {
+			t.Fatalf("a name no one was given was published: %+v", s)
+		}
+	}
+	// Elsewhere, the first publisher keeps it.
+	publish("200::2", "bob.org", "bob's own")
+	eventually(t, web, "bob.org", "bob's own")
+
+	mu.Lock()
+	members[1].Names = nil
+	mu.Unlock()
+	if code, _ := get(t, web, http.MethodGet, "anna.example.org", "/"); code != http.StatusNotFound {
+		t.Fatalf("a name taken back is still served: %d", code)
+	}
+}

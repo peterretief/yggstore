@@ -540,8 +540,11 @@ func (e *Engine) Announced(caller string, topics []string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	old := e.st.Subscribers[caller]
-	e.st.Subscribers[caller] = subscriber{Topics: topics, At: e.now().Unix()}
-	if strings.Join(old.Topics, ",") != strings.Join(topics, ",") {
+	now := e.now().Unix()
+	e.st.Subscribers[caller] = subscriber{Topics: topics, At: now}
+	// Save a change at once, and the time now and then, so a restart
+	// doesn't take followers for lapsed until they announce again.
+	if strings.Join(old.Topics, ",") != strings.Join(topics, ",") || now-old.At > int64(announceTTL/time.Second)/2 {
 		e.saveState()
 	}
 	// A node announcing itself is reachable: deliver what waits for it now,

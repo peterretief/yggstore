@@ -237,6 +237,12 @@ systemctl --user status yggstore-node --no-pager</pre><button type="button">Copy
       <p>The dashboard only answers on the box itself, so nobody else on your network can use it. To open it from Windows, connect with this command and leave the window open:</p>
       <div class="cmd"><pre>ssh -N -L 7480:127.0.0.1:7480 you@192.168.0.50</pre><button type="button">Copy</button></div>
       <p>Then open <a href="http://127.0.0.1:7480" target="_blank" rel="noopener">http://127.0.0.1:7480</a> in your browser. You'll see the group's boxes, your files, your sharing code and what you give and use.</p>
+      <p><strong>Without the tunnel (optional).</strong> Your dashboard can also open from your PC directly, at <code>http://anna-box.local:7480</code>, once your PC runs Yggdrasil too and the box knows it's yours. On the box:</p>
+      <div class="cmd"><pre>sudo apt-get install -y avahi-daemon
+sudo ufw allow from 192.168.0.0/16 to any port 7480 proto tcp
+sudo ufw allow from 192.168.0.0/16 to any port 5353 proto udp
+sudo ufw allow in on tun0 to any port 7480 proto tcp</pre><button type="button">Copy</button></div>
+      <p>Install <a href="https://yggdrasil-network.github.io/installation-windows.html" target="_blank" rel="noopener">Yggdrasil for Windows</a> on your PC, then open <code>http://anna-box.local:7480</code> (your box's name instead of <code>anna-box</code>). The page shows your PC's Yggdrasil address and the command that lets it in, <code>yggstore devices add ADDRESS "my pc"</code>; run that on the box and reload.</p>
     </div></li>
 
     <li><div class="step">

@@ -110,7 +110,7 @@ func cmdJoin(ctx context.Context, args []string) error {
 		node = append(node, "-customers")
 	}
 	dash := []string{exe, "dashboard", "-peers", peersPath, "-outfiles", *outfiles,
-		"-sharing-key", keyPath, "-contacts", contactsPath, "-me", *me}
+		"-sharing-key", keyPath, "-contacts", contactsPath, "-me", *me, "-remote"}
 
 	fmt.Printf("\nYou're in: this node is %q (%s), giving %g GB.\n", resp.Node, addr, *quotaGB)
 	fmt.Printf("The group has %d nodes; %s is in your contacts.\n", len(resp.Peers), inv.From)
@@ -120,6 +120,7 @@ func cmdJoin(ctx context.Context, args []string) error {
 				err, shellJoin(node), shellJoin(dash))
 		}
 		fmt.Printf("The node and your dashboard are running: open http://127.0.0.1:7480\n")
+		fmt.Printf("To open it from your other devices, see yggstore devices.\n")
 		fmt.Printf("Drop files into %s to store them.\n", *outfiles)
 		return nil
 	}

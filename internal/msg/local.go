@@ -255,6 +255,14 @@ func (l Local) Latest(ctx context.Context, topic string, n int) ([]Stored, error
 	return out, l.do(ctx, http.MethodGet, "/v1/messages?"+q.Encode(), nil, &out)
 }
 
+// Messages returns up to limit messages received after number after, oldest
+// first.
+func (l Local) Messages(ctx context.Context, after int64, topic string, limit int) ([]Stored, error) {
+	var out []Stored
+	q := url.Values{"after": {strconv.FormatInt(after, 10)}, "topic": {topic}, "limit": {strconv.Itoa(limit)}}
+	return out, l.do(ctx, http.MethodGet, "/v1/messages?"+q.Encode(), nil, &out)
+}
+
 func (l Local) Send(ctx context.Context, to, typ, body string) (Message, error) {
 	var m Message
 	return m, l.do(ctx, http.MethodPost, "/v1/send", sendReq{To: to, Type: typ, Body: body}, &m)

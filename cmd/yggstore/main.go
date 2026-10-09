@@ -21,6 +21,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/dashboard"
+	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/files"
 	"github.com/peterretief/yggstore/internal/invite"
 	"github.com/peterretief/yggstore/internal/localstore"
@@ -52,8 +53,10 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore history FILE.ystub | -folder PATH -at DATE      older versions; restore one, or a folder as it was
   yggstore dashboard -peers peers.json [-stubs DIR | -outfiles DIR [-keep]] [-listen 127.0.0.1:7480]
                    [-test-peers FILE -test-stubs DIR]   also show a test cluster, separately
+                   [-remote]                            also open it to your devices (see devices)
                                                            live status page; with -outfiles it also
                                                            runs the outbox watcher (see watch)
+  yggstore devices [add ADDR NAME | remove ADDR|NAME]      devices that may open your dashboard (see docs/remote-dashboard.md)
   yggstore msg     send|pub|sub|unsub|read|status ...      message other nodes (see docs/messaging.md)
   yggstore site    publish|list|versions|rollback|announce|remove|status ...
                                                            host static websites on the group (see docs/sites.md)
@@ -169,6 +172,8 @@ func main() {
 		err = cmdSite(ctx, args)
 	case "mesh":
 		err = cmdMesh(ctx, args)
+	case "devices":
+		err = cmdDevices(args)
 	case "mail":
 		err = cmdMail(ctx, args)
 	case "repair":
@@ -345,7 +350,7 @@ func cmdServe(ctx context.Context, args []string) error {
 			log.Printf("mail: not sending members' email: -mail-out: %v", err)
 			relay = nil
 		} else {
-			relay.Log = log.Printf
+			relay.Log, relay.Peers = log.Printf, live.List
 			log.Printf("mail: sending members' email through %s", relay.SMTP)
 		}
 	}
@@ -620,6 +625,8 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	outfiles := fs.String("outfiles", "", "outbox folder to watch (also used as -stubs)")
 	keep := fs.Bool("keep", false, "with -outfiles: keep originals after a verified upload")
 	listen := fs.String("listen", "127.0.0.1:7480", "address for the dashboard page")
+	remote := fs.Bool("remote", false, "also open the dashboard to your own devices over Yggdrasil (see yggstore devices), and send the LAN there")
+	devicesPath := fs.String("devices", filepath.Join(yggstoreHome(), "devices.json"), "with -remote: the devices allowed in")
 	tname := fs.String("transport", "ygg", "ygg or loopback (only used to show this node's ID)")
 	interval := fs.Duration("interval", 3*time.Second, "how often to poll peers and files")
 	testPeers := fs.String("test-peers", "", "optional test cluster peer list, shown separately")
@@ -662,7 +669,21 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	cfg := dashboard.Config{PeersPath: *peersPath, StubDir: absStubs, SelfID: selfID, Interval: *interval, Client: c,
 		TestPeersPath: *testPeers, Identity: id, ContactsPath: *contactsPath, Name: *me, Listen: *listen,
 		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken,
-		MailDir: *mailbox}
+		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"),
+		SitesDir: filepath.Join(yggstoreHome(), "sites"), Version: versionString()}
+	serveAddr := *listen
+	if *remote {
+		_, port, err := net.SplitHostPort(*listen)
+		switch {
+		case err != nil:
+			return fmt.Errorf("-listen %s: %w", *listen, err)
+		case selfID == "":
+			log.Printf("dashboard: -remote needs this machine's Yggdrasil (tun) address, and found none; answering on %s only", *listen)
+		default:
+			cfg.YggAddr, cfg.Devices = selfID, devices.NewWatch(*devicesPath)
+			serveAddr = net.JoinHostPort("", port)
+		}
+	}
 	if *testStubs != "" {
 		if cfg.TestStubDir, err = filepath.Abs(*testStubs); err != nil {
 			return err
@@ -700,12 +721,17 @@ func cmdDashboard(ctx context.Context, args []string) error {
 		go r.Run(ctx, 30*time.Minute)
 	}
 
-	srv := &http.Server{Addr: *listen, Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: serveAddr, Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		srv.Close()
 	}()
 	log.Printf("dashboard on http://%s (peers %s, stubs %s)", *listen, *peersPath, absStubs)
+	if cfg.YggAddr != "" {
+		_, port, _ := net.SplitHostPort(*listen)
+		log.Printf("dashboard also on http://%s for the devices in %s, and http://%s.local:%s on the LAN",
+			net.JoinHostPort(cfg.YggAddr, port), *devicesPath, hostname(), port)
+	}
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}

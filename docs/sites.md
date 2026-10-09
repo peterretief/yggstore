@@ -24,7 +24,8 @@ flowchart LR
 - **Cloudflare Tunnel** gives visitors HTTPS and sends each one to a web
   node that is connected.
 - A site can only be changed by the machine that first published it, or by
-  an admin node.
+  an admin node. Under the group's domain it goes by name instead: see
+  [Members' websites](#members-websites).
 
 This suits plain-file sites. Anything that runs code on the server (PHP, a
 database, logins) needs a server of its own. A contact form is the
@@ -171,6 +172,33 @@ dashboard, with its nameservers changed).
 
 To move a site that is on a server now: publish it, add the public hostname,
 and check it, before you remove the old copy.
+
+## Members' websites
+
+Every name the group gives (see [mail.md](mail.md#addresses-for-members))
+is a website too: `anna@example.org` has `anna.example.org`. The member
+publishes it from their box's dashboard, under **Your website**: *Publish a
+folder* takes the folder that holds `index.html`, stores it on the group as
+a new version, and the web nodes serve it within a minute. The same place
+has *Back to the previous version*, the contact form, and *Take it down*.
+
+Web nodes take a site under the group's domain only from the node the list
+gives that name to (or an admin), and stop serving it as soon as the name
+is taken back. Names no one holds, and the domain itself, are the admins'.
+
+One route covers every name. Add it once, from a machine with the API
+token (see above):
+
+```
+yggstore site route '*.example.org'
+```
+
+or by hand: a published application route `*.example.org` → HTTP
+`localhost:8480` on the web nodes' tunnel, and if Cloudflare doesn't add it
+for you, a proxied DNS record `CNAME * → TUNNEL-ID.cfargotunnel.com`.
+Cloudflare's free certificate covers one level of subdomain, so
+`anna.example.org` works and `www.anna.example.org` doesn't; members' names
+get no `www.`.
 
 ## A contact form
 

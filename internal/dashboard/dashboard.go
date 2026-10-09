@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"mime"
@@ -16,12 +17,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/contacts"
+	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/files"
 	"github.com/peterretief/yggstore/internal/invite"
 	"github.com/peterretief/yggstore/internal/mail"
@@ -58,6 +61,11 @@ type Config struct {
 	// Listen is the dashboard's own address; requests naming another host
 	// are refused (see guard).
 	Listen string
+	// YggAddr, if set, is this machine's Yggdrasil address, which the
+	// dashboard also answers on, but only to the Devices allowed in. Requests
+	// from the LAN are sent there (see guard).
+	YggAddr string
+	Devices *devices.Watch
 	// Invites (admin dashboards): where they are kept, the group's name, and
 	// Yggdrasil peers a newcomer can connect through.
 	InvitesPath string
@@ -69,6 +77,13 @@ type Config struct {
 	MsgTokenPath string
 	// MailDir is the mailbox this machine's node collects email into.
 	MailDir string
+	// NamesPath keeps name requests: those made here, and on an admin
+	// dashboard those members sent (see names.go).
+	NamesPath string
+	// SitesDir keeps the websites published from this machine (site.Publisher).
+	SitesDir string
+	// Version is this yggstore's, shown under My box.
+	Version string
 	// LogPath keeps the activity log on disk (default: in the outbox's
 	// .yggstore folder), so it survives restarts and can be looked at later.
 	LogPath string
@@ -142,6 +157,7 @@ type State struct {
 	Contacts    []Contact        `json:"contacts"`
 	Accounts    []Account        `json:"accounts"`
 	Invites     []invite.Pending `json:"invites"`
+	Box         *BoxState        `json:"box,omitempty"`
 }
 
 // Account is one person's share of the network, from what the nodes report.
@@ -177,8 +193,10 @@ type Dashboard struct {
 	events  []Event
 	wake    chan struct{}
 	pushed  map[string]time.Time // last list push per node, used only by poll
-	took    map[string]string    // list hash each node accepted last, used only by poll
+	took    map[string]string    // list hash@start time each node accepted last, used only by poll
 	logMu   sync.Mutex           // the activity log file
+	namesMu sync.Mutex           // NamesPath, and the list while names change
+	siteMu  sync.Mutex           // one website publish at a time
 }
 
 func New(cfg Config) *Dashboard {
@@ -257,6 +275,13 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mail/attachment", d.handleMailAttachment)
 	mux.HandleFunc("POST /api/mail/delete", d.handleMailDelete)
 	mux.HandleFunc("POST /api/mail/send", d.handleMailSend)
+	mux.HandleFunc("GET /api/names", d.handleNames)
+	mux.HandleFunc("POST /api/names/claim", d.handleClaim)
+	mux.HandleFunc("POST /api/names/decide", d.handleDecide)
+	mux.HandleFunc("POST /api/names/remove", d.handleRemoveName)
+	mux.HandleFunc("GET /api/sites", d.handleSites)
+	mux.HandleFunc("POST /api/sites/publish", d.handleSitePublish)
+	mux.HandleFunc("POST /api/sites/{action}", d.handleSiteAction)
 	return d.guard(mux)
 }
 
@@ -265,14 +290,41 @@ func (d *Dashboard) Handler() http.Handler {
 // header such pages cannot add without the dashboard's consent (it never
 // gives it), and the Host header must name the dashboard itself, which stops
 // DNS rebinding.
+//
+// With YggAddr set it also listens on every address. Over Yggdrasil only the
+// allowed devices get in: a Yggdrasil address can't be used without its
+// private key, so it identifies the device. From anywhere else (the LAN, by
+// IP or a .local name) a page is only sent on to the Yggdrasil address, so
+// nothing is served without that check.
 func (d *Dashboard) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if local := localIP(r); local != nil && !local.IsLoopback() {
+			if d.cfg.YggAddr == "" {
+				http.Error(w, "the dashboard only answers on this machine", http.StatusForbidden)
+				return
+			}
+			if local.String() != d.cfg.YggAddr {
+				if r.Method != http.MethodGet {
+					http.Error(w, "open the dashboard at its Yggdrasil address", http.StatusForbidden)
+					return
+				}
+				http.Redirect(w, r, d.yggURL()+r.URL.RequestURI(), http.StatusFound)
+				return
+			}
+			if remote := remoteIP(r); remote != d.cfg.YggAddr && (d.cfg.Devices == nil || !d.cfg.Devices.Allowed(remote)) {
+				d.notAllowed(w, remote)
+				return
+			}
+		}
 		host := r.Host
 		if h, _, err := net.SplitHostPort(r.Host); err == nil {
 			host = h
 		}
+		host = strings.Trim(host, "[]")
 		listenHost, _, _ := net.SplitHostPort(d.cfg.Listen)
-		if host != "localhost" && host != listenHost && !net.ParseIP(strings.Trim(host, "[]")).IsLoopback() {
+		ownName := host == "localhost" || (host != "" && host == listenHost) || net.ParseIP(host).IsLoopback() ||
+			(d.cfg.YggAddr != "" && net.ParseIP(host).Equal(net.ParseIP(d.cfg.YggAddr)))
+		if !ownName {
 			http.Error(w, "the dashboard only answers to its own address", http.StatusForbidden)
 			return
 		}
@@ -282,6 +334,55 @@ func (d *Dashboard) guard(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// localIP is the address the request came in on, or nil if unknown (as in
+// tests, where it's treated as localhost).
+func localIP(r *http.Request) net.IP {
+	a, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	if !ok {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(a.String())
+	if err != nil {
+		return nil
+	}
+	return net.ParseIP(host)
+}
+
+func remoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	return host
+}
+
+// yggURL is the dashboard's address on Yggdrasil.
+func (d *Dashboard) yggURL() string {
+	_, port, _ := net.SplitHostPort(d.cfg.Listen)
+	return "http://" + net.JoinHostPort(d.cfg.YggAddr, port)
+}
+
+// notAllowed tells a device that isn't on the list how to be added.
+func (d *Dashboard) notAllowed(w http.ResponseWriter, remote string) {
+	file := ""
+	if d.cfg.Devices != nil {
+		file = " -file " + d.cfg.Devices.Path()
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Not one of your devices</title>
+<body style="font-family:system-ui,sans-serif;max-width:40em;margin:3em auto;padding:0 1em;line-height:1.5">
+<h1>This dashboard opens only on its owner's devices</h1>
+<p>This device's Yggdrasil address is <code>%s</code>.</p>
+<p>If it's yours, run this on the machine the dashboard runs on, then reload this page:</p>
+<pre style="background:#eee;padding:.8em;white-space:pre-wrap">yggstore devices%s add %s "my laptop"</pre>
+</body>`, html.EscapeString(remote), html.EscapeString(file), html.EscapeString(remote))
 }
 
 func (d *Dashboard) handleVerify(w http.ResponseWriter, r *http.Request) {
@@ -443,7 +544,7 @@ func (d *Dashboard) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) poll(ctx context.Context) {
-	st := State{GeneratedAt: time.Now().Unix(), SelfID: d.cfg.SelfID, StubDir: d.cfg.StubDir, Outbox: d.cfg.Outbox != nil}
+	st := State{GeneratedAt: time.Now().Unix(), SelfID: d.cfg.SelfID, StubDir: d.cfg.StubDir, Outbox: d.cfg.Outbox != nil, Box: d.boxState()}
 	list, err := peers.Load(d.cfg.PeersPath)
 	if err != nil {
 		st.PeersError = err.Error()
@@ -485,6 +586,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 	}
 	if st.PeersError == "" {
 		d.syncLists(ctx, mainList, st.Peers, st.AdminEntry != "")
+		d.syncNames(ctx, mainList)
 	}
 	st.Accounts = accounts(mainList, st.Peers, d.cfg.SelfID)
 
@@ -579,7 +681,8 @@ func accounts(list []peers.Peer, states []PeerState, self string) []Account {
 // added node, or a hand edit of peers.json, reaches every node by itself.
 // Nodes on older software report no list and are left alone. So is a node
 // that took the list but still reports another one: its yggstore is older and
-// drops fields it doesn't know, so sending it again would never help.
+// drops fields it doesn't know, so sending it again would never help, until
+// it restarts (as an update does).
 func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []PeerState, admin bool) {
 	want := peers.Hash(list)
 	for i := range states {
@@ -587,12 +690,13 @@ func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []P
 		if ps.Test || ps.Info == nil {
 			continue
 		}
+		took := want + "@" + strconv.FormatInt(ps.Info.StartedAt, 10)
 		switch h := ps.Info.PeersHash; {
 		case h == "":
 			ps.List = "old software"
 		case h == want:
 			ps.List = "current"
-		case d.took[ps.Addr] == want:
+		case d.took[ps.Addr] == took:
 			ps.List = "old software"
 		default:
 			ps.List = "outdated"
@@ -608,7 +712,7 @@ func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []P
 				continue
 			}
 			ps.List = "current"
-			d.took[ps.Addr] = want
+			d.took[ps.Addr] = took
 			d.event("info", "sent the updated node list to "+ps.Name)
 		}
 	}

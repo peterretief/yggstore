@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/peterretief/yggstore/internal/peers"
 )
 
 func TestCompose(t *testing.T) {
@@ -134,5 +136,47 @@ func TestBoxAddress(t *testing.T) {
 	}
 	if list, err := b.List(); err != nil || len(list) != 0 {
 		t.Fatalf("the address file showed as mail: %v %v", list, err)
+	}
+}
+
+func TestRelayNames(t *testing.T) {
+	const anna, bob = "200::2", "200::3"
+	list := []peers.Peer{
+		{Name: "desktop", Addr: "[200::1]:7400", Admin: true, Domain: "group.example"},
+		{Name: "anna", Addr: "[" + anna + "]:7400", Names: []string{"anna.group.example"}, Code: "ys1a"},
+		{Name: "bob", Addr: "[" + bob + "]:7400"},
+	}
+	r := &Relay{Peers: func() []peers.Peer { return list }}
+	if !r.may(anna, "Anna@group.example") {
+		t.Fatal("anna may not send as her name")
+	}
+	if r.may(bob, "anna@group.example") || r.may(anna, "bob@group.example") || r.may(anna, "anna@other.example") {
+		t.Fatal("sent as a name that isn't the node's")
+	}
+}
+
+func TestMailboxLookup(t *testing.T) {
+	list := []peers.Peer{
+		{Name: "anna", Addr: "[200::2]:7400", Names: []string{"anna.group.example"}, Code: "ys1a"},
+		{Name: "gw", Addr: "[200::4]:7400", Gateway: true, Names: []string{"gw.group.example"}, Code: "ys1g"},
+	}
+	n := &Node{Token: "secret", Peers: func() []peers.Peer { return list }}
+	ask := func(to, token string) (int, string) {
+		req := httptest.NewRequest(http.MethodGet, MailboxPath+"?to="+to, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		n.ServeHTTP(w, req)
+		return w.Code, strings.TrimSpace(w.Body.String())
+	}
+	if c, body := ask("anna@group.example", "secret"); c != http.StatusOK || body != `{"code":"ys1a","node":"200::2"}` {
+		t.Fatalf("anna: %d %s", c, body)
+	}
+	if c, _ := ask("anna@group.example", "wrong"); c != http.StatusForbidden {
+		t.Fatalf("wrong token: %d", c)
+	}
+	for _, to := range []string{"bob@group.example", "gw@group.example", "anna"} {
+		if c, _ := ask(to, "secret"); c != http.StatusNotFound {
+			t.Fatalf("%s: %d", to, c)
+		}
 	}
 }

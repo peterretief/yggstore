@@ -27,7 +27,10 @@ import (
 // if their owner has opted in. YggListen lists where other members can
 // open a Yggdrasil link to the peer's machine (see package mesh). YggPeers,
 // on an admin's entry, lists public Yggdrasil peers every node links to, so
-// a node reaches the group from wherever it is plugged in.
+// a node reaches the group from wherever it is plugged in. Domain, on an
+// admin's entry, is the group's domain; Names are the names under it the
+// admin gave the node's owner (see names.go), and Code the owner's sharing
+// code, which their mail is sealed for.
 type Peer struct {
 	Name    string `json:"name"`
 	Addr    string `json:"addr"`
@@ -39,6 +42,10 @@ type Peer struct {
 
 	YggListen []string `json:"ygg_listen,omitempty"`
 	YggPeers  []string `json:"ygg_peers,omitempty"`
+
+	Domain string   `json:"domain,omitempty"`
+	Names  []string `json:"names,omitempty"`
+	Code   string   `json:"code,omitempty"`
 }
 
 // Operator is the person the peer's space and uploads count towards.
@@ -95,7 +102,7 @@ func Load(path string) ([]Peer, error) {
 // Validate checks that every peer has a name and a host:port address, and
 // that names and addresses are not repeated.
 func Validate(list []Peer) error {
-	names, addrs := map[string]bool{}, map[string]bool{}
+	names, addrs, owners := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for i, p := range list {
 		if p.Name == "" {
 			return fmt.Errorf("peer %d has no name", i)
@@ -116,6 +123,9 @@ func Validate(list []Peer) error {
 			if err := ValidListen(u); err != nil {
 				return fmt.Errorf("peer %d (%s): ygg_peers %q: %w", i, p.Name, u, err)
 			}
+		}
+		if err := validNames(p, owners); err != nil {
+			return fmt.Errorf("peer %d (%s): %w", i, p.Name, err)
 		}
 	}
 	return nil

@@ -109,6 +109,31 @@ address, or the catch-all, to the Worker `yggstore-mail`.
 
 Send yourself a message. It shows on your dashboard within a minute.
 
+## Addresses for members
+
+Members don't need an entry in the Worker or the web nodes' files: they
+ask for a name on their dashboard, and you approve it on yours.
+
+1. Once, give the group a domain: add `"domain": "example.org"` to your
+   admin entry in `peers.json`. Route the domain's catch-all to the Worker
+   (step 5), and verify the domain at the relay ([Sending](#sending)).
+2. A member types a name under *Your name* and asks for
+   it. The request goes to the admin nodes as a message.
+3. On your dashboard it shows under *Requests*: Approve adds the name, and
+   the member's sharing code, to their node's entry in the list, which
+   every node then gets. Decline tells them no.
+
+From then on `anna@example.org` arrives in Anna's mailbox and her box may
+send as it; `anna.example.org` is kept for her website. Her dashboard sets
+the address to send from by itself. *Take back* on your dashboard ends it.
+An admin's own request is given at once.
+
+The Worker asks a web node for any address that has no entry of its own in
+`MAILBOXES` (`GET /_yggstore/mailbox?to=…`, with the Worker's token), so
+entries there still win, and the catch-all (`*@example.org`) still takes
+addresses no one has. Web nodes need this yggstore or newer to answer;
+older ones answer that no one has the address.
+
 ## Sending
 
 Messages go out through an SMTP relay; these steps use SMTP2GO, and any
@@ -204,8 +229,10 @@ Change the addresses with `-imap` and `-smtp` on `yggstore dashboard`
   your node's says `mail: collected ID`.
 - **"no web node that sends mail is online"**: no web node has a working
   `-mail-out` file; check their logs.
-- **"this node may not send as …"**: the web nodes' `senders` don't give
-  that address to your node. It must be the same in every web node's file.
+- **"this node may not send as …"**: the address isn't one of the names
+  the admin gave your node, and the web nodes' `senders` don't give it to
+  your node either. A `senders` entry must be the same in every web node's
+  file.
 - **"the mail relay: …"** is the relay's own answer, e.g. a wrong login or
   a domain it hasn't verified.
 - **"Can't open this message"** on the dashboard: it was sealed for another

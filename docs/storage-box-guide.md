@@ -193,6 +193,19 @@ ssh -N -L 7480:127.0.0.1:7480 you@192.168.0.50
 
 Then open <http://127.0.0.1:7480> in your browser. You'll see the group's boxes, your files, your sharing code and what you give and use.
 
+### Without the tunnel (optional)
+
+Your dashboard can also open from your PC directly, at `http://anna-box.local:7480`, once your PC runs Yggdrasil too and the box knows it's yours. On the box:
+
+```sh
+sudo apt-get install -y avahi-daemon
+sudo ufw allow from 192.168.0.0/16 to any port 7480 proto tcp
+sudo ufw allow from 192.168.0.0/16 to any port 5353 proto udp
+sudo ufw allow in on tun0 to any port 7480 proto tcp
+```
+
+Install [Yggdrasil for Windows](https://yggdrasil-network.github.io/installation-windows.html) on your PC, then open `http://anna-box.local:7480` (your box's name instead of `anna-box`). The page shows your PC's Yggdrasil address and the command that lets it in, `yggstore devices add ADDRESS "my pc"`; run that on the box and reload. More in [remote-dashboard.md](remote-dashboard.md).
+
 ## 10. Store, restore and share files — *on your Windows PC*
 
 Install [WinSCP](https://winscp.net) (free) and connect to `192.168.0.50` with your username and password, protocol SFTP. Open `/srv/yggstore/outfiles`; it works like a drop box:

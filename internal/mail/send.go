@@ -223,10 +223,12 @@ type Relay struct {
 	User     string `json:"user"`
 	Password string `json:"password"`
 	// Senders says which node may send as which address: "you@example.org"
-	// or "*@example.org" (any address there) to a node ID.
+	// or "*@example.org" (any address there) to a node ID. A node may also
+	// send as the names the group's list gives it (see peers.MailOwner).
 	Senders map[string]string `json:"senders"`
 
-	Log func(string, ...any) `json:"-"`
+	Peers func() []peers.Peer  `json:"-"`
+	Log   func(string, ...any) `json:"-"`
 	// Deliver sends a message; tests replace it.
 	Deliver func(ctx context.Context, from string, to []string, msg []byte) error `json:"-"`
 
@@ -270,9 +272,6 @@ func LoadRelay(path string) (*Relay, error) {
 	if r.User == "" || r.Password == "" {
 		return nil, fmt.Errorf("%s: fill in the relay's user and password", path)
 	}
-	if len(r.Senders) == 0 {
-		return nil, fmt.Errorf("%s: no senders (yggstore mail address prints a node's entry)", path)
-	}
 	senders := map[string]string{}
 	for addr, node := range r.Senders {
 		ip := net.ParseIP(node)
@@ -292,7 +291,15 @@ func (r *Relay) may(node, addr string) bool {
 	if !ok {
 		return false
 	}
-	return r.Senders[addr] == node || r.Senders["*@"+domain] == node
+	if r.Senders[addr] == node || r.Senders["*@"+domain] == node {
+		return true
+	}
+	if r.Peers != nil {
+		if p, ok := peers.MailOwner(r.Peers(), addr); ok && p.IP() == node {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Relay) logf(format string, args ...any) {
@@ -349,7 +356,7 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, caller string) b
 	}
 	if !r.may(caller, from[0].Address) || (msg.Header.Get("Sender") != "" && msg.Header.Get("Sender") != msg.Header.Get("From")) {
 		r.logf("mail: %s may not send as %s", caller, from[0].Address)
-		http.Error(w, fmt.Sprintf("this node may not send as %s (the web nodes' -mail-out file lists who may)", from[0].Address), http.StatusForbidden)
+		http.Error(w, fmt.Sprintf("this node may not send as %s (it isn't one of the names the admin gave it, nor in the web nodes' -mail-out file)", from[0].Address), http.StatusForbidden)
 		return true
 	}
 	if msg.Header.Get("Bcc") != "" {

@@ -17,3 +17,6 @@ scripts/update-node.sh
 deploy/mail-worker/wrangler.jsonc
 deploy/mail-worker/.wrangler/
 deploy/mail-worker/node_modules/
+
+# Claude Code settings for this machine (permissions etc.)
+.claude/settings.local.json

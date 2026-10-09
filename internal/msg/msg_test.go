@@ -340,3 +340,30 @@ func TestOneSenderCantFillANode(t *testing.T) {
 		t.Fatalf("another member's message refused: %v", err)
 	}
 }
+
+// A restart keeps who follows what, even when the topics never changed.
+func TestFollowersSurviveRestart(t *testing.T) {
+	dir := t.TempDir()
+	list := func() []peers.Peer {
+		return []peers.Peer{{Name: "a", Addr: "[200::1]:7400"}, {Name: "b", Addr: "[200::2]:7400"}}
+	}
+	clock := time.Unix(1_000_000, 0)
+	open := func() *Engine {
+		e, err := Open(dir, "200::1", list, nil, t.Logf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.now = func() time.Time { return clock }
+		return e
+	}
+	e := open()
+	e.Announced("200::2", []string{"sites"})
+	clock = clock.Add(50 * time.Minute) // announced again, topics unchanged
+	e.Announced("200::2", []string{"sites"})
+	clock = clock.Add(20 * time.Minute) // restart 70 minutes after the first
+	e = open()
+	e.now = func() time.Time { return clock }
+	if at := e.st.Subscribers["200::2"].At; clock.Unix()-at > int64(announceTTL/time.Second) {
+		t.Fatalf("follower looks lapsed after a restart: announced %ds ago", clock.Unix()-at)
+	}
+}

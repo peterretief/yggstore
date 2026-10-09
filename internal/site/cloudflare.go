@@ -112,7 +112,7 @@ func (c *Cloudflare) Route(ctx context.Context, host, service string) ([]string,
 
 // Zone finds the Cloudflare zone host is in.
 func (c *Cloudflare) Zone(ctx context.Context, host string) (id, name string, err error) {
-	labels := strings.Split(host, ".")
+	labels := strings.Split(strings.TrimPrefix(host, "*."), ".")
 	for i := 0; i+2 <= len(labels); i++ {
 		try := strings.Join(labels[i:], ".")
 		var zones []struct{ ID, Name string }

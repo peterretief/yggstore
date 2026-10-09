@@ -6,15 +6,17 @@
 // Settings (wrangler.jsonc vars and secrets):
 //   MAILBOXES     JSON: {"you@example.org": {"node": "...", "code": "ys1..."}}
 //                 ("*@example.org" catches the domain's other addresses);
-//                 `yggstore mail address` prints an entry
+//                 `yggstore mail address` prints an entry. An address not
+//                 listed here is looked up in the names the group's admin
+//                 has given (asked of a web node) before the catch-all.
 //   INGEST_URL    https://NAME/_yggstore/mail, NAME routed to the web nodes
 //   INGEST_TOKEN  secret; the web nodes' -mail-in token file holds the same
 
 export default {
   async email(message, env) {
-    const boxes = JSON.parse(env.MAILBOXES);
+    const boxes = JSON.parse(env.MAILBOXES || "{}");
     const to = message.to.toLowerCase();
-    const box = boxes[to] ?? boxes["*@" + to.split("@").pop()];
+    const box = boxes[to] ?? (await lookup(env, to)) ?? boxes["*@" + to.split("@").pop()];
     if (!box) {
       message.setReject("No such mailbox here");
       return;
@@ -35,6 +37,21 @@ export default {
     }
   },
 };
+
+// lookup asks a web node whose address this is, from the group's names:
+// {node, code}, or undefined if it is no one's. A web node that can't be
+// reached fails the message, so the sender retries.
+async function lookup(env, to) {
+  const url = new URL(env.INGEST_URL);
+  url.pathname = "/_yggstore/mailbox";
+  url.search = "?to=" + encodeURIComponent(to);
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${env.INGEST_TOKEN}` } });
+  if (res.status === 404) return undefined;
+  if (!res.ok) {
+    throw new Error(`web node answered ${res.status} to the lookup: ${(await res.text()).slice(0, 200)}`);
+  }
+  return await res.json();
+}
 
 // seal encrypts a message for a sharing code, as yggstore's mail.Seal does:
 // "ygm1", an ephemeral X25519 public key, a nonce, then AES-256-GCM with a

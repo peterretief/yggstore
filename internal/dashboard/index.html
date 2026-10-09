@@ -21,6 +21,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--ink);
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
@@ -112,6 +113,12 @@ details.add textarea, details.add input[type=text] { width: 100%; font: 12px var
 details.add .opts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 8px 0; }
 details.add .opts label { display: inline-flex; align-items: center; gap: 6px; }
 details.add .opts input[type=text] { width: 160px; }
+#names .opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+#names input[type=text] { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+#names td { padding: 6px 10px 6px 0; }
+#sites .site { padding: 10px 0; border-top: 1px solid var(--line); }
+#sites .site:first-child { border-top: 0; padding-top: 0; }
+#sites .opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .sharing { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
 .sharing .code { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 12px; }
 .sharing .code .mono { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; word-break: break-all; }
@@ -173,8 +180,13 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <span class="live"><span class="dot" id="dot"></span><span id="updated">connecting…</span></span>
   </header>
 
-  <section class="tiles" id="tiles"></section>
+  <h2>My box</h2>
+  <section class="card" id="mybox"><div class="sub">Loading…</div></section>
   <section class="job" id="job" hidden></section>
+
+  <div id="groupView">
+  <h2>The group</h2>
+  <section class="tiles" id="tiles"></section>
 
   <h2>Nodes</h2>
   <div id="peersError" class="err"></div>
@@ -192,6 +204,25 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     </table>
   </div>
   <div class="sub" style="margin-top:6px">Each person should hold for others about 1.5× what they use. Accounting only for now: nothing is enforced. Set who runs a node with <span class="mono">"owner"</span> in peers.json; it defaults to the machine.</div>
+  </div>
+
+  <h2>Your name</h2>
+  <section class="card" id="names"><div class="sub">Loading…</div></section>
+
+  <h2>Your website</h2>
+  <section class="card" id="sites"><div class="sub">Loading…</div></section>
+  <input type="file" id="siteFolder" webkitdirectory multiple hidden>
+
+  <h2>Mail</h2>
+  <section class="mail" id="mail">
+    <div>
+      <div class="tabs"><button id="mailInbox" class="on">Inbox</button><button id="mailSentTab">Sent</button>
+        <button id="mailWrite">Write</button></div>
+      <div id="mailError" class="err"></div>
+      <div class="list" id="mailList"></div>
+    </div>
+    <div class="reader" id="mailReader"><div class="empty">Choose a message to read it.</div></div>
+  </section>
 
   <h2>Your files</h2>
   <div id="restoreBox" hidden>
@@ -252,16 +283,7 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <div class="list" id="msgList"></div>
   </section>
 
-  <h2>Mail</h2>
-  <section class="mail" id="mail">
-    <div>
-      <div class="tabs"><button id="mailInbox" class="on">Inbox</button><button id="mailSentTab">Sent</button>
-        <button id="mailWrite">Write</button></div>
-      <div id="mailError" class="err"></div>
-      <div class="list" id="mailList"></div>
-    </div>
-    <div class="reader" id="mailReader"><div class="empty">Choose a message to read it.</div></div>
-  </section>
+
 
   <dialog id="mailDlg">
     <form method="dialog" id="mailForm">
@@ -357,6 +379,49 @@ function spark(hist) {
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="round-trip time history">
     <path d="${path}" fill="none" stroke="var(--bar)" stroke-width="1.5" stroke-linecap="round" vector-effect="non-scaling-stroke"/>${down}</svg>`;
 }
+
+// The group's view (nodes, accounts, invites) is for admins; a member's box
+// shows it only when asked.
+let showGroup = false;
+try { showGroup = localStorage.getItem("showGroup") === "1"; } catch (e) {}
+
+function renderMyBox(s) {
+  const all = s.peers.filter(p => !p.test);
+  const me = all.find(p => p.addr.includes("[" + s.self_id + "]"));
+  const others = all.filter(p => p !== me), othersUp = others.filter(p => p.up).length;
+  const i = me?.info || {}, b = s.box || {};
+  const links = Object.values(i.mesh?.public || {}), linksUp = links.filter(v => v === "up").length;
+  let pill, line;
+  if (!me) { pill = `<span class="pill warn">not in the group's list</span>`; line = "This box's address isn't in the group's list of boxes. Ask the group's admin to add it."; }
+  else if (!me.up) { pill = `<span class="pill bad">storage stopped</span>`; line = "This box's storage service isn't answering: " + esc(me.error || "") + ". Restarting the box usually fixes it."; }
+  else if (!othersUp) { pill = `<span class="pill bad">cut off</span>`; line = "This box can't reach any other box in the group. Check that it's plugged in to a network with internet."; }
+  else { pill = `<span class="pill ok">connected</span>`; line = `Reaches ${othersUp} of the group's ${others.length} other boxes${links.length ? `, through ${linksUp} of ${links.length} internet links` : ""}.`; }
+  const pct = i.quota_bytes ? Math.min(100, 100 * i.used_bytes / i.quota_bytes) : 0;
+  const diskPct = b.disk_total ? 100 * (b.disk_total - b.disk_free) / b.disk_total : 0;
+  const host = b.hostname ? `<span class="mono">${esc(b.hostname)}.local</span>` : "";
+  const admin = !!s.admin_entry;
+  $("mybox").innerHTML = `
+    <div class="row"><span class="name">${esc(b.hostname || me?.name || "This box")}</span>${admin ? ` <span class="pill info">admin</span>` : ""}<span style="margin-left:auto">${pill}</span></div>
+    <div class="sub" style="margin:4px 0 12px">${line}</div>
+    <div class="stats">
+      <div><span>holds for the group</span><b>${me?.up ? size(i.used_bytes) : "–"}</b></div>
+      <div><span>disk free</span><b>${b.disk_total ? size(b.disk_free) : "–"}</b></div>
+      <div><span>running for</span><b>${i.started_at ? dur(i.started_at) : "–"}</b></div></div>
+    ${i.quota_bytes ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
+      <div class="barlabel"><span>${size(i.used_bytes)} of the ${size(i.quota_bytes)} it gives</span>${b.disk_total ? `<span>disk ${diskPct.toFixed(0)}% full</span>` : ""}</div>` : ""}
+    <div class="sub" style="margin-top:10px">On this network: ${host}${b.lan?.length ? ` <span class="mono">${b.lan.map(esc).join(", ")}</span>` : ""}
+      · anywhere: <span class="mono">${esc(s.self_id || "")}</span>${b.version ? ` · yggstore ${esc(b.version)}` : ""}</div>
+    ${admin ? "" : `<div style="margin-top:10px"><button id="groupToggle">${showGroup ? "Hide the group" : "Show the whole group"}</button></div>`}`;
+  const showing = admin || showGroup;
+  $("groupView").hidden = !showing;
+  if (!showing) $("test").hidden = true;
+}
+$("mybox").addEventListener("click", ev => {
+  if (!ev.target.closest("#groupToggle")) return;
+  showGroup = !showGroup;
+  try { localStorage.setItem("showGroup", showGroup ? "1" : "0"); } catch (e) {}
+  if (lastState) renderMyBox(lastState);
+});
 
 function renderTiles(all) {
   const s = {peers: all.peers.filter(p => !p.test), files: all.files.filter(f => !f.test)};
@@ -707,6 +772,7 @@ async function refresh() {
     $("testSummary").textContent = `· ${tp.filter(p => p.up).length}/${tp.length} up · ${tf.filter(f => f.status === "healthy").length}/${tf.length} files healthy · not counted above`;
     renderNodes(s, tp, "testNodes");
     renderFiles(s, tf, "testFiles", true);
+    renderMyBox(s);
     renderEvents(s);
   } catch (e) { /* shown via the stale dot */ }
   const stale = Date.now() - lastOK > 8000;
@@ -930,7 +996,8 @@ async function refreshMail() {
     : `<div class="item${x.id === mailOpen ? " on" : ""}" data-id="${esc(x.id)}"><b>${esc(mailSent ? "To " + (x.to || "?") : x.from || "(no sender)")}</b>
         <time>${new Date(x.date || x.received).toLocaleString([], {dateStyle: "medium", timeStyle: "short"})}</time>
         <span>${esc(x.subject || "(no subject)")}</span></div>`).join("")
-    || `<div class="empty">${mailSent ? "Nothing sent yet." : "No mail yet. Email to your address arrives here; see docs/mail.md to set one up."}</div>`;
+    || `<div class="empty">${mailSent ? "Nothing sent yet." : mailAddress ? `No mail yet. Email to <b>${esc(mailAddress)}</b> arrives here.`
+      : "No mail yet. Ask for an address under Your name, and email to it arrives here."}</div>`;
 }
 async function openMail(id) {
   mailOpen = id; mailKey = "";
@@ -1008,6 +1075,167 @@ $("mailList").addEventListener("click", ev => {
 });
 refreshMail();
 setInterval(refreshMail, 10000);
+
+// Names: an address and website under the group's domain, asked of the
+// admin; on an admin dashboard, the requests to decide on.
+let namesKey = "";
+async function refreshNames() {
+  let n;
+  try {
+    const r = await fetch("api/names", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    n = await r.json();
+  } catch (e) { return; }
+  const key = JSON.stringify(n);
+  if (key === namesKey) return; // don't wipe what's being typed
+  namesKey = key;
+  const el = $("names");
+  if (n.error) { el.innerHTML = `<div class="err">${esc(n.error)}</div>`; return; }
+  if (!n.domain) {
+    el.innerHTML = `<div class="sub">The group has no domain for addresses yet. ${n.admin
+      ? `Set it on your entry in peers.json: <span class="mono">"domain": "example.org"</span>.` : "The group's admin sets it."}</div>`;
+    return;
+  }
+  const mail = name => name.replace(".", "@");
+  const mine = n.mine.map(m => `<div class="row" style="margin:4px 0"><b>${esc(mail(m))}</b>
+    <span class="sub">· website</span> <a href="https://${esc(m)}/" target="_blank" rel="noopener">${esc(m)}</a></div>`).join("");
+  const waiting = n.claims.map(c => `<div class="row" style="margin:4px 0"><span>${esc(mail(c.name))}</span>
+    ${c.status === "declined" ? `<span class="pill bad">declined</span>` : `<span class="pill warn">waiting for the admin</span>`}</div>`).join("");
+  let html = `${mine || `<div class="sub">You have no address in the group yet.</div>`}${waiting}
+    <div class="opts" style="margin-top:10px"><input type="text" id="nameLabel" placeholder="yourname" maxlength="32" size="14" autocomplete="off">
+      <span class="mono">@${esc(n.domain)}</span>
+      <button id="nameAsk">${n.admin ? "Take it" : "Ask for it"}</button><span class="sub" id="nameMsg"></span></div>
+    <div class="sub">The same name is your email address and your website, <span class="mono">yourname.${esc(n.domain)}</span>.
+      ${n.admin ? "" : "The group's admin approves it first."}</div>`;
+  if (n.admin) {
+    const req = n.requests.map(c => `<tr><td><b>${esc(mail(c.name))}</b><div class="sub">from ${esc(c.node_name || c.node)} · ${ago(c.time / 1000)}</div></td>
+      <td>${c.status === "asked"
+        ? `<button data-decide="${esc(c.name)}" data-node="${esc(c.node)}" data-ok="1">Approve</button> <button class="del" data-decide="${esc(c.name)}" data-node="${esc(c.node)}">Decline</button>`
+        : `<span class="pill ${c.status === "approved" ? "ok" : "bad"}">${esc(c.status)}</span>`}</td></tr>`).join("");
+    const given = n.given.map(g => `<tr><td>${esc(mail(g.name))}</td><td class="sub">${esc(g.node)}</td>
+      <td><button class="del" data-unname="${esc(g.name)}">Take back</button></td></tr>`).join("");
+    html += `<h3 style="font-size:13px;margin:16px 0 4px">Requests</h3>
+      ${req ? `<table>${req}</table>` : `<div class="sub">No one has asked for a name.</div>`}
+      <h3 style="font-size:13px;margin:16px 0 4px">Names given</h3>
+      ${given ? `<table>${given}</table>` : `<div class="sub">None yet.</div>`}`;
+  }
+  el.innerHTML = html;
+}
+$("names").addEventListener("click", async ev => {
+  const ask = ev.target.closest("#nameAsk"), dec = ev.target.closest("button[data-decide]"), un = ev.target.closest("button[data-unname]");
+  let r;
+  if (ask) {
+    $("nameMsg").className = "sub"; $("nameMsg").textContent = "…";
+    r = await post("api/names/claim", {body: JSON.stringify({label: $("nameLabel").value})});
+    if (!r.ok) { $("nameMsg").className = "err"; $("nameMsg").textContent = await r.text(); return; }
+  } else if (dec) {
+    r = await post("api/names/decide", {body: JSON.stringify({name: dec.dataset.decide, node: dec.dataset.node, approve: !!dec.dataset.ok})});
+  } else if (un) {
+    if (!confirm(`Take ${un.dataset.unname.replace(".", "@")} back? Its mail and website stop reaching that person.`)) return;
+    r = await post("api/names/remove", {body: JSON.stringify({name: un.dataset.unname})});
+  } else return;
+  if (!r.ok) { alert(await r.text()); return; }
+  namesKey = ""; refreshNames(); mailKey = ""; refreshMail();
+});
+$("names").addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target.id === "nameLabel") $("nameAsk").click(); });
+refreshNames();
+setInterval(refreshNames, 5000);
+
+// Your website: publish a folder as the site of one of this box's names.
+let sitesKey = "", siteBusy = "", siteTarget = "";
+async function refreshSites() {
+  if (siteBusy) return;
+  let st;
+  try {
+    const r = await fetch("api/sites", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status);
+    st = await r.json();
+  } catch (e) { return; }
+  const key = JSON.stringify(st);
+  if (key === sitesKey) return;
+  sitesKey = key;
+  const el = $("sites");
+  if (st.error) { el.innerHTML = `<div class="err">${esc(st.error)}</div>`; return; }
+  if (!st.sites.length) {
+    el.innerHTML = `<div class="sub">Once you have a name (above), you can put a website at it: a folder with an <span class="mono">index.html</span>, published from here.</div>`;
+    return;
+  }
+  el.innerHTML = st.sites.map(s => {
+    const c = s.current;
+    let status;
+    if (!c) status = `<span class="pill info">not published yet</span>`;
+    else {
+      const where = s.served.length ? `served by ${esc(s.served.join(", "))}` : "";
+      const wait = (s.waiting || []).length ? `${where ? "; " : ""}still reaching ${esc(s.waiting.join(", "))}` : "";
+      status = `<span class="pill ${s.served.length ? "ok" : "warn"}">${s.served.length ? "online" : "on its way"}</span>
+        <span class="sub">${c.files} files, ${size(c.bytes)}, published ${ago(c.stored_at)}${where || wait ? " · " + where + wait : ""}</span>`;
+    }
+    return `<div class="site"><div class="row" style="gap:8px;flex-wrap:wrap"><b><a href="https://${esc(s.site)}/" target="_blank" rel="noopener">${esc(s.site)}</a></b> ${status}</div>
+      <div class="opts">
+        <button data-pub="${esc(s.site)}">${c ? "Publish a new version" : "Publish a folder"}</button>
+        ${s.previous ? `<button data-site-act="rollback" data-site="${esc(s.site)}">Back to the previous version</button>` : ""}
+        ${c ? `<label class="sub"><input type="checkbox" data-site-act="contact" data-site="${esc(s.site)}" ${s.contact ? "checked" : ""}> Contact form</label>
+        <button class="del" data-site-act="remove" data-site="${esc(s.site)}">Take it down</button>` : ""}
+        <span class="sub" data-site-msg="${esc(s.site)}"></span>
+      </div>
+      ${c && s.contact ? `<div class="sub">Visitors can write to you at <a href="https://${esc(s.site)}/_yggstore/contact" target="_blank" rel="noopener">${esc(s.site)}/_yggstore/contact</a>; it arrives in Mail. Link to it from your pages.</div>` : ""}
+    </div>`;
+  }).join("") + `<div class="sub" style="margin-top:8px">Choose the folder that holds your site's <span class="mono">index.html</span>. Every version is kept, so you can go back.</div>`;
+}
+function siteMsg(name, text, bad) {
+  const m = document.querySelector(`[data-site-msg="${CSS.escape(name)}"]`);
+  if (m) { m.className = bad ? "err" : "sub"; m.textContent = text; }
+}
+$("sites").addEventListener("click", async ev => {
+  const pub = ev.target.closest("button[data-pub]");
+  if (pub) { siteTarget = pub.dataset.pub; $("siteFolder").value = ""; $("siteFolder").click(); return; }
+  const act = ev.target.closest("[data-site-act]");
+  if (!act || act.type === "checkbox") return;
+  const name = act.dataset.site;
+  if (act.dataset.siteAct === "remove" && !confirm(`Take ${name} down? Web nodes stop serving it and every version is deleted.`)) return;
+  siteMsg(name, "…");
+  const r = await post("api/sites/" + act.dataset.siteAct, {body: JSON.stringify({site: name})});
+  if (!r.ok) { siteMsg(name, await r.text(), true); return; }
+  sitesKey = ""; refreshSites();
+});
+$("sites").addEventListener("change", async ev => {
+  const box = ev.target.closest("input[data-site-act=contact]");
+  if (!box) return;
+  const name = box.dataset.site;
+  siteMsg(name, "…");
+  const r = await post("api/sites/contact", {body: JSON.stringify({site: name, on: box.checked})});
+  if (!r.ok) { siteMsg(name, await r.text(), true); box.checked = !box.checked; return; }
+  sitesKey = ""; refreshSites();
+});
+$("siteFolder").addEventListener("change", () => {
+  const files = [...$("siteFolder").files], name = siteTarget;
+  if (!files.length || !name) return;
+  // Paths come as "folder/index.html": publish what is inside the folder.
+  const rel = f => (f.webkitRelativePath || f.name).split("/").slice(f.webkitRelativePath ? 1 : 0).join("/");
+  if (!files.some(f => rel(f) === "index.html")) {
+    siteMsg(name, "That folder has no index.html at its top. Choose the folder that holds the home page.", true);
+    return;
+  }
+  const fd = new FormData();
+  let total = 0;
+  for (const f of files) { fd.append("f:" + rel(f), f, f.name); total += f.size; }
+  siteBusy = name;
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "api/sites/publish?site=" + encodeURIComponent(name));
+  xhr.setRequestHeader("X-Yggstore", "1");
+  xhr.upload.onprogress = e => siteMsg(name, `Sending ${files.length} files: ${Math.round(100 * e.loaded / (e.total || total))}%`);
+  xhr.upload.onload = () => siteMsg(name, "Storing it on the group…");
+  xhr.onloadend = () => {
+    siteBusy = "";
+    if (xhr.status === 200) {
+      const v = JSON.parse(xhr.responseText).version;
+      sitesKey = ""; refreshSites().then(() => siteMsg(name, `Published version ${v.id.slice(0, 8)}. It is online within a minute.`));
+    } else siteMsg(name, xhr.responseText || "The upload failed.", true);
+  };
+  xhr.send(fd);
+});
+refreshSites();
+setInterval(refreshSites, 10000);
 </script>
 </body>
 </html>
