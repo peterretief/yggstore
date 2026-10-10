@@ -72,9 +72,9 @@ td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chunk i { width: 7px; height: 7px; border-radius: 2px; background: var(--empty); }
 .chunk i.on { background: var(--ok); }
 .chunk.warn i.on { background: var(--warn); } .chunk.bad i.on { background: var(--bad); }
-button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
-  background: var(--bg); color: var(--ink); cursor: pointer; }
-button:hover { border-color: var(--info); }
+button, a.btn { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
+button:hover, a.btn:hover { border-color: var(--info); }
 button:disabled { opacity: .5; cursor: default; }
 button.del:hover { border-color: var(--bad); color: var(--bad); }
 .verify { font-size: 12px; margin-top: 6px; color: var(--muted); }
@@ -119,6 +119,10 @@ details.add .opts input[type=text] { width: 160px; }
 #sites .site { padding: 10px 0; border-top: 1px solid var(--line); }
 #sites .site:first-child { border-top: 0; padding-top: 0; }
 #sites .opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+#sites .editor { margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+#sites .editor td { padding: 3px 10px 3px 0; }
+#sites input[type=text], #sites textarea { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+#sites textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 12px; }
 .sharing { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
 .sharing .code { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0 12px; }
 .sharing .code .mono { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; word-break: break-all; }
@@ -212,6 +216,8 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   <h2>Your website</h2>
   <section class="card" id="sites"><div class="sub">Loading…</div></section>
   <input type="file" id="siteFolder" webkitdirectory multiple hidden>
+  <input type="file" id="siteZip" accept=".zip,application/zip" hidden>
+  <input type="file" id="siteAdd" multiple hidden>
 
   <h2>Mail</h2>
   <section class="mail" id="mail">
@@ -625,7 +631,7 @@ function renderSharing(s) {
   $("sharing").innerHTML = `
     <div class="sub">Your sharing code. Give it to people who want to send you files; it is safe to share (it only lets people seal files for you).</div>
     <div class="code"><span class="mono" id="myCode">${esc(s.sharing_code)}</span><button data-copy="myCode">Copy</button></div>
-    <div class="sub" style="margin-bottom:6px">People see you as <b>${esc(s.me)}</b>. To receive, drop a <span class="mono">.ysend</span> file into <span class="mono">outfiles</span>; it appears under “Shared with you”.</div>
+    <div class="sub" style="margin-bottom:6px">People see you as <b>${esc(s.me)}</b> (change it under Your name). To receive, drop a <span class="mono">.ysend</span> file into <span class="mono">outfiles</span>; it appears under “Shared with you”.</div>
     <h3 style="font-size:13px;margin:14px 0 4px">Contacts</h3>
     ${rows ? `<table>${rows}</table>` : `<div class="sub">No contacts yet. Add someone with their sharing code to share files with them.</div>`}
     <div class="addc"><input id="cName" placeholder="name" size="12"><input id="cCode" placeholder="their sharing code (ys1…)" style="flex:1;min-width:220px"><button id="cAdd">Add contact</button><span class="sub" id="cMsg"></span></div>`;
@@ -1091,8 +1097,11 @@ async function refreshNames() {
   namesKey = key;
   const el = $("names");
   if (n.error) { el.innerHTML = `<div class="err">${esc(n.error)}</div>`; return; }
+  const meRow = `<div class="opts" style="margin:0 0 12px"><span class="sub">People see you as</span>
+      <input type="text" id="meName" value="${esc(n.me)}" maxlength="64" size="20" autocomplete="name">
+      <button id="meSave">Save</button><span class="sub" id="meMsg"></span></div>`;
   if (!n.domain) {
-    el.innerHTML = `<div class="sub">The group has no domain for addresses yet. ${n.admin
+    el.innerHTML = meRow + `<div class="sub">The group has no domain for addresses yet. ${n.admin
       ? `Set it on your entry in peers.json: <span class="mono">"domain": "example.org"</span>.` : "The group's admin sets it."}</div>`;
     return;
   }
@@ -1101,7 +1110,7 @@ async function refreshNames() {
     <span class="sub">· website</span> <a href="https://${esc(m)}/" target="_blank" rel="noopener">${esc(m)}</a></div>`).join("");
   const waiting = n.claims.map(c => `<div class="row" style="margin:4px 0"><span>${esc(mail(c.name))}</span>
     ${c.status === "declined" ? `<span class="pill bad">declined</span>` : `<span class="pill warn">waiting for the admin</span>`}</div>`).join("");
-  let html = `${mine || `<div class="sub">You have no address in the group yet.</div>`}${waiting}
+  let html = `${meRow}${mine || `<div class="sub">You have no address in the group yet.</div>`}${waiting}
     <div class="opts" style="margin-top:10px"><input type="text" id="nameLabel" placeholder="yourname" maxlength="32" size="14" autocomplete="off">
       <span class="mono">@${esc(n.domain)}</span>
       <button id="nameAsk">${n.admin ? "Take it" : "Ask for it"}</button><span class="sub" id="nameMsg"></span></div>
@@ -1124,6 +1133,12 @@ async function refreshNames() {
 $("names").addEventListener("click", async ev => {
   const ask = ev.target.closest("#nameAsk"), dec = ev.target.closest("button[data-decide]"), un = ev.target.closest("button[data-unname]");
   let r;
+  if (ev.target.closest("#meSave")) {
+    r = await post("api/me", {body: JSON.stringify({name: $("meName").value})});
+    if (!r.ok) { $("meMsg").className = "err"; $("meMsg").textContent = await r.text(); return; }
+    namesKey = ""; refreshNames(); refresh();
+    return;
+  }
   if (ask) {
     $("nameMsg").className = "sub"; $("nameMsg").textContent = "…";
     r = await post("api/names/claim", {body: JSON.stringify({label: $("nameLabel").value})});
@@ -1137,14 +1152,19 @@ $("names").addEventListener("click", async ev => {
   if (!r.ok) { alert(await r.text()); return; }
   namesKey = ""; refreshNames(); mailKey = ""; refreshMail();
 });
-$("names").addEventListener("keydown", ev => { if (ev.key === "Enter" && ev.target.id === "nameLabel") $("nameAsk").click(); });
+$("names").addEventListener("keydown", ev => {
+  if (ev.key === "Enter" && ev.target.id === "nameLabel") $("nameAsk").click();
+  if (ev.key === "Enter" && ev.target.id === "meName") $("meSave").click();
+});
 refreshNames();
 setInterval(refreshNames, 5000);
 
-// Your website: publish a folder as the site of one of this box's names.
-let sitesKey = "", siteBusy = "", siteTarget = "";
+// Your website: publish a folder or zip as the site of one of this box's
+// names, or edit the version being served file by file.
+let sitesKey = "", siteBusy = "", siteTarget = "", editSite = "";
+const textFile = p => /\.(html?|css|js|mjs|json|txt|md|xml|svg|csv|webmanifest)$/i.test(p);
 async function refreshSites() {
-  if (siteBusy) return;
+  if (siteBusy || editSite) return;
   let st;
   try {
     const r = await fetch("api/sites", {cache: "no-store"});
@@ -1161,7 +1181,7 @@ async function refreshSites() {
     return;
   }
   el.innerHTML = st.sites.map(s => {
-    const c = s.current;
+    const c = s.current, n = esc(s.site);
     let status;
     if (!c) status = `<span class="pill info">not published yet</span>`;
     else {
@@ -1170,69 +1190,175 @@ async function refreshSites() {
       status = `<span class="pill ${s.served.length ? "ok" : "warn"}">${s.served.length ? "online" : "on its way"}</span>
         <span class="sub">${c.files} files, ${size(c.bytes)}, published ${ago(c.stored_at)}${where || wait ? " · " + where + wait : ""}</span>`;
     }
-    return `<div class="site"><div class="row" style="gap:8px;flex-wrap:wrap"><b><a href="https://${esc(s.site)}/" target="_blank" rel="noopener">${esc(s.site)}</a></b> ${status}</div>
+    return `<div class="site"><div class="row" style="gap:8px;flex-wrap:wrap"><b><a href="https://${n}/" target="_blank" rel="noopener">${n}</a></b> ${status}</div>
       <div class="opts">
-        <button data-pub="${esc(s.site)}">${c ? "Publish a new version" : "Publish a folder"}</button>
-        ${s.previous ? `<button data-site-act="rollback" data-site="${esc(s.site)}">Back to the previous version</button>` : ""}
-        ${c ? `<label class="sub"><input type="checkbox" data-site-act="contact" data-site="${esc(s.site)}" ${s.contact ? "checked" : ""}> Contact form</label>
-        <button class="del" data-site-act="remove" data-site="${esc(s.site)}">Take it down</button>` : ""}
-        <span class="sub" data-site-msg="${esc(s.site)}"></span>
+        ${c ? `<button data-edit="${n}">Edit</button>` : ""}
+        <button data-pub="${n}">${c ? "Replace with a folder" : "Publish a folder"}</button>
+        <button data-zip="${n}">${c ? "Replace with a zip" : "Publish a zip"}</button>
+        ${c ? `<a class="btn" href="api/sites/download?site=${encodeURIComponent(s.site)}" download>Download</a>` : ""}
+        ${s.previous ? `<button data-site-act="rollback" data-site="${n}">Back to the previous version</button>` : ""}
+        ${c ? `<label class="sub"><input type="checkbox" data-site-act="contact" data-site="${n}" ${s.contact ? "checked" : ""}> Contact form</label>
+        <button class="del" data-site-act="remove" data-site="${n}">Take it down</button>` : ""}
+        <span class="sub" data-site-msg="${n}"></span>
       </div>
-      ${c && s.contact ? `<div class="sub">Visitors can write to you at <a href="https://${esc(s.site)}/_yggstore/contact" target="_blank" rel="noopener">${esc(s.site)}/_yggstore/contact</a>; it arrives in Mail. Link to it from your pages.</div>` : ""}
+      <div data-editor="${n}"></div>
+      ${c && s.contact ? `<div class="sub">Visitors can write to you at <a href="https://${n}/_yggstore/contact" target="_blank" rel="noopener">${n}/_yggstore/contact</a>; it arrives in Mail. Your home page has a Contact link to it at the bottom (unless it linked to the form already); add the same link to other pages if you like.</div>` : ""}
     </div>`;
-  }).join("") + `<div class="sub" style="margin-top:8px">Choose the folder that holds your site's <span class="mono">index.html</span>. Every version is kept, so you can go back.</div>`;
+  }).join("") + `<div class="sub" style="margin-top:8px"><b>Edit</b> changes pages here, adds pictures and other files, and deletes them; each save is a new version.
+    Or replace the whole site with a folder (or zip) holding its <span class="mono">index.html</span>. Every version is kept, so you can go back.</div>`
+    + (st.site_url && st.default ? `<div class="sub" style="margin-top:6px">Over Yggdrasil this box shows ${esc(st.default)} at
+      <a href="${esc(st.site_url)}" target="_blank" rel="noopener" class="mono">${esc(st.site_url)}</a></div>` : "");
 }
 function siteMsg(name, text, bad) {
   const m = document.querySelector(`[data-site-msg="${CSS.escape(name)}"]`);
   if (m) { m.className = bad ? "err" : "sub"; m.textContent = text; }
 }
+// sendSite uploads fd as a new version (edit: a change to the current one).
+function sendSite(name, fd, edit, what) {
+  return new Promise(done => {
+    siteBusy = name;
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `api/sites/publish?site=${encodeURIComponent(name)}${edit ? "&edit=1" : ""}`);
+    xhr.setRequestHeader("X-Yggstore", "1");
+    xhr.upload.onprogress = e => e.total > 50000 && siteMsg(name, `Sending ${what}: ${Math.round(100 * e.loaded / e.total)}%`);
+    xhr.upload.onload = () => siteMsg(name, "Storing it on the group…");
+    xhr.onloadend = () => {
+      siteBusy = "";
+      if (xhr.status === 200) {
+        const v = JSON.parse(xhr.responseText).version;
+        siteMsg(name, `Published version ${v.id.slice(0, 8)}. It is online within a minute.`);
+        done(true);
+      } else { siteMsg(name, xhr.responseText || "The upload failed.", true); done(false); }
+    };
+    siteMsg(name, `Sending ${what}…`);
+    xhr.send(fd);
+  });
+}
+async function afterSend(name, ok) {
+  if (!ok) return;
+  const msg = document.querySelector(`[data-site-msg="${CSS.escape(name)}"]`)?.textContent;
+  if (editSite === name) { await openEditor(name); siteMsg(name, msg); return; }
+  sitesKey = ""; await refreshSites(); siteMsg(name, msg);
+}
+
+async function openEditor(name) {
+  const box = document.querySelector(`[data-editor="${CSS.escape(name)}"]`);
+  if (!box) return;
+  editSite = name;
+  box.innerHTML = `<div class="editor sub">Loading the files…</div>`;
+  const r = await fetch("api/sites/files?site=" + encodeURIComponent(name), {cache: "no-store"});
+  if (!r.ok) { box.innerHTML = `<div class="editor err">${esc(await r.text())}</div>`; return; }
+  const files = await r.json();
+  box.innerHTML = `<div class="editor">
+    <div class="row" style="justify-content:space-between"><b>Files</b><button data-ed="close">Close</button></div>
+    <table>${files.map(f => `<tr><td class="mono">${esc(f.path)}</td><td class="sub">${size(f.size)}</td>
+      <td>${textFile(f.path) ? `<button data-ed="open" data-path="${esc(f.path)}">Edit</button> ` : ""}<a class="btn" href="https://${esc(name)}/${esc(f.path)}" target="_blank" rel="noopener">View</a>
+      <button class="del" data-ed="delete" data-path="${esc(f.path)}">Delete</button></td></tr>`).join("")}</table>
+    <div class="opts"><input type="text" id="edNew" placeholder="about.html" size="18">
+      <button data-ed="new">New page</button>
+      <input type="text" id="edDir" placeholder="folder, e.g. img (optional)" size="22">
+      <button data-ed="add">Add files…</button></div>
+    <div id="edArea" hidden style="margin-top:10px">
+      <div class="row" style="gap:8px;margin-bottom:6px"><b class="mono" id="edPath"></b></div>
+      <textarea id="edText" rows="22" spellcheck="false"></textarea>
+      <div class="opts"><button data-ed="save">Save and publish</button><button data-ed="cancel">Cancel</button></div>
+    </div></div>`;
+}
+function closeEditor() {
+  const box = editSite && document.querySelector(`[data-editor="${CSS.escape(editSite)}"]`);
+  if (box) box.innerHTML = "";
+  editSite = ""; sitesKey = ""; refreshSites();
+}
+function editFile(path, text) {
+  $("edArea").hidden = false;
+  $("edPath").textContent = path;
+  $("edText").value = text;
+  $("edText").focus();
+}
 $("sites").addEventListener("click", async ev => {
-  const pub = ev.target.closest("button[data-pub]");
+  const t = ev.target;
+  const pub = t.closest("button[data-pub]"), zip = t.closest("button[data-zip]"), edit = t.closest("button[data-edit]"), ed = t.closest("button[data-ed]");
   if (pub) { siteTarget = pub.dataset.pub; $("siteFolder").value = ""; $("siteFolder").click(); return; }
-  const act = ev.target.closest("[data-site-act]");
+  if (zip) { siteTarget = zip.dataset.zip; $("siteZip").value = ""; $("siteZip").click(); return; }
+  if (edit) {
+    if (editSite === edit.dataset.edit) { closeEditor(); return; }
+    if (editSite) closeEditor();
+    openEditor(edit.dataset.edit); return;
+  }
+  if (ed) {
+    const name = editSite, path = ed.dataset.path;
+    switch (ed.dataset.ed) {
+    case "close": closeEditor(); return;
+    case "cancel": $("edArea").hidden = true; return;
+    case "open": {
+      const r = await fetch(`api/sites/files?site=${encodeURIComponent(name)}&path=${encodeURIComponent(path)}`, {cache: "no-store"});
+      if (!r.ok) { siteMsg(name, await r.text(), true); return; }
+      editFile(path, await r.text()); return;
+    }
+    case "new": {
+      let p = $("edNew").value.trim().replace(/^\/+/, "");
+      if (!p) { $("edNew").focus(); return; }
+      if (!/\.[a-z0-9]+$/i.test(p)) p += ".html";
+      const title = esc(p.replace(/\.[^.]+$/, "").split("/").pop());
+      editFile(p, `<!doctype html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${title}</title>\n</head>\n<body>\n<h1>${title}</h1>\n<p><a href="/">Home</a></p>\n</body>\n</html>\n`);
+      return;
+    }
+    case "save": {
+      const p = $("edPath").textContent, fd = new FormData();
+      fd.append("f:" + p, new Blob([$("edText").value], {type: "text/plain"}), p.split("/").pop());
+      afterSend(name, await sendSite(name, fd, true, p)); return;
+    }
+    case "add": siteTarget = name; $("siteAdd").value = ""; $("siteAdd").click(); return;
+    case "delete": {
+      if (path === "index.html") { siteMsg(name, "The site needs its index.html (its home page); edit it instead.", true); return; }
+      if (!confirm(`Delete ${path} from ${name}? The version before stays, so you can go back.`)) return;
+      const fd = new FormData();
+      fd.append("delete", new Blob([JSON.stringify([path])], {type: "application/json"}), "delete.json");
+      afterSend(name, await sendSite(name, fd, true, "the change")); return;
+    }
+    }
+    return;
+  }
+  const act = t.closest("[data-site-act]");
   if (!act || act.type === "checkbox") return;
   const name = act.dataset.site;
   if (act.dataset.siteAct === "remove" && !confirm(`Take ${name} down? Web nodes stop serving it and every version is deleted.`)) return;
   siteMsg(name, "…");
   const r = await post("api/sites/" + act.dataset.siteAct, {body: JSON.stringify({site: name})});
   if (!r.ok) { siteMsg(name, await r.text(), true); return; }
-  sitesKey = ""; refreshSites();
+  if (editSite === name) closeEditor(); else { sitesKey = ""; refreshSites(); }
 });
 $("sites").addEventListener("change", async ev => {
   const box = ev.target.closest("input[data-site-act=contact]");
   if (!box) return;
   const name = box.dataset.site;
-  siteMsg(name, "…");
+  siteMsg(name, box.checked ? "Turning the form on and adding a Contact link to your home page…" : "Turning the form off and taking the Contact link off your home page…");
   const r = await post("api/sites/contact", {body: JSON.stringify({site: name, on: box.checked})});
   if (!r.ok) { siteMsg(name, await r.text(), true); box.checked = !box.checked; return; }
   sitesKey = ""; refreshSites();
 });
-$("siteFolder").addEventListener("change", () => {
+$("siteFolder").addEventListener("change", async () => {
   const files = [...$("siteFolder").files], name = siteTarget;
   if (!files.length || !name) return;
-  // Paths come as "folder/index.html": publish what is inside the folder.
-  const rel = f => (f.webkitRelativePath || f.name).split("/").slice(f.webkitRelativePath ? 1 : 0).join("/");
-  if (!files.some(f => rel(f) === "index.html")) {
-    siteMsg(name, "That folder has no index.html at its top. Choose the folder that holds the home page.", true);
-    return;
-  }
+  // Paths come as "folder/index.html": the server finds where index.html is.
   const fd = new FormData();
-  let total = 0;
-  for (const f of files) { fd.append("f:" + rel(f), f, f.name); total += f.size; }
-  siteBusy = name;
-  const xhr = new XMLHttpRequest();
-  xhr.open("POST", "api/sites/publish?site=" + encodeURIComponent(name));
-  xhr.setRequestHeader("X-Yggstore", "1");
-  xhr.upload.onprogress = e => siteMsg(name, `Sending ${files.length} files: ${Math.round(100 * e.loaded / (e.total || total))}%`);
-  xhr.upload.onload = () => siteMsg(name, "Storing it on the group…");
-  xhr.onloadend = () => {
-    siteBusy = "";
-    if (xhr.status === 200) {
-      const v = JSON.parse(xhr.responseText).version;
-      sitesKey = ""; refreshSites().then(() => siteMsg(name, `Published version ${v.id.slice(0, 8)}. It is online within a minute.`));
-    } else siteMsg(name, xhr.responseText || "The upload failed.", true);
-  };
-  xhr.send(fd);
+  for (const f of files) fd.append("f:" + (f.webkitRelativePath || f.name), f, f.name);
+  afterSend(name, await sendSite(name, fd, false, `${files.length} files`));
+});
+$("siteZip").addEventListener("change", async () => {
+  const f = $("siteZip").files[0], name = siteTarget;
+  if (!f || !name) return;
+  const fd = new FormData();
+  fd.append("zip", f, f.name);
+  afterSend(name, await sendSite(name, fd, false, f.name));
+});
+$("siteAdd").addEventListener("change", async () => {
+  const files = [...$("siteAdd").files], name = siteTarget;
+  if (!files.length || !name) return;
+  const dir = ($("edDir")?.value || "").trim().replace(/^\/+|\/+$/g, "");
+  const fd = new FormData();
+  for (const f of files) fd.append("f:" + (dir ? dir + "/" : "") + f.name, f, f.name);
+  afterSend(name, await sendSite(name, fd, true, `${files.length} file${files.length > 1 ? "s" : ""}`));
 });
 refreshSites();
 setInterval(refreshSites, 10000);

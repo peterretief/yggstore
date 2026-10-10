@@ -33,6 +33,7 @@ import (
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/server"
 	"github.com/peterretief/yggstore/internal/share"
+	"github.com/peterretief/yggstore/internal/site"
 )
 
 //go:embed index.html
@@ -80,6 +81,13 @@ type Config struct {
 	// NamesPath keeps name requests: those made here, and on an admin
 	// dashboard those members sent (see names.go).
 	NamesPath string
+	// OwnSites, if set, serves the sites published here at SiteURL (this
+	// box's Yggdrasil address), and gives their files for download.
+	OwnSites *site.Own
+	SiteURL  string
+	// MePath keeps the name the person set on the dashboard (see me.go),
+	// which takes the place of Name.
+	MePath string
 	// SitesDir keeps the websites published from this machine (site.Publisher).
 	SitesDir string
 	// Version is this yggstore's, shown under My box.
@@ -279,8 +287,11 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/names/claim", d.handleClaim)
 	mux.HandleFunc("POST /api/names/decide", d.handleDecide)
 	mux.HandleFunc("POST /api/names/remove", d.handleRemoveName)
+	mux.HandleFunc("POST /api/me", d.handleSetMe)
 	mux.HandleFunc("GET /api/sites", d.handleSites)
 	mux.HandleFunc("POST /api/sites/publish", d.handleSitePublish)
+	mux.HandleFunc("GET /api/sites/download", d.handleSiteDownload)
+	mux.HandleFunc("GET /api/sites/files", d.handleSiteFiles)
 	mux.HandleFunc("POST /api/sites/{action}", d.handleSiteAction)
 	return d.guard(mux)
 }
@@ -551,7 +562,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 	}
 	mainList := list
 	if d.cfg.Identity != nil {
-		st.SharingCode, st.Me = d.cfg.Identity.Code(), d.cfg.Name
+		st.SharingCode, st.Me = d.cfg.Identity.Code(), d.me()
 	}
 	st.Contacts = d.contacts()
 	if d.cfg.InvitesPath != "" {
@@ -760,7 +771,7 @@ func (d *Dashboard) handleInvite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	inv.Group, inv.From, inv.Admin, inv.YggPeers = d.cfg.Group, d.cfg.Name, admin, inviteYggPeers(d.cfg.PeersPath, d.cfg.YggPeers)
+	inv.Group, inv.From, inv.Admin, inv.YggPeers = d.cfg.Group, d.me(), admin, inviteYggPeers(d.cfg.PeersPath, d.cfg.YggPeers)
 	if d.cfg.Identity != nil {
 		inv.SharingCode = d.cfg.Identity.Code()
 	}
@@ -871,7 +882,7 @@ func (d *Dashboard) handleShare(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sealed, err := d.cfg.Identity.Seal(req.To, stub, d.cfg.Name, strings.TrimSpace(req.Note))
+	sealed, err := d.cfg.Identity.Seal(req.To, stub, d.me(), strings.TrimSpace(req.Note))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

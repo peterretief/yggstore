@@ -181,6 +181,7 @@ func contains(list []string, s string) bool {
 type namesState struct {
 	Domain   string      `json:"domain"`
 	Admin    bool        `json:"admin"`
+	Me       string      `json:"me"`       // the person's name, as people see it
 	Mine     []string    `json:"mine"`     // names this node has
 	Claims   []nameClaim `json:"claims"`   // asked from here
 	Requests []nameClaim `json:"requests"` // from others, on an admin dashboard
@@ -194,7 +195,7 @@ type givenName struct {
 }
 
 func (d *Dashboard) handleNames(w http.ResponseWriter, r *http.Request) {
-	out := namesState{Mine: []string{}, Claims: []nameClaim{}, Requests: []nameClaim{}, Given: []givenName{}}
+	out := namesState{Me: d.me(), Mine: []string{}, Claims: []nameClaim{}, Requests: []nameClaim{}, Given: []givenName{}}
 	list, err := peers.Load(d.cfg.PeersPath)
 	if err != nil {
 		out.Error = err.Error()

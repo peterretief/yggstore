@@ -308,3 +308,17 @@ func (p *Publisher) logf(format string, args ...any) {
 		p.Log(format, args...)
 	}
 }
+
+// Current is the version of a site being served.
+func (p *Publisher) Current(name string) (manifest.Manifest, error) {
+	vs, err := p.Versions(name)
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	for _, v := range vs {
+		if v.Current {
+			return files.ReadStub(v.stub)
+		}
+	}
+	return manifest.Manifest{}, fmt.Errorf("%s has no version being served", name)
+}

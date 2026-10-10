@@ -150,3 +150,22 @@ func TestNameClaimApproved(t *testing.T) {
 		t.Fatal("anna's name is still given")
 	}
 }
+
+func TestSetMe(t *testing.T) {
+	dir := t.TempDir()
+	d := New(Config{PeersPath: filepath.Join(dir, "peers.json"), StubDir: dir, Listen: "127.0.0.1:7480", Name: "localbox-002",
+		MePath: filepath.Join(dir, "me.name")})
+	if d.me() != "localbox-002" {
+		t.Fatalf("default %q", d.me())
+	}
+	for body, want := range map[string]int{`{"name":"  Kath   Smith "}`: http.StatusNoContent, `{"name":"x\" <evil@x>"}`: http.StatusBadRequest, `{"name":""}`: http.StatusBadRequest} {
+		w := httptest.NewRecorder()
+		d.Handler().ServeHTTP(w, post("/api/me", strings.NewReader(body)))
+		if w.Code != want {
+			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
+		}
+	}
+	if d.me() != "Kath Smith" {
+		t.Fatalf("set %q", d.me())
+	}
+}

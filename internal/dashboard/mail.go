@@ -154,7 +154,7 @@ func (d *Dashboard) handleMailSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no address to send from: set yours with yggstore mail address you@example.org", http.StatusBadRequest)
 		return
 	}
-	draft := mail.Draft{From: from, Name: d.cfg.Name, To: req.To, Cc: req.Cc, Bcc: req.Bcc, Subject: req.Subject, Text: req.Text}
+	draft := mail.Draft{From: from, Name: d.me(), To: req.To, Cc: req.Cc, Bcc: req.Bcc, Subject: req.Subject, Text: req.Text}
 	if req.ReplyTo != "" {
 		if orig, err := box.Read(req.ReplyTo); err == nil {
 			draft.InReplyTo, draft.References = orig.MessageID, orig.References

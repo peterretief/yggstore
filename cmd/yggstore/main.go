@@ -626,6 +626,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	keep := fs.Bool("keep", false, "with -outfiles: keep originals after a verified upload")
 	listen := fs.String("listen", "127.0.0.1:7480", "address for the dashboard page")
 	remote := fs.Bool("remote", false, "also open the dashboard to your own devices over Yggdrasil (see yggstore devices), and send the LAN there")
+	sitePort := fs.Int("site-port", 8480, "show this box's own website on its Yggdrasil address at this port (0 for none)")
 	devicesPath := fs.String("devices", filepath.Join(yggstoreHome(), "devices.json"), "with -remote: the devices allowed in")
 	tname := fs.String("transport", "ygg", "ygg or loopback (only used to show this node's ID)")
 	interval := fs.Duration("interval", 3*time.Second, "how often to poll peers and files")
@@ -670,7 +671,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 		TestPeersPath: *testPeers, Identity: id, ContactsPath: *contactsPath, Name: *me, Listen: *listen,
 		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken,
 		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"),
-		SitesDir: filepath.Join(yggstoreHome(), "sites"), Version: versionString()}
+		SitesDir: filepath.Join(yggstoreHome(), "sites"), MePath: filepath.Join(yggstoreHome(), "me.name"), Version: versionString()}
 	serveAddr := *listen
 	if *remote {
 		_, port, err := net.SplitHostPort(*listen)
@@ -697,8 +698,27 @@ func cmdDashboard(ctx context.Context, args []string) error {
 		w = outbox.New(outbox.Config{Dir: absStubs, PeersPath: *peersPath, Client: wc, Keep: *keep, Identity: id})
 		cfg.Outbox = w
 	}
+	var own *site.Own
+	if selfID != "" && *sitePort > 0 {
+		own = &site.Own{Pub: &site.Publisher{Dir: cfg.SitesDir, Client: c}, Client: c, Dir: filepath.Join(yggstoreHome(), "own-sites")}
+		cfg.OwnSites, cfg.SiteURL = own, "http://"+net.JoinHostPort(selfID, strconv.Itoa(*sitePort))+"/"
+	}
 	d := dashboard.New(cfg)
 	go d.Run(ctx)
+	if own != nil {
+		own.Default = d.DefaultSite
+		ssrv := &http.Server{Addr: net.JoinHostPort(selfID, strconv.Itoa(*sitePort)), Handler: own, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			<-ctx.Done()
+			ssrv.Close()
+		}()
+		go func() {
+			log.Printf("this box's website on %s", cfg.SiteURL)
+			if err := ssrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("website on Yggdrasil: %v", err)
+			}
+		}()
+	}
 	if w != nil {
 		w.SetEvent(d.Event)
 		go func() {

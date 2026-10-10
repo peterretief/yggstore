@@ -186,6 +186,16 @@ Web nodes take a site under the group's domain only from the node the list
 gives that name to (or an admin), and stop serving it as soon as the name
 is taken back. Names no one holds, and the domain itself, are the admins'.
 
+To change a site, *Edit* lists its files: open a page and change it, add
+a new page or pictures (into a folder if you like), or delete a file; each
+save publishes a new version. To replace the whole site, publish a folder
+or a zip (one with the site inside a folder is fine); *Download* gives the
+version being served as a zip. Your box also shows its own site
+over Yggdrasil, without Cloudflare, at `http://[its Yggdrasil address]:8480/`
+(the dashboard prints the address; `-site-port 0` turns it off). The box's
+firewall must let TCP 8480 in on the Yggdrasil interface, e.g.
+`sudo ufw allow in on tun0 to any port 8480 proto tcp`.
+
 One route covers every name. Add it once, from a machine with the API
 token (see above):
 
@@ -221,6 +231,13 @@ The site then has a contact page of its own at `/_yggstore/contact`
 ```html
 <a href="/_yggstore/contact">Contact us</a>
 ```
+
+Turned on with the *Contact form* box on the dashboard, the link is added
+for you: a new version of the site goes out with a Contact link at the
+bottom of `index.html`, between `<!-- yggstore: contact link -->` markers.
+If the home page links to `/_yggstore/contact` already, it is left alone.
+Unticking the box takes the marked link out again. The command line only
+switches the form.
 
 For a form in the site's own design, put one on any page instead:
 

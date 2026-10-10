@@ -368,9 +368,14 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		w.contact(rw, r, name, owner, contact)
 		return
 	}
+	rw.Header().Set("Cache-Control", "public, max-age=300")
+	serveStatic(rw, r, root)
+}
+
+// serveStatic serves a site's folder.
+func serveStatic(rw http.ResponseWriter, r *http.Request, root string) {
 	h := rw.Header()
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Cache-Control", "public, max-age=300")
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(rw, "This is a static site.", http.StatusMethodNotAllowed)
 		return
