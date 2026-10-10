@@ -80,10 +80,15 @@ func newGroup(t *testing.T, n int) *group {
 	for i := 1; i <= n; i++ {
 		g.list = append(g.list, peers.Peer{Name: fmt.Sprintf("node%d", i), Addr: fmt.Sprintf("[200::%d]:7400", i)})
 	}
-	for i := range n {
+	// All the folders first: cleanups run last-first, so every node is
+	// stopped before any folder is removed (a node writes into another's
+	// folder when it delivers to it).
+	for range n {
 		g.dirs = append(g.dirs, t.TempDir())
 		g.nodes = append(g.nodes, nil)
 		g.stop = append(g.stop, nil)
+	}
+	for i := range n {
 		g.start(i)
 	}
 	return g
@@ -96,12 +101,19 @@ func (g *group) start(i int) {
 		g.t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	g.t.Cleanup(cancel)
-	g.nodes[i], g.stop[i] = e, cancel
+	done := make(chan struct{})
+	stop := func() { cancel(); <-done }
+	// Runs before the TempDirs are removed: once Run is back, this node
+	// writes nothing more.
+	g.t.Cleanup(stop)
+	g.nodes[i], g.stop[i] = e, stop
 	g.net.mu.Lock()
 	g.net.engines[g.list[i].Addr] = e
 	g.net.mu.Unlock()
-	go e.Run(ctx)
+	go func() {
+		defer close(done)
+		e.Run(ctx)
+	}()
 }
 
 func (g *group) setDown(i int, down bool) {

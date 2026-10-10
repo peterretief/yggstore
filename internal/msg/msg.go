@@ -135,6 +135,7 @@ type Failed struct {
 
 // Engine is one node's messaging.
 type Engine struct {
+	work  sync.WaitGroup // goroutines Run started; Run waits for them
 	dir   string
 	self  string // this node's ID
 	peers func() []peers.Peer
@@ -710,7 +711,12 @@ func (e *Engine) Run(ctx context.Context) {
 	defer tick.Stop()
 	defer announce.Stop()
 	defer prune.Stop()
-	go e.catchUpLoop(ctx)
+	defer e.work.Wait() // nothing writes to dir once Run has returned
+	e.work.Add(1)
+	go func() {
+		defer e.work.Done()
+		e.catchUpLoop(ctx)
+	}()
 	e.requestCatchUp("")
 	for {
 		e.deliver(ctx)
@@ -827,7 +833,9 @@ func (e *Engine) deliver(ctx context.Context) {
 	e.mu.Unlock()
 	// Each delivery runs on its own, so a slow node doesn't hold up the rest.
 	for _, j := range jobs {
+		e.work.Add(1)
 		go func() {
+			defer e.work.Done()
 			select {
 			case e.sending <- struct{}{}:
 			case <-ctx.Done():
