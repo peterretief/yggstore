@@ -102,7 +102,7 @@ if ask "command -v syncthing >/dev/null && command -v avahi-daemon >/dev/null" 2
 else
 	on "export DEBIAN_FRONTEND=noninteractive
 		apt-get update -q
-		apt-get install -y -q syncthing avahi-daemon"
+		apt-get install -y -q --no-install-recommends syncthing avahi-daemon"
 	ok "Syncthing installed"
 fi
 on "systemctl enable --now syncthing@root
@@ -113,19 +113,124 @@ on "systemctl enable --now syncthing@root
 	echo 'Syncthing did not start; see journalctl -u syncthing@root' >&2; exit 1"
 ok "Syncthing runs at every boot"
 
+# --- 3b. Its storage -------------------------------------------------------------
+SHARDS=/root/.yggstore/shards
+if [ "${STORAGE:-sd}" = usb ]; then
+	say "3b. Keeping the shards on a USB stick"
+	if ask "mountpoint -q $SHARDS" 2>/dev/null; then
+		ok "the stick is already mounted at $SHARDS"
+	else
+		# USB disks on the Pi, not counting the one it boots from.
+		root=$(ask "lsblk -no PKNAME \$(findmnt -no SOURCE /)")
+		sticks=$(ask "lsblk -dnpo NAME,TRAN,TYPE | awk '\$2 == \"usb\" && \$3 == \"disk\" {print \$1}' | grep -vx /dev/$root || true")
+		[ -n "$sticks" ] || die "no USB stick is plugged into the Pi (on a Pi Zero: in the USB port, not PWR, through an OTG adapter)"
+		[ "$(printf '%s\n' "$sticks" | wc -l)" = 1 ] || die "more than one USB stick is plugged into the Pi; leave only the one for the shards"
+		stick=$sticks
+		gb=$(( $(ask "lsblk -dnbo SIZE $stick") / 1000000000 ))
+		[ "$gb" -ge "$QUOTA_GB" ] || die "the stick holds ${gb} GB, less than QUOTA_GB ($QUOTA_GB)"
+		if ask "test -n \"\$(ls -A $SHARDS 2>/dev/null)\"" 2>/dev/null; then
+			die "the node already keeps shards on the SD card ($SHARDS); this doesn't move them"
+		fi
+		if ask "blkid -L yggdata" >/dev/null 2>&1; then
+			ok "$stick is already this Pi's yggstore stick"
+		elif [ -n "$DRY" ]; then
+			ok "[on the Pi] format $stick ($gb GB) as yggdata, after asking"
+		else
+			ask "lsblk -o NAME,SIZE,MODEL,VENDOR,LABEL,FSTYPE $stick"
+			printf '\nEverything on the stick %s in the Pi will be erased. Type "erase" to go on: ' "$stick"
+			read -r answer </dev/tty
+			[ "$answer" = erase ] || die "not confirmed; the stick wasn't touched"
+			on "wipefs -aq $stick
+				printf 'label: gpt\n,,L\n' | sfdisk -q $stick
+				udevadm settle
+				mkfs.ext4 -q -F -L yggdata \$(lsblk -nrpo NAME $stick | sed -n 2p)"
+			ok "formatted $stick as yggdata"
+		fi
+		# nofail: the Pi still boots without it; the node then waits for it
+		# rather than filling the SD card.
+		on "mkdir -p $SHARDS
+			grep -q '^LABEL=yggdata ' /etc/fstab || echo 'LABEL=yggdata $SHARDS ext4 defaults,noatime,nofail 0 2' >> /etc/fstab
+			mkdir -p /etc/systemd/system/yggstore-node.service.d
+			printf '[Unit]\nRequiresMountsFor=$SHARDS\n' > /etc/systemd/system/yggstore-node.service.d/storage.conf
+			systemctl daemon-reload
+			mount $SHARDS && chmod 700 $SHARDS"
+		ok "the stick is mounted at $SHARDS, at every boot"
+	fi
+fi
+
+# make_invite gets an invite for the Pi from the admin dashboard, once.
+invite="" ygg_peers=""
+make_invite() {
+	[ -n "$invite" ] && return 0
+	local resp
+	resp=$(curl -fsS -m 20 -X POST -H "X-Yggstore: 1" -H "Content-Type: application/json" \
+		-d "{\"for\": \"box $NAME\"}" "$ADMIN_DASHBOARD/api/invites") ||
+		die "the admin dashboard at $ADMIN_DASHBOARD didn't make an invite. Is it running, and is it the admin's?"
+	invite=$(printf '%s' "$resp" | python3 -c 'import sys,json; print(json.load(sys.stdin)["invite"])')
+	ygg_peers=$(printf '%s' "$resp" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin).get("ygg_peers") or []))')
+	ok "invite made on the admin dashboard"
+}
+
+# --- 3c. Yggdrasil -------------------------------------------------------------
+# The Yggdrasil daemon, rather than the node's built-in one: it reaches
+# every member over TCP, whatever their firewall lets in and whichever
+# yggstore they run (built-in nodes talk to each other over UDP).
+say "3c. Yggdrasil"
+NODE_UNIT=/etc/systemd/system/yggstore-node.service
+if ask "systemctl is-active -q yggdrasil" 2>/dev/null; then
+	ok "Yggdrasil runs"
+else
+	# A node joined before this step was here runs the built-in Yggdrasil:
+	# the daemon takes its key, so the node keeps its address, and its peers.
+	if ask "grep -q -- '-transport builtin' $NODE_UNIT" 2>/dev/null; then
+		ygg_peers=$(ask "grep -o -- '-ygg-peers [^ ]*' $NODE_UNIT | cut -d' ' -f2")
+	elif [ -n "$DRY" ]; then
+		ygg_peers="(the invite's peers)"
+	else
+		make_invite
+	fi
+	[ -n "$ygg_peers" ] || die "the invite names no Yggdrasil peers to connect through"
+	on "export DEBIAN_FRONTEND=noninteractive
+		command -v yggdrasil >/dev/null || { apt-get update -q; apt-get install -y -q --no-install-recommends yggdrasil; }
+		systemctl stop yggdrasil 2>/dev/null || true
+		mkdir -p /etc/yggdrasil
+		key=''
+		[ -f /root/.yggstore/ygg.key ] && key=\$(tr -d ' \n' </root/.yggstore/ygg.key)
+		[ -z \"\$key\" ] && [ -f /etc/yggdrasil/yggdrasil.conf ] && key=\$(grep -oE '[0-9a-f]{128}' /etc/yggdrasil/yggdrasil.conf | head -1)
+		yggdrasil -genconf -json | KEY=\"\$key\" PEERS='$ygg_peers' python3 -c '
+import json, os, sys
+c = json.load(sys.stdin)
+if os.environ[\"KEY\"]: c[\"PrivateKey\"] = os.environ[\"KEY\"]
+c[\"Peers\"] = os.environ[\"PEERS\"].split(\",\")
+json.dump(c, sys.stdout, indent=2)' > /etc/yggdrasil/yggdrasil.conf.new
+		# The package runs it as the yggdrasil user.
+		chown root:yggdrasil /etc/yggdrasil/yggdrasil.conf.new
+		chmod 640 /etc/yggdrasil/yggdrasil.conf.new
+		mv /etc/yggdrasil/yggdrasil.conf.new /etc/yggdrasil/yggdrasil.conf
+		systemctl enable -q yggdrasil
+		systemctl reset-failed yggdrasil 2>/dev/null || true
+		systemctl restart yggdrasil
+		for i in \$(seq 30); do ip -6 addr | grep -qE 'inet6 2[0-9a-f]{2}:' && exit 0; sleep 1; done
+		echo 'Yggdrasil did not start; see journalctl -u yggdrasil' >&2; exit 1"
+	ok "Yggdrasil runs at every boot, through $(printf '%s' "$ygg_peers" | awk -F, '{print NF}') peer(s) and the local network"
+fi
+if ask "grep -q -- '-transport builtin' $NODE_UNIT" 2>/dev/null; then
+	on "sed -i -E 's/ -transport builtin -ygg-key [^ ]+ -ygg-peers [^ ]+//' $NODE_UNIT
+		systemctl daemon-reload
+		systemctl restart yggstore-node yggstore-dashboard"
+	ok "the node now goes through the Yggdrasil daemon, at the same address"
+fi
+
 # --- 4. The group -----------------------------------------------------------------
 say "4. Joining the group"
-if ask "test -f /root/.yggstore/peers.json || pgrep -f 'yggstore serve' >/dev/null" 2>/dev/null; then
+# Anchored, so pgrep doesn't find the shell running this very check.
+if ask "test -f /root/.yggstore/peers.json || pgrep -f '^[^ ]*yggstore serve' >/dev/null" 2>/dev/null; then
 	ok "already in the group (a node runs on it)"
 elif [ -n "$DRY" ]; then
 	ok "[dev box] make an invite on $ADMIN_DASHBOARD for $NAME"
 	on "yggstore join -service -name $NAME -me $OWNER -quota $QUOTA_GB $customers INVITE"
 else
-	resp=$(curl -fsS -m 20 -X POST -H "X-Yggstore: 1" -H "Content-Type: application/json" \
-		-d "{\"for\": \"box $NAME\"}" "$ADMIN_DASHBOARD/api/invites") ||
-		die "the admin dashboard at $ADMIN_DASHBOARD didn't make an invite. Is it running, and is it the admin's?"
-	invite=$(printf '%s' "$resp" | python3 -c 'import sys,json; print(json.load(sys.stdin)["invite"])')
-	ok "invite made on the admin dashboard"
+	make_invite
 	on "yggstore join -service -name '$NAME' -me '$OWNER' -quota '$QUOTA_GB' $customers '$invite'" ||
 		die "joining failed (see above)"
 	ok "joined as node $NAME; its node and dashboard run at every boot"
@@ -175,4 +280,8 @@ if s.get("problem"): print("   problem: " + s["problem"])
 sys.exit(0 if n.get("up") and y.get("device_id") else 1)' || die "the Pi isn't working yet; see above, and journalctl -u yggstore-hub on the Pi"
 
 printf '\nDONE: %s is set up. Its page for users: http://%s.local:7490\n' "$NAME" "$NAME"
-printf 'At its destination it needs only power and a network cable.\n'
+if [ -n "${WIFI_SSID:-}" ]; then
+	printf 'At its destination it needs only power, in reach of %s.\n' "$WIFI_SSID"
+else
+	printf 'At its destination it needs only power and a network cable.\n'
+fi

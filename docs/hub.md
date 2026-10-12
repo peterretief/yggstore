@@ -44,6 +44,8 @@ typed on the Pi. Its settings are in one file, `factory/pi.conf`:
 | `NAME` | The box's one name: on the network (`NAME.local`), as a node in the group, and as the hub users see. Set it for each Pi. |
 | `OWNER` | Whose space and uploads the box counts towards in the group. |
 | `PI_SSH` | How to reach the Pi on the bench (`root@NAME.local`). |
+| `WIFI_SSID`, `WIFI_PASSWORD`, `WIFI_COUNTRY` | The Wi-Fi network it joins, for a Pi without a cable, such as a Pi Zero 2 W. Empty for a cable. |
+| `STORAGE` | Where the node keeps its shards: `sd`, on the drive it boots from, or `usb`, on a USB stick plugged into the Pi. |
 | `GROUP`, `ADMIN_DASHBOARD` | The group, and the admin dashboard that makes the box's invite. There is one group. |
 | `QUOTA_GB`, `CUSTOMERS` | What the node gives the group, and whether it holds customers' files. |
 | `PAIR_LIMIT`, `SITES`, `SITE_MAX_MB` | The hub's settings: devices paired a day, the websites it keeps, their largest size. |
@@ -62,10 +64,15 @@ Then, for each Pi:
    Then it sets up the first boot, through cloud-init on the boot
    partition. The Pi takes `NAME`, turns SSH on and lets this machine's key
    (`~/.ssh/id_ed25519.pub`, or `SSH_KEY`) in as root, with no passwords.
-   A Pi 3 B+ or newer boots from USB as it comes.
+   A Pi 3 B+ or newer boots from USB as it comes; a Pi Zero 2 W boots
+   from an SD card. With `WIFI_SSID` set, it also joins that Wi-Fi network.
+   The password goes on the drive as the WPA key worked out from it, not as
+   typed.
 
-2. **Boot it** with a network cable that reaches the internet. After a
-   minute or two it answers at `NAME.local`.
+2. **Boot it** with a network cable that reaches the internet, or in
+   reach of its Wi-Fi network. After a minute or two it answers at
+   `NAME.local`. With `STORAGE=usb`, plug in the stick for the shards; on a
+   Pi Zero it goes in the USB port, not PWR, through an OTG adapter.
 
 3. **Set it up:**
 
@@ -75,7 +82,15 @@ Then, for each Pi:
    ```
 
    It names the Pi and installs this machine's yggstore build and
-   Syncthing. It joins the Pi to the group, with an invite from the admin
+   Syncthing. With `STORAGE=usb`, it formats the stick (after you type
+   `erase`; a stick it formatted before is kept as it is) and mounts it at
+   every boot. If the stick is missing, the node waits for it rather than
+   filling the SD card. It installs the Yggdrasil daemon (Debian's
+   package), which links to the group's peers from the invite and to
+   machines on the local network. The daemon reaches every member over TCP,
+   where the node's built-in Yggdrasil talks UDP, which members' firewalls
+   often drop. A box set up earlier with the built-in one is moved onto the
+   daemon with the same key, so it keeps its address. It joins the Pi to the group, with an invite from the admin
    dashboard, and starts its node, hub and Syncthing at every boot. Last,
    it checks that the node is up, the group answers and Syncthing is ready.
    It ends with the address of the box's page.

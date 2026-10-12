@@ -2,7 +2,8 @@
 # Writes Raspberry Pi OS Lite (64-bit) to a USB drive or SD card for a hub
 # Pi, ready for scripts/provision-pi.sh: on its first boot the Pi takes the
 # NAME from factory/pi.conf (so it is NAME.local on the network), turns on
-# SSH, and lets this machine's key in as root. Nothing else is installed.
+# SSH, lets this machine's key in as root, and joins the Wi-Fi network if
+# WIFI_SSID is set. Nothing else is installed.
 #
 # Run it as yourself; it asks for sudo only to write the drive.
 #
@@ -53,6 +54,15 @@ size=$(lsblk -dnbo SIZE "$DEV")
 [ "$size" -le $((512 * 1024 ** 3)) ] || die "$DEV is bigger than 512 GB; is it really the Pi's drive?"
 [ -f "$SSH_KEY" ] || die "no SSH key at $SSH_KEY (set SSH_KEY)"
 key=$(cat "$SSH_KEY")
+if [ -n "${WIFI_SSID:-}" ]; then
+	[[ "$WIFI_SSID" != *[\"\\]* && ${#WIFI_SSID} -le 32 ]] || die "WIFI_SSID in $CONF must be at most 32 characters, without \" or \\"
+	[ ${#WIFI_PASSWORD} -ge 8 ] && [ ${#WIFI_PASSWORD} -le 63 ] || die "WIFI_PASSWORD in $CONF must be 8 to 63 characters"
+	[[ "${WIFI_COUNTRY:-}" =~ ^[A-Z]{2}$ ]] || die "WIFI_COUNTRY in $CONF must be a two-letter country code, such as ZA"
+	# The WPA key itself, so the password isn't on the drive as typed.
+	psk=$(WIFI_SSID=$WIFI_SSID WIFI_PASSWORD=$WIFI_PASSWORD python3 -c '
+import hashlib, os
+print(hashlib.pbkdf2_hmac("sha1", os.environ["WIFI_PASSWORD"].encode(), os.environ["WIFI_SSID"].encode(), 4096, 32).hex())')
+fi
 
 say "Writing Raspberry Pi OS for $NAME to $DEV"
 show "$DEV"
@@ -94,6 +104,10 @@ trap 'sudo umount "$mnt" 2>/dev/null; rmdir "$mnt"' EXIT
 [ -f "$mnt/user-data" ] || die "this image has no cloud-init user-data; it is older than this script expects"
 # An empty "ssh" file turns SSH on (sshswitch); cloud-init does the rest.
 sudo touch "$mnt/ssh"
+# Without userconf.txt, the first boot stops at a "create a user" dialog on
+# the Pi's screen until someone answers it. This sets the pi user up with a
+# random password nobody knows instead (SSH takes keys only).
+printf 'pi:%s\n' "$(openssl passwd -6 "$(openssl rand -base64 24)")" | sudo tee "$mnt/userconf.txt" >/dev/null
 sudo tee "$mnt/user-data" >/dev/null <<EOF
 #cloud-config
 # Written by yggstore's scripts/flash-pi.sh for the hub $NAME.
@@ -108,9 +122,32 @@ ssh_authorized_keys:
 packages:
   - avahi-daemon
 EOF
+if [ -n "${WIFI_SSID:-}" ]; then
+	sudo tee "$mnt/network-config" >/dev/null <<EOF
+# Written by yggstore's scripts/flash-pi.sh: the Wi-Fi network $NAME joins.
+network:
+  version: 2
+  wifis:
+    renderer: NetworkManager
+    wlan0:
+      dhcp4: true
+      optional: true
+      regulatory-domain: "$WIFI_COUNTRY"
+      access-points:
+        "$WIFI_SSID":
+          password: "$psk"
+EOF
+	# Wi-Fi stays off until it knows its country, from the first boot on.
+	grep -q 'cfg80211.ieee80211_regdom=' "$mnt/cmdline.txt" ||
+		sudo sed -i "1s/\$/ cfg80211.ieee80211_regdom=$WIFI_COUNTRY/" "$mnt/cmdline.txt"
+fi
 sudo umount "$mnt"
 sync
 ok "name $NAME, SSH on, this machine's key ($(basename "$SSH_KEY")) let in as root"
-
-printf '\nDONE: put the drive in the Pi, plug in a network cable and power.\n'
+if [ -n "${WIFI_SSID:-}" ]; then
+	ok "joins the Wi-Fi network $WIFI_SSID ($WIFI_COUNTRY)"
+	printf '\nDONE: put the drive in the Pi and plug in power; it joins %s.\n' "$WIFI_SSID"
+else
+	printf '\nDONE: put the drive in the Pi, plug in a network cable and power.\n'
+fi
 printf 'After a minute or two: ssh root@%s.local, then scripts/provision-pi.sh\n' "$NAME"
