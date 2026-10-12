@@ -151,3 +151,22 @@ func (l *Live) Replace(caller string, list []Peer) error {
 }
 
 var ErrNotAdmin = errors.New("only an admin node may change the peer list")
+
+// Follow copies the list an admin pushed to this machine's node over base,
+// the list its dashboard, outbox and repair read, when the push is newer.
+// It reports whether it copied. A member's programs then see nodes the
+// admin added, or marked leaving, as the node does.
+func Follow(base, pushed string) (bool, error) {
+	pt := mtime(pushed)
+	if pt.IsZero() || !pt.After(mtime(base)) {
+		return false, nil
+	}
+	list, err := Load(pushed)
+	if err != nil {
+		return false, err
+	}
+	if old, err := Load(base); err == nil && Hash(old) == Hash(list) {
+		return false, nil
+	}
+	return true, Write(base, list)
+}

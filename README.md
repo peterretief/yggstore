@@ -122,6 +122,8 @@ join by invite, and each node only answers the group.
 5. Shards on a node that has been down for a day, or has left the group,
    are rebuilt on nodes that are up, and chunks stored while machines were
    down are spread onto them when they return ([repair](docs/repair.md)).
+   A node the admin marks as about to go down has its shards moved off
+   while it still answers, so no file is ever short of them.
 6. At upload time, while it still has the shards, the uploader precomputes
    20 single-use challenges per shard into `FILE.ystub.challenges.json`
    (keep this private). `verify` sends one per shard: "hash this byte range
@@ -212,6 +214,8 @@ of the desktop's peers.json, reaches every node within a minute, with no
 restarts. A node keeps a pushed list in its data folder
 (`peers.pushed.json`), and uses whichever of that and its own `-peers` file
 changed last. Only admins may push, and a push must keep the sender admin.
+A member's dashboard takes its node's pushed list over its own peers.json
+when the push is newer, so its uploads and repair see the same group.
 
 To add a machine: open **Add a node** on the dashboard and follow the steps.
 In short, the new machine starts with a peers.json holding just the desktop's
@@ -330,7 +334,8 @@ different ports of your Yggdrasil address, stores a file, stops two nodes and
 restores it. `scripts/local-demo.sh loopback` does the same on `::1`.
 `scripts/hub-syncthing.sh` tries a hub with two Syncthings on one machine:
 pairing, storing and restoring through the synced folder, websites and the
-switches.
+switches. `scripts/drain-test.sh` takes a node down the planned way (see
+[repair](docs/repair.md#taking-a-node-down)).
 
 Tests: `go test -race ./...`
 
@@ -359,7 +364,8 @@ one machine and disk: this tests behaviour, not real redundancy.
   stubs and `sharing.key`.
 - Membership is the admin's `peers.json`, pushed to every node; there is
   no gossip or vouching yet.
-- No repair: if a peer disappears, nothing re-creates its shards.
+- Repair runs on each member's dashboard and looks after their own files
+  only: while a member's dashboard is off, their files wait.
 - Challenges are run by hand, are not signed and produce no receipts.
 - Plain HTTP; confidentiality in transit comes from Yggdrasil's end-to-end
   encryption, and shards are ciphertext anyway.

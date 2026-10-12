@@ -41,6 +41,40 @@ then more likely this machine's own network that is down.
 It looks after your own items (outfiles, their older versions and your
 mail). Items shared with you are the sender's to repair.
 
+## Taking a node down
+
+When you know a node is going down (moving a Pi, swapping its disk,
+retiring it), tell the group first, so no file is ever short of shards.
+
+On the admin's dashboard, the node's card has a **Taking it down** button.
+It marks the node `"leaving": true` in the member list, and then:
+
+- **Nothing new is stored on it.** Uploads, mail and websites leave it out.
+- **Its shards are moved off while it still answers.** Each one is copied
+  straight from the node to another machine, which is cheaper than
+  rebuilding it from the others, and the stubs are rewritten. The admin's
+  dashboard starts at once.
+- **Every member's dashboard does the same for its own files.** The list
+  reaches every node within a minute. Each member's dashboard picks it up
+  from its node within half a minute and moves its files' shards.
+- **The card shows where it is at.** It shows how many of your files'
+  shards are still on the node, and says when none of your files need it
+  any more. Give the other members' dashboards half an hour, then switch
+  the node off.
+
+If it goes down before then, what is left is rebuilt elsewhere straight
+away, without waiting the usual day. **Keep it** clears the mark: the node
+takes new shards again, and nothing moves back, since its old copies stay
+where they were.
+
+A member's dashboard that is off moves its files when it next starts.
+Until then, those files are one machine short, as with any node down.
+Members on older yggstore ignore the mark and repair after a day as
+before.
+
+An admin node can't be marked leaving, since it keeps the list.
+`scripts/drain-test.sh` tries all this with seven nodes on one machine.
+
 ## Retiring a node now
 
 To take a node out for good without waiting a day, remove it from the peer

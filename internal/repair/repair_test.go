@@ -246,3 +246,66 @@ func TestOneMachineIsRefused(t *testing.T) {
 		t.Fatalf("stored on one machine: %v", err)
 	}
 }
+
+func TestLeavingNodeIsEmptiedWhileUp(t *testing.T) {
+	g := newGroup(t, 7)
+	data := make([]byte, 300<<10)
+	rand.Read(data)
+	stub, m := g.put("a.bin", data)
+	leaving := g.list[0].Addr
+	held := holds(m, leaving)
+	if held == 0 {
+		t.Fatal("node 0 holds nothing; nothing to test")
+	}
+	g.list[0].Leaving = true
+
+	// Up and leaving: its shards are copied off, not rebuilt.
+	rep, err := g.repairer(time.Hour).Pass(context.Background())
+	if err != nil || rep.Moved != held || rep.Rebuilt != 0 || rep.Leaving != 0 || rep.Rewrote != 1 {
+		t.Fatalf("moving off a leaving node: %+v %v", rep, err)
+	}
+	moved, err := files.ReadStub(stub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if holds(moved, leaving) != 0 {
+		t.Fatal("the stub still names the leaving node")
+	}
+	// It can go now: the item is whole without it and two more.
+	g.srvs[0].Close()
+	g.srvs[1].Close()
+	g.srvs[2].Close()
+	if !bytes.Equal(g.get(moved), data) {
+		t.Fatal("item differs after the leaving node went")
+	}
+}
+
+func TestLeavingNodeDownIsRebuiltAtOnce(t *testing.T) {
+	g := newGroup(t, 7)
+	data := make([]byte, 300<<10)
+	rand.Read(data)
+	_, m := g.put("a.bin", data)
+	held := holds(m, g.list[0].Addr)
+	g.list[0].Leaving = true
+	g.srvs[0].Close()
+	rep, err := g.repairer(24 * time.Hour).Pass(context.Background())
+	if err != nil || rep.Rebuilt != held || rep.Waiting != 0 {
+		t.Fatalf("leaving and already down: %+v %v", rep, err)
+	}
+}
+
+func TestKickRunsAPass(t *testing.T) {
+	g := newGroup(t, 3)
+	passes := make(chan struct{}, 4)
+	r := g.repairer(time.Hour)
+	r.Stubs = func() []string { passes <- struct{}{}; return nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go r.Run(ctx, time.Hour)
+	r.Kick()
+	select {
+	case <-passes:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Kick didn't start a pass")
+	}
+}

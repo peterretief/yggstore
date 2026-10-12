@@ -30,7 +30,9 @@ import (
 // a node reaches the group from wherever it is plugged in. Domain, on an
 // admin's entry, is the group's domain; Names are the names under it the
 // admin gave the node's owner (see names.go), and Code the owner's sharing
-// code, which their mail is sealed for.
+// code, which their mail is sealed for. A leaving peer is about to go down
+// (see package repair): nothing new is stored on it, and its shards are
+// moved off while it still answers.
 type Peer struct {
 	Name    string `json:"name"`
 	Addr    string `json:"addr"`
@@ -39,6 +41,7 @@ type Peer struct {
 	Admin   bool   `json:"admin,omitempty"`
 	Owner   string `json:"owner,omitempty"`
 	Gateway bool   `json:"gateway,omitempty"`
+	Leaving bool   `json:"leaving,omitempty"`
 
 	YggListen []string `json:"ygg_listen,omitempty"`
 	YggPeers  []string `json:"ygg_peers,omitempty"`
@@ -228,8 +231,22 @@ func AllowedIPs(list []Peer) map[string]bool {
 	return out
 }
 
-// Online probes every peer in parallel and returns those that answer, in list order.
+// Online returns the peers that answer and can take new shards, in list
+// order: leaving peers are left out. Probe is the same, leaving peers
+// included.
 func Online(ctx context.Context, list []Peer, probe func(context.Context, Peer) error) []Peer {
+	var staying []Peer
+	for _, p := range list {
+		if !p.Leaving {
+			staying = append(staying, p)
+		}
+	}
+	return Probe(ctx, staying, probe)
+}
+
+// Probe probes every peer in parallel and returns those that answer, in
+// list order.
+func Probe(ctx context.Context, list []Peer, probe func(context.Context, Peer) error) []Peer {
 	ok := make([]bool, len(list))
 	var wg sync.WaitGroup
 	for i, p := range list {

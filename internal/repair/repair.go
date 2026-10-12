@@ -3,7 +3,9 @@
 // the peer list, is taken as gone: each chunk with a shard there gets that
 // shard rebuilt from the others and stored on a node that is up, and every
 // stub naming the old place is rewritten. A shard missing from a node that
-// is up (a wiped disk, say) is rebuilt straight away.
+// is up (a wiped disk, say) is rebuilt straight away. A node the admin
+// marked leaving (it is about to go down) has its shards copied off while
+// it still answers, and rebuilt elsewhere at once if it no longer does.
 //
 // It only looks after the owner's own items; shares received from others
 // are theirs to repair. The old copies are left where they were, so a node
@@ -52,7 +54,9 @@ type Repairer struct {
 	// Log reports what happened: kind is ok, warn or info.
 	Log func(kind, msg string)
 
-	mu sync.Mutex
+	mu       sync.Mutex
+	kickOnce sync.Once
+	kick     chan struct{}
 }
 
 type state struct {
@@ -64,6 +68,8 @@ type state struct {
 type Report struct {
 	Items    int // stubs looked at
 	Rebuilt  int // shards rebuilt and stored again
+	Moved    int // shards copied off leaving nodes
+	Leaving  int // shards still on leaving nodes after the pass
 	Spread   int // shards copied off crowded machines onto others
 	Rewrote  int // stubs rewritten with the new places
 	Waiting  int // shards on nodes down, but not for long enough yet
@@ -101,16 +107,31 @@ func (r *Repairer) save(st state) {
 	}
 }
 
-// Run makes a pass every interval until ctx ends.
+// Run makes a pass every interval until ctx ends, and soon after Kick.
 func (r *Repairer) Run(ctx context.Context, every time.Duration) {
+	kick := r.kicks()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(every):
+		case <-kick:
 		}
 		r.Pass(ctx)
 	}
+}
+
+// Kick asks Run for a pass now, such as when a node is marked leaving.
+func (r *Repairer) Kick() {
+	select {
+	case r.kicks() <- struct{}{}:
+	default:
+	}
+}
+
+func (r *Repairer) kicks() chan struct{} {
+	r.kickOnce.Do(func() { r.kick = make(chan struct{}, 1) })
+	return r.kick
 }
 
 // Pass checks the nodes and every item once, repairing what it can.
@@ -134,16 +155,26 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 			members = append(members, p)
 		}
 	}
-	online := peers.Online(ctx, members, func(ctx context.Context, p peers.Peer) error {
+	answering := peers.Probe(ctx, members, func(ctx context.Context, p peers.Peer) error {
 		_, err := r.Client.Info(ctx, p.Addr)
 		return err
 	})
 	if ctx.Err() != nil {
 		return rep, ctx.Err()
 	}
+	// up is every node that answers; online, those of them that can take
+	// shards (not leaving).
 	up := map[string]bool{}
-	for _, p := range online {
+	var online []peers.Peer
+	leaving := map[string]bool{}
+	for _, p := range members {
+		leaving[p.Addr] = p.Leaving
+	}
+	for _, p := range answering {
 		up[p.Addr] = true
+		if !p.Leaving {
+			online = append(online, p)
+		}
 	}
 	st := r.load()
 	now := time.Now()
@@ -166,7 +197,7 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 			delete(st.Renewed, addr)
 		}
 	}
-	r.renew(ctx, online, &st, now, &rep)
+	r.renew(ctx, answering, &st, now, &rep)
 	r.save(st)
 	if r.RenewOnly {
 		return rep, nil
@@ -190,6 +221,9 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	gone := func(addr string) bool {
 		if !inList[addr] {
 			return !isGateway(list, addr)
+		}
+		if leaving[addr] && !up[addr] {
+			return true // its admin said it is going: don't wait
 		}
 		since := st.DownSince[addr]
 		return since != 0 && now.Sub(time.Unix(since, 0)) >= grace
@@ -234,7 +268,8 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	type job struct {
 		key     string
 		w       work
-		bad     []int
+		bad     []int // to rebuild
+		move    []int // to copy off leaving nodes that answer
 		crowded bool
 	}
 	var jobs []job
@@ -245,12 +280,14 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			var bad []int
+			var bad, move []int
 			waiting := 0
 			for i, ref := range w.chunk.Shards {
 				switch {
 				case gone(ref.Peer):
 					bad = append(bad, i)
+				case leaving[ref.Peer] && up[ref.Peer]:
+					move = append(move, i)
 				case !up[ref.Peer]:
 					waiting++
 				default:
@@ -265,8 +302,8 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 			crowded := files.Crowded(w.layout, w.chunk, online, list)
 			jmu.Lock()
 			rep.Waiting += waiting
-			if len(bad) > 0 || crowded {
-				jobs = append(jobs, job{key, w, bad, crowded})
+			if len(bad) > 0 || len(move) > 0 || crowded {
+				jobs = append(jobs, job{key, w, bad, move, crowded})
 			}
 			jmu.Unlock()
 		}()
@@ -283,6 +320,15 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 			return rep, ctx.Err()
 		}
 		out := j.w.chunk
+		if len(j.move) > 0 {
+			var n int
+			var err error
+			out, n, err = files.MoveChunk(ctx, r.Client, j.w.layout, out, j.move, j.w.lease, online, list)
+			rep.Moved += n
+			if err != nil {
+				rep.Problems = append(rep.Problems, err.Error())
+			}
+		}
 		if len(j.bad) > 0 {
 			var n int
 			var err error
@@ -304,6 +350,11 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 		}
 		if chunkKey(out) != j.key {
 			fixed[j.key] = out
+		}
+		for _, ref := range out.Shards {
+			if leaving[ref.Peer] {
+				rep.Leaving++
+			}
 		}
 	}
 
@@ -332,6 +383,9 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	}
 	if rep.Rebuilt > 0 {
 		r.log("ok", "repair: rebuilt %d shard(s) on nodes that are up, in %d item(s)", rep.Rebuilt, rep.Rewrote)
+	}
+	if rep.Moved > 0 {
+		r.log("ok", "repair: moved %d shard(s) off nodes that are leaving", rep.Moved)
 	}
 	if rep.Spread > 0 {
 		r.log("ok", "repair: spread %d shard(s) over more machines, in %d item(s)", rep.Spread, rep.Rewrote)

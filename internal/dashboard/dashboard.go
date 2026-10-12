@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -108,6 +109,10 @@ type PeerState struct {
 	LastSeen int64        `json:"last_seen,omitempty"`
 	Test     bool         `json:"test,omitempty"`
 	List     string       `json:"list,omitempty"` // node's peer list: current, outdated, or old software
+	// Leaving: the admin marked it as about to go down. Mine counts the
+	// shards of this dashboard's own files still on it.
+	Leaving bool `json:"leaving,omitempty"`
+	Mine    int  `json:"mine,omitempty"`
 }
 
 type ShardState struct {
@@ -205,6 +210,7 @@ type Dashboard struct {
 	logMu   sync.Mutex           // the activity log file
 	namesMu sync.Mutex           // NamesPath, and the list while names change
 	siteMu  sync.Mutex           // one website publish at a time
+	repair  func()               // asks for a repair pass now (see SetRepair)
 }
 
 func New(cfg Config) *Dashboard {
@@ -218,6 +224,14 @@ func New(cfg Config) *Dashboard {
 		pushed: map[string]time.Time{}, took: map[string]string{}}
 	d.events = readLog(cfg.LogPath, maxEvents)
 	return d
+}
+
+// SetRepair gives the dashboard a way to start a repair pass now, as when
+// a node is marked leaving.
+func (d *Dashboard) SetRepair(kick func()) {
+	d.mu.Lock()
+	d.repair = kick
+	d.mu.Unlock()
 }
 
 // Run polls until ctx ends.
@@ -269,6 +283,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/open-folder", d.handleOpenFolder)
 	mux.HandleFunc("POST /api/delete", d.handleDelete)
 	mux.HandleFunc("POST /api/nodes", d.handleAddNode)
+	mux.HandleFunc("POST /api/nodes/leaving", d.handleLeaving)
 	mux.HandleFunc("POST /api/share", d.handleShare)
 	mux.HandleFunc("POST /api/contacts", d.handleAddContact)
 	mux.HandleFunc("POST /api/invites", d.handleInvite)
@@ -608,6 +623,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 		names[p.Addr] = p.Name
 	}
 	st.Files = d.scanFiles(ctx, d.cfg.StubDir, up, names)
+	markLeaving(st.Peers, mainList, st.Files)
 	if d.cfg.TestStubDir != "" {
 		for _, f := range d.scanFiles(ctx, d.cfg.TestStubDir, up, names) {
 			f.Test = true
@@ -713,6 +729,11 @@ func (d *Dashboard) syncLists(ctx context.Context, list []peers.Peer, states []P
 			ps.List = "outdated"
 			if !admin || time.Since(d.pushed[ps.Addr]) < time.Minute {
 				continue
+			}
+			// The list may have changed since this poll read it (a node
+			// added or marked leaving): never push an older one.
+			if now, err := peers.Load(d.cfg.PeersPath); err != nil || peers.Hash(now) != want {
+				return
 			}
 			d.pushed[ps.Addr] = time.Now()
 			pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -952,6 +973,88 @@ func (d *Dashboard) handleAddNode(w http.ResponseWriter, r *http.Request) {
 	default:
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleLeaving marks a node as about to go down, or back to staying. The
+// list reaches every node, and through them every member's dashboard, whose
+// repair then moves its own files' shards off the node while it answers.
+func (d *Dashboard) handleLeaving(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name    string `json:"name"`
+		Leaving bool   `json:"leaving"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	d.mu.Lock()
+	admin, kick := d.state.AdminEntry != "", d.repair
+	d.mu.Unlock()
+	if !admin {
+		http.Error(w, "this node is not marked \"admin\": true in peers.json, so it cannot change the list", http.StatusForbidden)
+		return
+	}
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	i := slices.IndexFunc(list, func(p peers.Peer) bool { return p.Name == req.Name })
+	if i < 0 {
+		http.Error(w, "no node called "+req.Name, http.StatusNotFound)
+		return
+	}
+	if list[i].Admin && req.Leaving {
+		http.Error(w, "an admin node can't be marked leaving: it keeps the list", http.StatusConflict)
+		return
+	}
+	if list[i].Leaving != req.Leaving {
+		list[i].Leaving = req.Leaving
+		if err := peers.Write(d.cfg.PeersPath, list); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if req.Leaving {
+			d.event("info", fmt.Sprintf("%s marked leaving: nothing new goes to it, and its shards are being moved off", req.Name))
+		} else {
+			d.event("info", fmt.Sprintf("%s is staying: it takes new shards again", req.Name))
+		}
+	}
+	if kick != nil {
+		kick()
+	}
+	select {
+	case d.wake <- struct{}{}:
+	default:
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// markLeaving sets Leaving on the nodes marked so in list, and counts the
+// shards of this dashboard's own files still on each of them.
+func markLeaving(states []PeerState, list []peers.Peer, files []FileState) {
+	for i := range states {
+		for _, p := range list {
+			if p.Addr == states[i].Addr && p.Leaving {
+				states[i].Leaving = true
+			}
+		}
+		if !states[i].Leaving {
+			continue
+		}
+		for _, f := range files {
+			if f.SharedBy != nil || f.Test {
+				continue
+			}
+			for _, ch := range f.Chunks {
+				for _, sh := range ch.Shards {
+					if sh.Peer == states[i].Name {
+						states[i].Mine++
+					}
+				}
+			}
+		}
+	}
 }
 
 // parseNodeEntry reads the peers.json entry that "yggstore id" prints.

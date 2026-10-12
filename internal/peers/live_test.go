@@ -1,6 +1,7 @@
 package peers
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,5 +58,45 @@ func TestLiveFollowsPushesAndHandEdits(t *testing.T) {
 	os.Chtimes(base, later.Add(time.Minute), later.Add(time.Minute))
 	if err := l.Refresh(); err == nil || !l.Allowed("200::1") {
 		t.Fatal("broken file was not reported, or emptied the list")
+	}
+}
+
+func TestFollow(t *testing.T) {
+	dir := t.TempDir()
+	base, pushed := filepath.Join(dir, "peers.json"), filepath.Join(dir, "peers.pushed.json")
+	one := []Peer{{Name: "a", Addr: "[201::1]:7400"}}
+	two := append(one, Peer{Name: "b", Addr: "[201::2]:7400", Leaving: true})
+	if err := Write(base, one); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := Follow(base, pushed); ok || err != nil {
+		t.Fatalf("no push: copied %v, %v", ok, err)
+	}
+	if err := Write(pushed, two); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Minute)
+	os.Chtimes(pushed, future, future)
+	if ok, err := Follow(base, pushed); !ok || err != nil {
+		t.Fatalf("newer push: copied %v, %v", ok, err)
+	}
+	got, err := Load(base)
+	if err != nil || len(got) != 2 || !got[1].Leaving {
+		t.Fatalf("base after follow: %+v, %v", got, err)
+	}
+	os.Chtimes(pushed, future.Add(time.Minute), future.Add(time.Minute))
+	if ok, _ := Follow(base, pushed); ok {
+		t.Fatal("copied a push with the same list")
+	}
+}
+
+func TestOnlineLeavesOutLeaving(t *testing.T) {
+	list := []Peer{{Name: "a", Addr: "[201::1]:7400"}, {Name: "b", Addr: "[201::2]:7400", Leaving: true}}
+	answer := func(context.Context, Peer) error { return nil }
+	if got := Online(context.Background(), list, answer); len(got) != 1 || got[0].Name != "a" {
+		t.Fatalf("Online: %+v", got)
+	}
+	if got := Probe(context.Background(), list, answer); len(got) != 2 {
+		t.Fatalf("Probe: %+v", got)
 	}
 }

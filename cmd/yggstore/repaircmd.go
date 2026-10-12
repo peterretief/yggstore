@@ -46,7 +46,10 @@ func cmdRepair(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%d items, %d shards rebuilt, %d stubs updated, %d shards on nodes down for less than %s\n", rep.Items, rep.Rebuilt, rep.Rewrote, rep.Waiting, *after)
+	fmt.Printf("%d items, %d shards rebuilt, %d moved off leaving nodes, %d stubs updated, %d shards on nodes down for less than %s\n", rep.Items, rep.Rebuilt, rep.Moved, rep.Rewrote, rep.Waiting, *after)
+	if rep.Leaving > 0 {
+		fmt.Printf("%d shards still on leaving nodes; run again\n", rep.Leaving)
+	}
 	for _, p := range rep.Problems {
 		fmt.Println("  " + p)
 	}

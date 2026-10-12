@@ -647,6 +647,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	msgToken := fs.String("msg-token", filepath.Join(yggstoreHome(), "msg.token"), "the node's messaging token file")
 	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), "where this machine's node collects your email")
 	repairAfter := fs.Duration("repair-after", repair.DefaultGrace, "rebuild shards held by a node down this long on nodes that are up (0 = never)")
+	pushed := fs.String("pushed", "", "the member list the admin pushed to this machine's node, taken over -peers when newer (default: shards/peers.pushed.json next to -peers)")
 	imapAddr := fs.String("imap", mailbridge.DefaultIMAP, `mail bridge: IMAP for your mail program, on this machine ("" for none; see docs/mail.md)`)
 	smtpAddr := fs.String("smtp", mailbridge.DefaultSMTP, `mail bridge: SMTP for your mail program ("" for none)`)
 	bridgePw := fs.String("mail-bridge-password", filepath.Join(yggstoreHome(), "mail-bridge.password"), "the mail bridge's password file (made if missing)")
@@ -743,7 +744,12 @@ func cmdDashboard(ctx context.Context, args []string) error {
 		r := newRepairer(*peersPath, *repairAfter, absStubs, history, *mailbox)
 		r.RenewOnly = *repairAfter <= 0 // leases are renewed either way
 		r.Log = d.Event
+		d.SetRepair(r.Kick)
 		go r.Run(ctx, 30*time.Minute)
+		if *pushed == "" {
+			*pushed = filepath.Join(filepath.Dir(*peersPath), "shards", "peers.pushed.json")
+		}
+		go followPushed(ctx, *peersPath, *pushed, d.Event, r.Kick)
 	}
 
 	srv := &http.Server{Addr: serveAddr, Handler: d.Handler(), ReadHeaderTimeout: 10 * time.Second}
@@ -761,6 +767,30 @@ func cmdDashboard(ctx context.Context, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// followPushed keeps the dashboard's member list up with the one the admin
+// pushed to this machine's node (see peers.Follow), and starts a repair
+// pass when it changes: a node may have been marked leaving.
+func followPushed(ctx context.Context, base, pushed string, event func(kind, msg string), kick func()) {
+	last := ""
+	for {
+		ok, err := peers.Follow(base, pushed)
+		if err != nil && err.Error() != last {
+			event("warn", "the member list the admin sent can't be used: "+err.Error())
+		}
+		if last = ""; err != nil {
+			last = err.Error()
+		} else if ok {
+			event("info", "using the newer member list the admin sent")
+			kick()
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+	}
 }
 
 func cmdWatch(ctx context.Context, args []string) error {

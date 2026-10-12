@@ -12,6 +12,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/localstore"
+	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/server"
 	"github.com/peterretief/yggstore/internal/transport"
@@ -158,5 +159,54 @@ func TestInviteYggPeers(t *testing.T) {
 	want := "wss://ygg.office.example:443 tls://192.0.2.7:993 tls://192.0.2.8:443 tls://192.0.2.9:1"
 	if got != want {
 		t.Fatalf("got %s\nwant %s", got, want)
+	}
+}
+
+// TestMarkLeaving: an admin marks a node leaving and back; the list is
+// pushed to the nodes, repair is asked for a pass, and an admin node can't
+// be marked.
+func TestMarkLeaving(t *testing.T) {
+	dir := t.TempDir()
+	admin := peers.Peer{Name: "desktop", Addr: "127.0.0.1:1", Admin: true}
+	mine := filepath.Join(dir, "peers.json")
+	peers.Write(mine, []peers.Peer{admin, {Name: "pi", Addr: "[200::2]:7400"}})
+	d := New(Config{PeersPath: mine, StubDir: dir, SelfID: "127.0.0.1", Client: client.New()})
+	kicked := 0
+	d.SetRepair(func() { kicked++ })
+	d.poll(context.Background())
+	h := d.Handler()
+	send := func(body string) int {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, post("/api/nodes/leaving", strings.NewReader(body)))
+		return rec.Code
+	}
+	if code := send(`{"name": "pi", "leaving": true}`); code != http.StatusNoContent {
+		t.Fatalf("mark leaving: %d", code)
+	}
+	if list, _ := peers.Load(mine); !list[1].Leaving || kicked != 1 {
+		t.Fatalf("after marking: %+v, kicked %d", list, kicked)
+	}
+	if code := send(`{"name": "desktop", "leaving": true}`); code != http.StatusConflict {
+		t.Fatalf("marking the admin: %d", code)
+	}
+	if code := send(`{"name": "nobody", "leaving": true}`); code != http.StatusNotFound {
+		t.Fatalf("marking an unknown node: %d", code)
+	}
+	if code := send(`{"name": "pi", "leaving": false}`); code != http.StatusNoContent {
+		t.Fatalf("keep it: %d", code)
+	}
+	if list, _ := peers.Load(mine); list[1].Leaving {
+		t.Fatal("still leaving after Keep it")
+	}
+}
+
+func TestMarkLeavingCountsMyShards(t *testing.T) {
+	states := []PeerState{{Name: "pi", Addr: "[200::2]:7400"}, {Name: "nas", Addr: "[200::3]:7400"}}
+	list := []peers.Peer{{Name: "pi", Addr: "[200::2]:7400", Leaving: true}, {Name: "nas", Addr: "[200::3]:7400"}}
+	shards := []ShardState{{Peer: "pi"}, {Peer: "nas"}, {Peer: "pi"}}
+	files := []FileState{{Chunks: []ChunkState{{Shards: shards}}}, {SharedBy: &manifest.Sender{}, Chunks: []ChunkState{{Shards: shards}}}}
+	markLeaving(states, list, files)
+	if !states[0].Leaving || states[0].Mine != 2 || states[1].Leaving || states[1].Mine != 0 {
+		t.Fatalf("got %+v", states)
 	}
 }

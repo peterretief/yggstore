@@ -67,7 +67,38 @@ func RepairChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch
 			return ch, 0, fmt.Errorf("shard %d rebuilt wrong; not storing it", i)
 		}
 	}
+	return placeShards(ctx, c, layout, ch, bad, shards, leaseID, online, list)
+}
 
+// MoveChunk moves the shards of ch at the indexes in move off the nodes
+// holding them, which still answer (a node about to go down, say), onto
+// other online peers, as RepairChunk would place them. Each is copied as it
+// is; if one can't be fetched, the shards are rebuilt from the others
+// instead. The copies left behind are not deleted.
+func MoveChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch manifest.Chunk, move []int, leaseID string, online, list []peers.Peer) (manifest.Chunk, int, error) {
+	if len(ch.Shards) != layout.TotalShards() {
+		return ch, 0, fmt.Errorf("chunk has %d shards, its layout %d", len(ch.Shards), layout.TotalShards())
+	}
+	shards := make([][]byte, len(ch.Shards))
+	for _, i := range move {
+		ref := ch.Shards[i]
+		data, err := c.Get(ctx, ref.Peer, ref.Hash)
+		if err != nil || manifest.Hash(data) != ref.Hash {
+			return RepairChunk(ctx, c, layout, ch, move, leaseID, online, list)
+		}
+		shards[i] = data
+	}
+	return placeShards(ctx, c, layout, ch, move, shards, leaseID, online, list)
+}
+
+// placeShards stores shards[i] for each i in bad on an online peer the
+// chunk doesn't use yet, on a machine below its share of the chunk, fast
+// peers before slow ones, and returns the chunk with their new places.
+func placeShards(ctx context.Context, c client.Client, layout erasure.Layout, ch manifest.Chunk, bad []int, shards [][]byte, leaseID string, online, list []peers.Peer) (manifest.Chunk, int, error) {
+	isBad := map[int]bool{}
+	for _, i := range bad {
+		isBad[i] = true
+	}
 	machineOf := machinesOf(append(append([]peers.Peer(nil), list...), online...))
 	used := map[string]bool{}
 	onMachine := map[string]int{}
