@@ -3,7 +3,7 @@
 # Pi, ready for scripts/provision-pi.sh: on its first boot the Pi takes the
 # NAME from factory/pi.conf (so it is NAME.local on the network), turns on
 # SSH, lets this machine's key in as root, and joins the Wi-Fi network if
-# WIFI_SSID is set. Nothing else is installed.
+# WIFI_SSID is set (and BENCH_WIFI_SSID, the factory's, if that is another). Nothing else is installed.
 #
 # Run it as yourself; it asks for sudo only to write the drive.
 #
@@ -54,14 +54,25 @@ size=$(lsblk -dnbo SIZE "$DEV")
 [ "$size" -le $((512 * 1024 ** 3)) ] || die "$DEV is bigger than 512 GB; is it really the Pi's drive?"
 [ -f "$SSH_KEY" ] || die "no SSH key at $SSH_KEY (set SSH_KEY)"
 key=$(cat "$SSH_KEY")
-if [ -n "${WIFI_SSID:-}" ]; then
-	[[ "$WIFI_SSID" != *[\"\\]* && ${#WIFI_SSID} -le 32 ]] || die "WIFI_SSID in $CONF must be at most 32 characters, without \" or \\"
-	[ ${#WIFI_PASSWORD} -ge 8 ] && [ ${#WIFI_PASSWORD} -le 63 ] || die "WIFI_PASSWORD in $CONF must be 8 to 63 characters"
-	[[ "${WIFI_COUNTRY:-}" =~ ^[A-Z]{2}$ ]] || die "WIFI_COUNTRY in $CONF must be a two-letter country code, such as ZA"
-	# The WPA key itself, so the password isn't on the drive as typed.
-	psk=$(WIFI_SSID=$WIFI_SSID WIFI_PASSWORD=$WIFI_PASSWORD python3 -c '
+# wifi_ap SSID PASSWORD SETTING: the network's entry in network-config, with
+# the WPA key itself, so the password isn't on the drive as typed.
+wifi_ap() {
+	[[ "$1" != *[\"\\]* && ${#1} -le 32 ]] || die "$3_SSID in $CONF must be at most 32 characters, without \" or \\"
+	[ ${#2} -ge 8 ] && [ ${#2} -le 63 ] || die "$3_PASSWORD in $CONF must be 8 to 63 characters"
+	local psk
+	psk=$(SSID=$1 PASS=$2 python3 -c '
 import hashlib, os
-print(hashlib.pbkdf2_hmac("sha1", os.environ["WIFI_PASSWORD"].encode(), os.environ["WIFI_SSID"].encode(), 4096, 32).hex())')
+print(hashlib.pbkdf2_hmac("sha1", os.environ["PASS"].encode(), os.environ["SSID"].encode(), 4096, 32).hex())')
+	printf '        "%s":\n          password: "%s"\n' "$1" "$psk"
+}
+aps=""
+if [ -n "${WIFI_SSID:-}" ]; then
+	[[ "${WIFI_COUNTRY:-}" =~ ^[A-Z]{2}$ ]] || die "WIFI_COUNTRY in $CONF must be a two-letter country code, such as ZA"
+	aps=$(wifi_ap "$WIFI_SSID" "${WIFI_PASSWORD:-}" WIFI)
+	# The factory's own network, for setting it up here, if it is another one.
+	if [ -n "${BENCH_WIFI_SSID:-}" ] && [ "$BENCH_WIFI_SSID" != "$WIFI_SSID" ]; then
+		aps+=$'\n'$(wifi_ap "$BENCH_WIFI_SSID" "${BENCH_WIFI_PASSWORD:-}" BENCH_WIFI)
+	fi
 fi
 
 say "Writing Raspberry Pi OS for $NAME to $DEV"
@@ -134,8 +145,7 @@ network:
       optional: true
       regulatory-domain: "$WIFI_COUNTRY"
       access-points:
-        "$WIFI_SSID":
-          password: "$psk"
+$aps
 EOF
 	# Wi-Fi stays off until it knows its country, from the first boot on.
 	grep -q 'cfg80211.ieee80211_regdom=' "$mnt/cmdline.txt" ||
@@ -145,7 +155,7 @@ sudo umount "$mnt"
 sync
 ok "name $NAME, SSH on, this machine's key ($(basename "$SSH_KEY")) let in as root"
 if [ -n "${WIFI_SSID:-}" ]; then
-	ok "joins the Wi-Fi network $WIFI_SSID ($WIFI_COUNTRY)"
+	ok "joins the Wi-Fi network $WIFI_SSID ($WIFI_COUNTRY)${BENCH_WIFI_SSID:+, or $BENCH_WIFI_SSID on the bench}"
 	printf '\nDONE: put the drive in the Pi and plug in power; it joins %s.\n' "$WIFI_SSID"
 else
 	printf '\nDONE: put the drive in the Pi, plug in a network cable and power.\n'

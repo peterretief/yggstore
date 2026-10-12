@@ -103,6 +103,29 @@ A box set up with Raspberry Pi Imager instead works too: set `PI_SSH` to
 the user and name chosen there (the script uses `sudo` when that user isn't
 root).
 
+### A Pi Zero 2 W
+
+A Pi Zero 2 W makes a small hub on Wi-Fi. It has no network socket, starts
+from a microSD card, and keeps the shards on a USB stick in its USB port
+(the middle one, not PWR), through a micro-USB OTG adapter. Its settings
+are in `factory/zero.conf`: set `NAME`, the Wi-Fi where it will live
+(`WIFI_SSID`, `WIFI_PASSWORD`, `WIFI_COUNTRY`; 2.4 GHz only) and, if that
+isn't this network, the factory's (`BENCH_WIFI_SSID`, `BENCH_WIFI_PASSWORD`).
+Then, with the card in a reader on the admin's machine:
+
+```sh
+scripts/setup-zero.sh              # lists the cards it could write
+scripts/setup-zero.sh /dev/sdX     # writes it, waits for the Zero, sets it up
+```
+
+It writes the card as `flash-pi.sh` does, then asks you to put the card and
+stick in the Zero and power it. It waits for the Zero to come up on Wi-Fi
+(the first start takes a few minutes) and checks it is a Zero 2 W: the
+first Pi Zero W is 32-bit and too slow. Then it runs `provision-pi.sh`,
+which formats the stick after you type `erase`. If something stopped it
+after the card was written, `scripts/setup-zero.sh -s` carries on from the
+running Zero.
+
 ### The hub's group
 
 The hub uses the group of the node running on the same machine. It finds

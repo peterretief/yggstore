@@ -227,6 +227,8 @@ from the admin's machine instead. Set its name in `factory/pi.conf`, then
 `scripts/flash-pi.sh /dev/sdX` writes a USB drive or SD card it boots from,
 and `scripts/provision-pi.sh` installs it, joins it to the group with an
 invite from the admin dashboard, and starts its node, hub and Syncthing.
+For a Pi Zero 2 W on Wi-Fi, `scripts/setup-zero.sh /dev/sdX` does it all
+from its microSD card, with `factory/zero.conf`.
 
 Nodes on older software show "update yggstore" on the dashboard and are not
 sent lists. Install the new binary on them and restart them; a node that has
