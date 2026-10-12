@@ -27,7 +27,7 @@ func PutFolder(ctx context.Context, c client.Client, dir string, online []peers.
 	var fileCount int
 	var contentBytes int64
 	go func() {
-		pw.CloseWithError(writeTar(dir, pw, &fileCount, &contentBytes, opts.Log))
+		pw.CloseWithError(writeTar(dir, pw, &fileCount, &contentBytes, opts.Log, opts.Skip))
 	}()
 	m, chal, sum, err := PutReader(ctx, c, pr, filepath.Base(dir), online, opts)
 	pr.CloseWithError(errors.New("upload stopped")) // unblocks the tar writer if Put failed early
@@ -38,7 +38,7 @@ func PutFolder(ctx context.Context, c client.Client, dir string, online []peers.
 	return m, chal, sum, nil
 }
 
-func writeTar(dir string, w io.Writer, fileCount *int, contentBytes *int64, logf func(string, ...any)) error {
+func writeTar(dir string, w io.Writer, fileCount *int, contentBytes *int64, logf func(string, ...any), skip func(string, bool) bool) error {
 	tw := tar.NewWriter(w)
 	err := filepath.WalkDir(dir, func(path string, e fs.DirEntry, err error) error {
 		if err != nil {
@@ -50,6 +50,12 @@ func writeTar(dir string, w io.Writer, fileCount *int, contentBytes *int64, logf
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
+		}
+		if skip != nil && skip(filepath.ToSlash(rel), e.IsDir()) {
+			if e.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		info, err := e.Info()
 		if err != nil {

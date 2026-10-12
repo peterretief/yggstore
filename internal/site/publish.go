@@ -30,6 +30,8 @@ type Publisher struct {
 	Client   client.Client
 	Announce Announcer
 	Log      func(string, ...any)
+	// Skip leaves files out of what is published (see files.PutOptions).
+	Skip func(rel string, dir bool) bool
 }
 
 // Version is one stored version of a site.
@@ -124,7 +126,7 @@ func (p *Publisher) Publish(ctx context.Context, name, folder string, online []p
 	if _, err := os.Stat(filepath.Join(folder, "index.html")); err != nil {
 		p.logf("note: %s has no index.html, so its home page will be empty", folder)
 	}
-	opts := files.PutOptions{Log: p.Log}
+	opts := files.PutOptions{Log: p.Log, Skip: p.Skip}
 	var prev *manifest.Manifest
 	if vs, _ := p.Versions(name); len(vs) > 0 {
 		for _, v := range vs {

@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -71,5 +73,22 @@ func TestGetSkipsSlowAndDownNodes(t *testing.T) {
 	down[3].Store(true)
 	if err := Get(context.Background(), c, m, &bytes.Buffer{}, nil); err == nil {
 		t.Fatal("rebuilt with only 3 of 6 nodes reachable")
+	}
+}
+
+func TestWriteTarSkip(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("hi"), 0o644)
+	os.MkdirAll(filepath.Join(dir, ".stversions", "x"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".stversions", "x", "old.html"), []byte("old"), 0o644)
+	var buf bytes.Buffer
+	var n int
+	var b int64
+	skip := func(rel string, dir bool) bool { return rel == ".stversions" }
+	if err := writeTar(dir, &buf, &n, &b, nil, skip); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || strings.Contains(buf.String(), "old.html") {
+		t.Fatalf("%d files, tar has old.html: %v", n, strings.Contains(buf.String(), "old.html"))
 	}
 }

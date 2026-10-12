@@ -47,6 +47,7 @@ type Switches struct {
 type HubState struct {
 	Switches
 	Users []User `json:"users"`
+	Sites []Site `json:"sites,omitempty"`
 }
 
 // Update changes the state file under its lock.
@@ -102,23 +103,32 @@ type Users struct {
 	myID     string
 	err      string // the last problem talking to Syncthing
 	watchers map[string]context.CancelFunc
-	paused   map[string]bool // folders as last set in Syncthing
+	paused   map[string]bool   // folders as last set in Syncthing
+	shared   map[string]string // site folders: the devices last shared with, and paused
 }
 
 func NewUsers(cfg UsersConfig) *Users {
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
 	}
-	return &Users{cfg: cfg, watchers: map[string]context.CancelFunc{}, paused: map[string]bool{}}
+	return &Users{cfg: cfg, watchers: map[string]context.CancelFunc{}, paused: map[string]bool{}, shared: map[string]string{}}
 }
 
 // Status is what the hub page shows of pairing.
 type Status struct {
-	DeviceID string `json:"device_id,omitempty"` // the hub's Syncthing ID, to add on a device
-	Pairing  bool   `json:"pairing"`
-	Paused   bool   `json:"paused"`
-	Users    int    `json:"users"`
-	Problem  string `json:"problem,omitempty"`
+	DeviceID string       `json:"device_id,omitempty"` // the hub's Syncthing ID, to add on a device
+	Pairing  bool         `json:"pairing"`
+	Paused   bool         `json:"paused"`
+	Users    int          `json:"users"`
+	Problem  string       `json:"problem,omitempty"`
+	Sites    []SiteStatus `json:"sites"`
+}
+
+// SiteStatus is a site as the hub page shows it (sites are public anyway).
+type SiteStatus struct {
+	Name      string `json:"name"`
+	Published int64  `json:"published,omitempty"`
+	Problem   string `json:"problem,omitempty"`
 }
 
 func (u *Users) Status() Status {
@@ -132,6 +142,12 @@ func (u *Users) Status() Status {
 	for _, us := range st.Users {
 		if !us.Remove {
 			s.Users++
+		}
+	}
+	s.Sites = []SiteStatus{}
+	for _, si := range st.Sites {
+		if !si.Remove {
+			s.Sites = append(s.Sites, SiteStatus{Name: si.Name, Published: si.Published, Problem: si.Problem})
 		}
 	}
 	return s
@@ -246,6 +262,52 @@ func (u *Users) step(ctx context.Context) error {
 		if err := u.pair(ctx, st); err != nil {
 			return err
 		}
+		if st, err = Load(u.cfg.StatePath); err != nil { // with the devices just paired
+			return err
+		}
+	}
+	return u.shareSites(ctx, st, have)
+}
+
+// shareSites keeps each site's folder shared with every paired device, and
+// drops the folders of sites removed. Sites are shared once seeded (see
+// Sites.seed), so nobody syncs an empty folder over the live site.
+func (u *Users) shareSites(ctx context.Context, st HubState, have map[string]bool) error {
+	devs := []string{u.myID}
+	for _, us := range st.Users {
+		if !us.Remove {
+			devs = append(devs, us.Device)
+		}
+	}
+	want := fmt.Sprint(devs, st.Paused)
+	var removed []string
+	for _, si := range st.Sites {
+		switch {
+		case si.Remove:
+			if err := u.cfg.ST.RemoveFolder(ctx, si.Folder); err != nil && !notFound(err) {
+				return err
+			}
+			delete(u.shared, si.Folder)
+			removed = append(removed, si.Name)
+			u.cfg.Logf("hub: site %s no longer synced; its files stay in %s", si.Name, si.Path)
+		case !si.Seeded:
+		case !have[si.Folder] || u.shared[si.Folder] != want:
+			if err := u.cfg.ST.AddFolder(ctx, syncthing.Folder{ID: si.Folder, Label: si.Name + " (website)", Path: si.Path,
+				Devices: devs, Paused: st.Paused, TrashDays: 0}); err != nil {
+				return err
+			}
+			if !have[si.Folder] {
+				u.cfg.Logf("hub: site %s shared with the paired devices", si.Name)
+			}
+			u.shared[si.Folder] = want
+		}
+	}
+	if len(removed) > 0 {
+		_, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
+			s.Sites = slices.DeleteFunc(s.Sites, func(x Site) bool { return x.Remove && slices.Contains(removed, x.Name) })
+			return nil
+		})
+		return err
 	}
 	return nil
 }

@@ -172,3 +172,43 @@ func TestSwitchesAndLimit(t *testing.T) {
 		t.Fatalf("users after remove: %+v", st.Users)
 	}
 }
+
+// TestSitesSharedWithEveryDevice: a site's folder goes to every paired
+// device once seeded, follows new devices, and is dropped when removed.
+func TestSitesSharedWithEveryDevice(t *testing.T) {
+	u, fake, dir := setupUsers(t, 0)
+	statePath := filepath.Join(dir, "hub.json")
+	ctx := context.Background()
+	sitePath := filepath.Join(dir, "sites", "shop.example.org")
+	os.MkdirAll(sitePath, 0o755)
+	Update(ctx, statePath, func(s *HubState) error {
+		s.Sites = append(s.Sites, Site{Name: "shop.example.org", Folder: SiteFolderID("shop.example.org"), Path: sitePath})
+		return nil
+	})
+	fake.pending["ANNAAAA-1"] = syncthing.PendingDevice{Name: "anna", Address: "192.168.1.20:22000"}
+	u.step(ctx)
+	if fake.folders[SiteFolderID("shop.example.org")] != nil {
+		t.Fatal("site shared before its folder was seeded")
+	}
+
+	Update(ctx, statePath, func(s *HubState) error { s.Sites[0].Seeded = true; return nil })
+	u.step(ctx)
+	devices := func() string {
+		b, _ := json.Marshal(fake.folders[SiteFolderID("shop.example.org")]["devices"])
+		return string(b)
+	}
+	if d := devices(); !strings.Contains(d, "HUBHUBH") || !strings.Contains(d, "ANNAAAA-1") {
+		t.Fatalf("site shared with %s; want the hub and anna", d)
+	}
+	fake.pending["BOBBBBB-2"] = syncthing.PendingDevice{Name: "bob", Address: "192.168.1.21:22000"}
+	u.step(ctx)
+	if d := devices(); !strings.Contains(d, "BOBBBBB-2") {
+		t.Fatalf("new device not given the site: %s", d)
+	}
+
+	Update(ctx, statePath, func(s *HubState) error { s.Sites[0].Remove = true; return nil })
+	u.step(ctx)
+	if st, _ := Load(statePath); len(st.Sites) != 0 || fake.folders[SiteFolderID("shop.example.org")] != nil {
+		t.Fatalf("site not removed: %+v", st.Sites)
+	}
+}

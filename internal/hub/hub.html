@@ -45,7 +45,7 @@ pre { margin: 10px 0 0; padding: 10px 12px; background: var(--bg); border: 1px s
 button { font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--info); background: var(--info); color: #fff; cursor: pointer; margin-top: 10px; }
 button:disabled { opacity: .5; cursor: default; }
 p { margin: 8px 0; }
-ol { margin: 10px 0; padding-left: 20px; }
+ol, ul { margin: 10px 0; padding-left: 20px; }
 li { margin: 6px 0; }
 .row .pill + .pill { margin-left: 2px; }
 </style>
@@ -68,6 +68,7 @@ li { margin: 6px 0; }
         <pre id="stid"></pre></li>
       <li>A moment later Syncthing asks whether to add the <b>yggstore</b> folder this box shares. Accept it and choose where to keep it on your computer.</li>
     </ol>
+    <div id="sites"></div>
     <p class="sub">Files you put in that folder are stored in the group, encrypted and spread over its machines, and each is replaced by a small stub (.ystub), here and on your computer.
     To get a file back, put its stub in <b>restore/</b>: the file appears in <b>restored/</b>.</p>
   </div>
@@ -158,6 +159,10 @@ function showSync(s) {
     + ' <span class="sub">' + s.users + (s.users == 1 ? ' device' : ' devices') + ' paired</span>'
     + (s.problem ? '<div class="sub">' + esc(s.problem) + '</div>' : '');
   $('stid').textContent = s.device_id || '(waiting for Syncthing)';
+  $('sites').innerHTML = (s.sites || []).length ? '<p>Websites kept here, which Syncthing also offers you: edit one and it is published within a minute.</p><ul>'
+    + s.sites.map(x => '<li><b>' + esc(x.name) + '</b> <span class="sub">'
+      + (x.published ? 'published ' + new Date(x.published * 1000).toLocaleString() : 'not published from here yet')
+      + (x.problem ? ' · latest change held back: ' + esc(x.problem) : '') + '</span></li>').join('') + '</ul>' : '';
 }
 $('win').hidden = !/Windows/i.test(navigator.userAgent);
 refresh();

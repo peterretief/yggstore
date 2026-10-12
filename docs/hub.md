@@ -37,7 +37,8 @@ sudo ufw allow from 192.168.0.0/16 to any port 21027 proto udp    # finding it o
 ```
 
 The hub finds Syncthing's address and API key in its `config.xml`. The
-devices' folders go in `~/yggstore-hub/NAME` (`-users` to change it).
+devices' folders go in `~/yggstore-hub/users/NAME` and websites in
+`~/yggstore-hub/sites/DOMAIN` (`-dir` to change it).
 
 ## Syncing a device
 
@@ -61,6 +62,47 @@ Then, in that folder:
 
 A stub deleted on the device is kept on the box, in the folder's
 `.stversions`, so deleting one by mistake doesn't lose the file.
+
+## Websites
+
+A hub can also keep websites. Each one is a folder of its own, separate
+from the files: Syncthing offers it to every paired device next to the
+**yggstore** folder, and when someone changes it, the hub publishes it to
+the group (see [websites](sites.md)) about 15 seconds after the last change.
+
+Set a site up on the box before devices pair. Publish it once from the box,
+which makes the box the machine allowed to change it, then hand it to the
+hub:
+
+```sh
+yggstore site publish ./shop -name shop.example.org    # once, from the box
+yggstore hub site add shop.example.org
+```
+
+The hub fills the site's folder (`~/yggstore-hub/sites/shop.example.org`)
+with the version being served, so everyone starts from the live site.
+A hub can keep several sites; each is published separately.
+
+An edit that looks like a mistake is held back, and the live site stays as
+it was:
+
+- the folder has no `index.html`
+- it shrank to less than half of the version being served
+- it is bigger than `-site-max` (500 MB)
+
+`yggstore hub sites` shows why, and `yggstore hub site publish DOMAIN`
+publishes it anyway. Every version is kept, so `yggstore site rollback
+DOMAIN` undoes an edit. A site is published at most once a minute.
+Syncthing's own files (`.stfolder`, `.stversions`, `.stignore`) are never
+published.
+
+```sh
+yggstore hub sites                       # the sites, when each was last published
+yggstore hub site remove shop.example.org   # stop syncing and publishing it (it stays up)
+```
+
+For now every paired device can edit every site on the hub. Keep the hub's
+LAN to people you'd let change them.
 
 ## Turning it off
 

@@ -48,6 +48,9 @@ type PutOptions struct {
 	// chunks whose plaintext it already holds are reused instead of stored
 	// again, so a new version costs only what changed.
 	Previous *manifest.Manifest
+	// Skip, for folders, leaves out the files and folders it returns true
+	// for, by their path inside the folder (with /).
+	Skip func(rel string, dir bool) bool
 }
 
 // Reused counts the chunks of m that also belong to prev.
