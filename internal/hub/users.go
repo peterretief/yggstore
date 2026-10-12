@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -329,7 +328,7 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 		if known(st.Users, id) {
 			continue
 		}
-		if !onLAN(p.Address) {
+		if !OnLAN(p.Address) {
 			u.cfg.Logf("hub: not pairing %s (%s): it isn't on the local network (%s)", p.Name, short(id), p.Address)
 			u.cfg.ST.DismissPending(ctx, id)
 			continue
@@ -405,16 +404,6 @@ func notFound(err error) bool { return strings.Contains(err.Error(), "404") }
 
 func known(list []User, id string) bool {
 	return slices.ContainsFunc(list, func(us User) bool { return us.Device == id })
-}
-
-// onLAN is whether a device connected from the local network.
-func onLAN(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }
 
 // short is the first part of a device ID, as Syncthing shows it.

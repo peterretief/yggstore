@@ -16,7 +16,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -181,13 +180,11 @@ func (h *Hub) Handler() http.Handler {
 	return lanOnly(mux)
 }
 
-// lanOnly answers this machine and the local network, and nobody else, in
-// case the port is opened to the internet by mistake.
+// lanOnly answers this machine and the local network (see OnLAN), and
+// nobody else, in case the port is opened to the internet by mistake.
 func lanOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, _ := net.SplitHostPort(r.RemoteAddr)
-		ip := net.ParseIP(host)
-		if ip == nil || !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) {
+		if !OnLAN(r.RemoteAddr) {
 			http.Error(w, "the hub only answers the local network", http.StatusForbidden)
 			return
 		}

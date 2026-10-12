@@ -31,9 +31,20 @@ sudo apt-get install -y syncthing
 systemctl --user enable --now syncthing
 sudo loginctl enable-linger $USER     # keep both running when you log out
 yggstore hub -service                 # runs it now and at every start
-sudo ufw allow from 192.168.0.0/16 to any port 7490 proto tcp     # the page
-sudo ufw allow from 192.168.0.0/16 to any port 22000              # Syncthing
-sudo ufw allow from 192.168.0.0/16 to any port 21027 proto udp    # finding it on the LAN
+```
+
+Nothing here depends on which network the box is plugged into: the hub
+works out its local network as it goes, so it can move to another LAN.
+
+If you turn on a firewall (Raspberry Pi OS has none by default), let in
+every private range, so it keeps working on whatever LAN the box ends up on:
+
+```sh
+for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fd00::/8 fe80::/10; do
+  sudo ufw allow from $net to any port 7490 proto tcp    # the page
+  sudo ufw allow from $net to any port 22000             # Syncthing
+  sudo ufw allow from $net to any port 21027 proto udp   # finding it on the LAN
+done
 ```
 
 The hub finds Syncthing's address and API key in its `config.xml`. The
@@ -122,8 +133,10 @@ day, or until you raise it.
 ## What the hub changes in Syncthing
 
 It keeps Syncthing to the LAN: global discovery, relays and NAT traversal
-are turned off, and only devices that connect from a local address (such as
-`192.168.…`, `10.…` or `fd…`) are paired. Others are turned away and logged.
+are turned off, and only devices on the local network are paired. That is a
+private address (such as `192.168.…`, `10.…` or `fd…`), or one on the same
+network as the box (as with most home IPv6). Others are turned away and
+logged.
 Each device's folder is shared with that device only.
 
 Everything on the box is stored as the box's owner, with its sharing key.
@@ -173,6 +186,5 @@ against the release's checksums.
 - The page and installer come over plain HTTP on the LAN. Anyone who can
   tamper with your LAN traffic could change the installer, so use the hub
   on a network you trust.
-- It answers only loopback, private (`192.168.…`, `10.…`, `fd…`) and
-  link-local addresses, in case its port is opened to the internet by
-  mistake.
+- It answers only the local network, in the same sense, in case its port
+  is opened to the internet by mistake.
