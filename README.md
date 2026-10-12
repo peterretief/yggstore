@@ -44,6 +44,9 @@ independent. Don't make it the only copy of anything you can't lose.
 - Your dashboard can [open on your other devices](docs/remote-dashboard.md),
   at `yourbox.local` on the LAN or over Yggdrasil from anywhere. A device is
   let in by its Yggdrasil address, so there's no password to steal.
+- A box such as a Raspberry Pi can be a [hub](docs/hub.md): the computers
+  and phones on the LAN sync a folder with it through Syncthing, and what
+  they put there is stored in the group. They need nothing but Syncthing.
 - [Websites](docs/sites.md) can live on the group: publish a folder, and
   several machines serve it, so a site stays up when one of them goes down.
   A site's [contact form](docs/sites.md#a-contact-form) sends to your

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yggstore box</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea;
+  --ok: #1f9d55; --ok-bg: #e5f5ec; --bad: #d64545; --bad-bg: #fbe9e9;
+  --info: #3b6fd8; --empty: #e6e9ed; --bar: #3b6fd8;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418; --panel: #1a1e24; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038;
+    --ok: #3ccf7e; --ok-bg: #173225; --bad: #f07070; --bad-bg: #3d1c1c;
+    --info: #79a2f2; --empty: #2a3038; --bar: #79a2f2;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 20px; margin: 0 0 2px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 10px; font-weight: 600; }
+.sub { color: var(--muted); font-size: 13px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.name { font-weight: 600; font-size: 15px; }
+.mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.pill.ok { color: var(--ok); background: var(--ok-bg); }
+.pill.bad { color: var(--bad); background: var(--bad-bg); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 10px; }
+.stats span { display: block; color: var(--muted); font-size: 11px; }
+.stats b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.bar { height: 6px; background: var(--empty); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--bar); }
+label { display: block; font-weight: 600; margin-bottom: 6px; }
+input { width: 100%; font: 12px var(--mono); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+pre { margin: 10px 0 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+button { font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--info); background: var(--info); color: #fff; cursor: pointer; margin-top: 10px; }
+button:disabled { opacity: .5; cursor: default; }
+p { margin: 8px 0; }
+ol { margin: 10px 0; padding-left: 20px; }
+li { margin: 6px 0; }
+.row .pill + .pill { margin-left: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="host">yggstore box</h1>
+  <div class="sub" id="ver"></div>
+
+  <h2>This box's node</h2>
+  <div class="card" id="node"><span class="sub">Checking…</span></div>
+
+  <section id="sync" hidden>
+  <h2>Sync your files with this box</h2>
+  <div class="card">
+    <div class="row" id="syncstate"></div>
+    <ol>
+      <li>Install <a href="https://syncthing.net/downloads/">Syncthing</a> on your computer or phone.</li>
+      <li>In Syncthing, choose <b>Add Remote Device</b>. This box shows up in the list of nearby devices; or enter its ID:
+        <pre id="stid"></pre></li>
+      <li>A moment later Syncthing asks whether to add the <b>yggstore</b> folder this box shares. Accept it and choose where to keep it on your computer.</li>
+    </ol>
+    <p class="sub">Files you put in that folder are stored in the group, encrypted and spread over its machines, and each is replaced by a small stub (.ystub), here and on your computer.
+    To get a file back, put its stub in <b>restore/</b>: the file appears in <b>restored/</b>.</p>
+  </div>
+  </section>
+
+  <h2>Put a node on this computer</h2>
+  <div class="card">
+    <div id="win" hidden>
+      <p>This looks like Windows. The installer below is for Linux and macOS; on Windows, follow the
+      <a href="https://github.com/peterretief/yggstore/blob/main/docs/storage-box-guide.md">storage box guide</a>.</p>
+    </div>
+    <label for="invite">Invite</label>
+    <input id="invite" placeholder="yggjoin1:…" autocomplete="off" spellcheck="false">
+    <p class="sub">An admin makes one on their dashboard (Invite someone). It's used once, and only by this computer.</p>
+    <div id="cmdbox" hidden>
+      <p>Run this in a terminal <b>on this computer</b>. It installs yggstore for your system, joins the group and starts the node:</p>
+      <pre id="cmd"></pre>
+      <button id="copy">Copy</button>
+    </div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function size(n) {
+  const u = ['B','KB','MB','GB','TB']; let i = 0;
+  while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return (i ? n.toFixed(1) : n) + ' ' + u[i];
+}
+function ago(t) {
+  const s = Math.floor(Date.now()/1000 - t);
+  if (s < 3600) return Math.floor(s/60) + ' min';
+  if (s < 86400) return Math.floor(s/3600) + ' h';
+  return Math.floor(s/86400) + ' days';
+}
+
+async function refresh() {
+  let st;
+  try { st = await (await fetch('api/state', {cache: 'no-store'})).json(); }
+  catch (e) { $('node').innerHTML = '<span class="pill bad">hub not answering</span>'; return; }
+  $('host').textContent = st.hostname || 'yggstore box';
+  document.title = (st.hostname || 'yggstore') + ' · box';
+  $('ver').textContent = 'yggstore ' + st.version;
+  showSync(st.sync);
+  const n = st.node;
+  if (st.problem) {
+    $('node').innerHTML = '<span class="pill bad">no group</span> <span class="sub">' + esc(st.problem) + '</span>';
+  } else if (!n) {
+    $('node').innerHTML = '<span class="pill bad">not found</span> <span class="sub">This box isn\'t in its own peer list. '
+      + st.up + ' of ' + st.nodes + ' nodes in the group answer.</span>';
+  } else {
+    const pct = n.quota_bytes ? Math.min(100, 100 * n.used_bytes / n.quota_bytes) : 0;
+    $('node').innerHTML =
+      '<div class="row"><span class="name">' + esc(n.name) + '</span>'
+      + (n.up ? '<span class="pill ok">up</span>' : '<span class="pill bad">down</span>') + '</div>'
+      + '<div class="mono sub">' + esc(n.addr) + '</div>'
+      + (n.up
+        ? '<div class="stats"><div><span>Used</span><b>' + size(n.used_bytes) + '</b></div>'
+          + '<div><span>Shards</span><b>' + n.shards + '</b></div>'
+          + '<div><span>Running for</span><b>' + ago(n.started_at) + '</b></div></div>'
+          + '<div class="bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>'
+          + '<p class="sub">' + size(n.quota_bytes) + ' given to the group · '
+        : '<p class="sub">' + esc(n.error || '') + '<br>')
+      + st.up + ' of ' + st.nodes + ' nodes in the group answer</p>';
+  }
+}
+
+const cmd = () => "curl -fsSL '" + location.origin + "/install.sh' | sh -s -- '" + $('invite').value.trim() + "'";
+$('invite').addEventListener('input', () => {
+  const v = $('invite').value.trim();
+  const ok = /^yggjoin1:[A-Za-z0-9_-]+$/.test(v.replace(/\s+/g, ''));
+  $('invite').value = v.replace(/\s+/g, '');
+  $('cmdbox').hidden = !ok;
+  if (ok) $('cmd').textContent = cmd();
+});
+$('copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(cmd()); $('copy').textContent = 'Copied'; }
+  catch (e) { getSelection().selectAllChildren($('cmd')); $('copy').textContent = 'Press Ctrl+C'; }
+  setTimeout(() => $('copy').textContent = 'Copy', 2000);
+});
+function showSync(s) {
+  $('sync').hidden = !s;
+  if (!s) return;
+  const pill = (ok, yes, no) => '<span class="pill ' + (ok ? 'ok' : 'bad') + '">' + (ok ? yes : no) + '</span>';
+  $('syncstate').innerHTML = pill(!s.problem, 'syncing', 'problem')
+    + pill(s.pairing && !s.problem, 'taking new devices', 'not taking new devices')
+    + (s.paused ? pill(false, '', 'syncing paused') : '')
+    + ' <span class="sub">' + s.users + (s.users == 1 ? ' device' : ' devices') + ' paired</span>'
+    + (s.problem ? '<div class="sub">' + esc(s.problem) + '</div>' : '');
+  $('stid').textContent = s.device_id || '(waiting for Syncthing)';
+}
+$('win').hidden = !/Windows/i.test(navigator.userAgent);
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>

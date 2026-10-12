@@ -57,6 +57,9 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
                                                            live status page; with -outfiles it also
                                                            runs the outbox watcher (see watch)
   yggstore devices [add ADDR NAME | remove ADDR|NAME]      devices that may open your dashboard (see docs/remote-dashboard.md)
+  yggstore hub     [-listen :7490] [-users DIR] [-service] | off|on|pause|resume|users|remove NAME
+                                                           LAN devices sync files with this box through
+                                                           Syncthing, which stores them (see docs/hub.md)
   yggstore msg     send|pub|sub|unsub|read|status ...      message other nodes (see docs/messaging.md)
   yggstore site    publish|list|versions|rollback|announce|remove|status ...
                                                            host static websites on the group (see docs/sites.md)
@@ -174,6 +177,8 @@ func main() {
 		err = cmdMesh(ctx, args)
 	case "devices":
 		err = cmdDevices(args)
+	case "hub":
+		err = cmdHub(ctx, args)
 	case "mail":
 		err = cmdMail(ctx, args)
 	case "repair":

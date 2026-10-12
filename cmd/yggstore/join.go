@@ -144,6 +144,15 @@ func yggHelp(inv invite.Invite) string {
 // installServices writes systemd user units for the node and dashboard and
 // starts them.
 func installServices(group string, node, dash []string) error {
+	return installUnits(map[string]string{
+		"yggstore-node.service":      unit("yggstore node ("+group+")", node),
+		"yggstore-dashboard.service": unit("yggstore dashboard on http://127.0.0.1:7480", dash),
+	})
+}
+
+// installUnits writes systemd user units, named NAME.service, and starts
+// them.
+func installUnits(units map[string]string) error {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return errors.New("systemctl not found")
 	}
@@ -151,11 +160,9 @@ func installServices(group string, node, dash []string) error {
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		return err
 	}
-	units := map[string]string{
-		"yggstore-node.service":      unit("yggstore node ("+group+")", node),
-		"yggstore-dashboard.service": unit("yggstore dashboard on http://127.0.0.1:7480", dash),
-	}
+	start := []string{"--user", "enable", "--now"}
 	for name, body := range units {
+		start = append(start, strings.TrimSuffix(name, ".service"))
 		path := filepath.Join(unitDir, name)
 		if _, err := os.Stat(path); err == nil {
 			return fmt.Errorf("%s already exists; not overwriting it", path)
@@ -164,7 +171,7 @@ func installServices(group string, node, dash []string) error {
 			return err
 		}
 	}
-	for _, args := range [][]string{{"--user", "daemon-reload"}, {"--user", "enable", "--now", "yggstore-node", "yggstore-dashboard"}} {
+	for _, args := range [][]string{{"--user", "daemon-reload"}, start} {
 		if out, err := exec.Command("systemctl", args...).CombinedOutput(); err != nil {
 			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, out)
 		}
