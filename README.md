@@ -46,7 +46,10 @@ independent. Don't make it the only copy of anything you can't lose.
   let in by its Yggdrasil address, so there's no password to steal.
 - A box such as a Raspberry Pi can be a [hub](docs/hub.md): the computers
   and phones on the LAN sync a folder with it through Syncthing, and what
-  they put there is stored in the group. They need nothing but Syncthing.
+  they put there is stored in the group. They need nothing but Syncthing,
+  and the box's own page shows them how to set it up. The admin prepares
+  each box from their machine with two scripts, so it arrives named, in the
+  group and ready.
 - [Websites](docs/sites.md) can live on the group: publish a folder, and
   several machines serve it, so a site stays up when one of them goes down.
   A site's [contact form](docs/sites.md#a-contact-form) sends to your
@@ -215,6 +218,12 @@ In short, the new machine starts with a peers.json holding just the desktop's
 entry, runs `yggstore serve`, and you paste what `yggstore id -name NAME`
 prints. New uploads use it straight away; files already stored stay put.
 
+A Raspberry Pi [hub](docs/hub.md#setting-up-a-box-in-the-factory) is added
+from the admin's machine instead. Set its name in `factory/pi.conf`, then
+`scripts/flash-pi.sh /dev/sdX` writes a USB drive or SD card it boots from,
+and `scripts/provision-pi.sh` installs it, joins it to the group with an
+invite from the admin dashboard, and starts its node, hub and Syncthing.
+
 Nodes on older software show "update yggstore" on the dashboard and are not
 sent lists. Install the new binary on them and restart them; a node that has
 never been sent a list also needs `"admin": true` on the admin node's entry in
@@ -319,6 +328,9 @@ localhost only by default.
 To try it on one machine: `scripts/local-demo.sh` runs six nodes on
 different ports of your Yggdrasil address, stores a file, stops two nodes and
 restores it. `scripts/local-demo.sh loopback` does the same on `::1`.
+`scripts/hub-syncthing.sh` tries a hub with two Syncthings on one machine:
+pairing, storing and restoring through the synced folder, websites and the
+switches.
 
 Tests: `go test -race ./...`
 

@@ -9,23 +9,97 @@ members' machines. The device doesn't need yggstore, only Syncthing.
 The hub pairs devices by itself. Any device on the local network that adds
 the box is accepted, and you can turn that off at any time.
 
-The hub also serves a page on the LAN (port 7490). It shows:
+The admin sets each box up before it goes out ([below](#setting-up-a-box-in-the-factory)):
+its name, its group and its websites are on it already. Where it ends up,
+it needs only power and a network cable, and users need only its page.
 
-- **This box's node**: whether it's up, how much it holds of what it gives
-  the group, and how long it has been running.
-- **Syncing**: the box's Syncthing ID, whether it is taking new devices,
-  and how many are paired.
-- **Put a node on this computer**: members with their own box can install
-  a full node from here, with an invite.
+The hub serves that page on the LAN, at `http://NAME.local:7490`. It is
+written for the people who use the box, not for developers:
+
+1. **Install Syncthing**, with steps for Windows, Mac, Linux, Android
+   (Syncthing-Fork) and iPhone (Möbius Sync). The visitor's own system is
+   opened.
+2. **Connect to this box**: the box's Syncthing ID and its address
+   (`tcp://IP:22000`), each with a Copy button, and where to paste them in
+   Syncthing. Then accept the folder the box offers.
+3. **Use the folder**: how to store, restore and delete files.
+
+Below that, **This box** shows whether its node is up, how many of the
+group's machines answer, and whether it is taking new devices. A folded
+section at the bottom lets members with a computer of their own install a
+full node, with an invite.
 
 Unlike the [dashboard](remote-dashboard.md), the page holds nothing private,
 so it needs no list of devices: anyone on the LAN can open it, and nobody
 from outside the LAN can.
 
-## Start it
+## Setting up a box in the factory
 
-On Raspberry Pi OS (or Debian, Ubuntu), as root, which suits a box that
-does only this:
+The admin sets up a Raspberry Pi on their own machine, the one whose
+dashboard is the group's admin, with the Pi on the same network. Nothing is
+typed on the Pi. Its settings are in one file, `factory/pi.conf`:
+
+| Setting | What it is |
+|---|---|
+| `NAME` | The box's one name: on the network (`NAME.local`), as a node in the group, and as the hub users see. Set it for each Pi. |
+| `OWNER` | Whose space and uploads the box counts towards in the group. |
+| `PI_SSH` | How to reach the Pi on the bench (`root@NAME.local`). |
+| `GROUP`, `ADMIN_DASHBOARD` | The group, and the admin dashboard that makes the box's invite. There is one group. |
+| `QUOTA_GB`, `CUSTOMERS` | What the node gives the group, and whether it holds customers' files. |
+| `PAIR_LIMIT`, `SITES`, `SITE_MAX_MB` | The hub's settings: devices paired a day, the websites it keeps, their largest size. |
+
+Then, for each Pi:
+
+1. **Write its drive.** Plug a USB drive or SD card into the admin's
+   machine:
+
+   ```sh
+   scripts/flash-pi.sh              # lists the USB drives and SD cards
+   scripts/flash-pi.sh /dev/sdX     # writes one (asks for sudo, and to type its name)
+   ```
+
+   It downloads Raspberry Pi OS Lite (64-bit), checks it and writes it.
+   Then it sets up the first boot, through cloud-init on the boot
+   partition. The Pi takes `NAME`, turns SSH on and lets this machine's key
+   (`~/.ssh/id_ed25519.pub`, or `SSH_KEY`) in as root, with no passwords.
+   A Pi 3 B+ or newer boots from USB as it comes.
+
+2. **Boot it** with a network cable that reaches the internet. After a
+   minute or two it answers at `NAME.local`.
+
+3. **Set it up:**
+
+   ```sh
+   scripts/provision-pi.sh -n       # optional: show the steps, change nothing
+   scripts/provision-pi.sh
+   ```
+
+   It names the Pi and installs this machine's yggstore build and
+   Syncthing. It joins the Pi to the group, with an invite from the admin
+   dashboard, and starts its node, hub and Syncthing at every boot. Last,
+   it checks that the node is up, the group answers and Syncthing is ready.
+   It ends with the address of the box's page.
+
+Each step is skipped if it is done already, so after fixing whatever
+stopped it, run it again. Another config file can be given:
+`scripts/provision-pi.sh factory/other.conf`.
+
+A box set up with Raspberry Pi Imager instead works too: set `PI_SSH` to
+the user and name chosen there (the script uses `sudo` when that user isn't
+root).
+
+### The hub's group
+
+The hub uses the group of the node running on the same machine. It finds
+that node (`yggstore serve`) and reads its member list, preferring the one
+the admin last pushed, so the hub needs no settings of its own. Without a
+node it uses `~/.yggstore/peers.json`, or `-peers`. A box that isn't in a
+group yet says so on its page, and files wait on it until it joins one.
+
+## Start it by hand
+
+This is what `scripts/provision-pi.sh` does. On Raspberry Pi OS (or Debian,
+Ubuntu), as root, which suits a box that does only this:
 
 ```sh
 apt-get install -y syncthing
@@ -70,13 +144,18 @@ folders go in `~/yggstore-hub/users/NAME` and websites in
 
 ## Syncing a device
 
-1. Install Syncthing on the device: on Windows, macOS, Linux or Android.
-2. In Syncthing, choose **Add Remote Device**. The box shows up in the list
-   of nearby devices; or enter the ID shown on the box's page.
+The box's page walks users through this; in short:
+
+1. Install Syncthing on the device: on Windows, macOS, Linux, Android
+   (Syncthing-Fork) or iPhone (Möbius Sync).
+2. In Syncthing, choose **Add Remote Device** and paste the box's ID from
+   its page. Under **Advanced**, paste the box's address too
+   (`tcp://IP:22000, dynamic`): the box may show up among nearby devices by
+   itself, but not on every network.
 3. Within a few seconds the hub accepts it and shares a folder called
-   **yggstore**. Syncthing asks whether to add it: accept, and choose where
-   to keep it on the device. (Tick **Auto Accept** when adding the box, and
-   Syncthing doesn't ask.)
+   **yggstore (NAME)**. Syncthing asks whether to add it: accept, and
+   choose where to keep it on the device. (Tick **Auto Accept** when adding
+   the box, and Syncthing doesn't ask.)
 
 Then, in that folder:
 
@@ -152,8 +231,9 @@ day, or until you raise it.
 It keeps Syncthing to the LAN: global discovery, relays and NAT traversal
 are turned off, and only devices on the local network are paired. That is a
 private address (such as `192.168.…`, `10.…` or `fd…`), or one on the same
-network as the box (as with most home IPv6). Others are turned away and
-logged.
+network as the box (as with most home IPv6). Networks that only live on
+the box, such as Docker's, VPNs (Tailscale, WireGuard) and Yggdrasil, don't
+count as local. Others are turned away and logged.
 Each device's folder is shared with that device only.
 
 Everything on the box is stored as the box's owner, with its sharing key.

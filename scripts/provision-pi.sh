@@ -4,8 +4,9 @@
 # hub and Syncthing at every boot, and checks it all answers. The settings
 # are in factory/pi.conf (or the file given).
 #
-# The Pi: Raspberry Pi OS Lite (64-bit) from Raspberry Pi Imager, with SSH and
-# this machine's key turned on, on this network, with internet access. This
+# The Pi: Raspberry Pi OS Lite (64-bit) written with scripts/flash-pi.sh (or
+# Raspberry Pi Imager, with SSH and this machine's key turned on), on this
+# network, with internet access. This
 # machine: the group's admin dashboard running (it makes the invite).
 #
 # Each step is skipped if it is done already, so after fixing whatever
