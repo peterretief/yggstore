@@ -6,9 +6,10 @@
 # switches are tried. Needs syncthing and curl. Usage: scripts/hub-syncthing.sh
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BIN="$ROOT/bin/yggstore"
-(cd "$ROOT" && go build -o bin/yggstore ./cmd/yggstore)
-W=$(mktemp -d); cd "$W"
+W=$(mktemp -d)
+BIN="$W/yggstore" # its own build: bin/yggstore may be what this machine's services run
+(cd "$ROOT" && go build -o "$BIN" ./cmd/yggstore)
+cd "$W"
 cleanup() { kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null || true; rm -rf "$W"; }
 trap cleanup EXIT
 export HOME="$W/home"; mkdir -p "$HOME" # nothing here touches the real ~/.yggstore

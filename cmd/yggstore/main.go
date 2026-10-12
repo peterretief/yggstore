@@ -118,15 +118,15 @@ func splitList(s string) []string {
 	return out
 }
 
-const peersHelp = " (default: $YGGSTORE_PEERS, else ./peers.json, else /etc/yggstore/peers.json)"
+const peersHelp = " (default: $YGGSTORE_PEERS, else ./peers.json, else ~/.yggstore/peers.json as join makes it, else /etc/yggstore/peers.json)"
 
 // defaultPeers finds the peer list when -peers is not given, so commands
-// work from any directory on a machine with a system-wide copy.
+// work from any directory: the one join made, or a system-wide copy.
 func defaultPeers() string {
 	if p := os.Getenv("YGGSTORE_PEERS"); p != "" {
 		return p
 	}
-	for _, p := range []string{"peers.json", "/etc/yggstore/peers.json"} {
+	for _, p := range []string{"peers.json", filepath.Join(yggstoreHome(), "peers.json"), "/etc/yggstore/peers.json"} {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}

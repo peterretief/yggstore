@@ -141,7 +141,7 @@ func yggHelp(inv invite.Invite) string {
 	return b.String()
 }
 
-// installServices writes systemd user units for the node and dashboard and
+// installServices writes systemd units for the node and dashboard and
 // starts them.
 func installServices(group string, node, dash []string) error {
 	return installUnits(map[string]string{
@@ -150,17 +150,36 @@ func installServices(group string, node, dash []string) error {
 	})
 }
 
-// installUnits writes systemd user units, named NAME.service, and starts
-// them.
+// asRoot is whether services are the machine's own (run as root, from
+// /etc/systemd/system, started at boot) rather than the user's. A variable,
+// for tests.
+var asRoot = func() bool { return os.Geteuid() == 0 }
+
+// systemctl runs systemctl for the machine's services or the user's.
+func systemctl(args ...string) error {
+	if !asRoot() {
+		args = append([]string{"--user"}, args...)
+	}
+	if out, err := exec.Command("systemctl", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, out)
+	}
+	return nil
+}
+
+// installUnits writes systemd units, named NAME.service, and starts them:
+// the machine's own when run as root, else the user's.
 func installUnits(units map[string]string) error {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return errors.New("systemctl not found")
 	}
 	unitDir := filepath.Join(homeDir(), ".config", "systemd", "user")
+	if asRoot() {
+		unitDir = "/etc/systemd/system"
+	}
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		return err
 	}
-	start := []string{"--user", "enable", "--now"}
+	start := []string{"enable", "--now"}
 	for name, body := range units {
 		start = append(start, strings.TrimSuffix(name, ".service"))
 		path := filepath.Join(unitDir, name)
@@ -171,27 +190,38 @@ func installUnits(units map[string]string) error {
 			return err
 		}
 	}
-	for _, args := range [][]string{{"--user", "daemon-reload"}, start} {
-		if out, err := exec.Command("systemctl", args...).CombinedOutput(); err != nil {
-			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, out)
-		}
+	if err := systemctl("daemon-reload"); err != nil {
+		return err
 	}
-	return nil
+	return systemctl(start...)
 }
 
-func unit(desc string, cmd []string) string {
+// unit is a service running cmd. HOME is set because systemd gives root's
+// services none, and yggstore keeps its files under it. after names units
+// it should start after, and with, if they exist.
+func unit(desc string, cmd []string, after ...string) string {
+	target := "default.target"
+	if asRoot() {
+		target = "multi-user.target"
+	}
+	deps := ""
+	for _, a := range after {
+		deps += "Wants=" + a + "\nAfter=" + a + "\n"
+	}
 	return fmt.Sprintf(`[Unit]
 Description=%s
+Wants=network-online.target
 After=network-online.target
-
+%s
 [Service]
+Environment=%s
 ExecStart=%s
 Restart=on-failure
 RestartSec=10
 
 [Install]
-WantedBy=default.target
-`, desc, shellJoin(cmd))
+WantedBy=%s
+`, desc, deps, shellJoin([]string{"HOME=" + homeDir()}), shellJoin(cmd), target)
 }
 
 func shellJoin(args []string) string {

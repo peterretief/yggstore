@@ -59,6 +59,9 @@ type Config struct {
 	Version string
 	// Users, if set, pairs devices through Syncthing.
 	Users *Users
+	// Join, if set, joins this box to a group with an invite, when an
+	// admin's dashboard adds it (see join.go); it returns what join said.
+	Join func(ctx context.Context, invite string) (string, error)
 }
 
 type Hub struct {
@@ -67,6 +70,7 @@ type Hub struct {
 	mu      sync.Mutex
 	state   State
 	checked time.Time
+	join    joinState
 }
 
 func New(cfg Config) *Hub { return &Hub{cfg: cfg} }
@@ -93,6 +97,7 @@ type State struct {
 	Bins     []string   `json:"bins"` // platforms the hub has builds for
 	Checked  int64      `json:"checked"`
 	Sync     *Status    `json:"sync,omitempty"` // pairing through Syncthing
+	LAN      []string   `json:"lan"`            // this box's addresses on the LAN
 }
 
 // check asks every node in the group whether it is up, at most every few
@@ -103,7 +108,7 @@ func (h *Hub) check(ctx context.Context) State {
 	if time.Since(h.checked) < 5*time.Second {
 		return h.state
 	}
-	st := State{Version: h.cfg.Version, Bins: []string{}}
+	st := State{Version: h.cfg.Version, Bins: []string{}, LAN: LANAddrs()}
 	st.Hostname, _ = os.Hostname()
 	for p := range h.cfg.Bins {
 		st.Bins = append(st.Bins, p)
@@ -111,7 +116,10 @@ func (h *Hub) check(ctx context.Context) State {
 	sort.Strings(st.Bins)
 	list, err := peers.Load(h.cfg.PeersPath)
 	if err != nil {
-		st.Problem = "this box isn't in a group yet (" + err.Error() + ")"
+		st.Problem = "This box isn't in a group yet, so files wait here until its owner adds it to one."
+		if !os.IsNotExist(err) {
+			st.Problem = "This box's member list can't be read: " + err.Error()
+		}
 	}
 	st.Nodes = len(list)
 	nodes := make([]NodeState, len(list))
@@ -168,6 +176,7 @@ func (h *Hub) Handler() http.Handler {
 		json.NewEncoder(w).Encode(st)
 	})
 	mux.HandleFunc("GET /install.sh", h.handleInstall)
+	mux.HandleFunc("POST /api/join", h.handleJoin)
 	mux.HandleFunc("GET /bin/{platform}", func(w http.ResponseWriter, r *http.Request) {
 		path, ok := h.cfg.Bins[r.PathValue("platform")]
 		if !ok {

@@ -3,7 +3,8 @@ package dashboard
 import (
 	"net"
 	"os"
-	"strings"
+
+	"github.com/peterretief/yggstore/internal/hub"
 )
 
 // BoxState is what the dashboard knows about the machine it runs on, for
@@ -16,24 +17,14 @@ type BoxState struct {
 	Version   string   `json:"version,omitempty"`
 }
 
-// virtual are interfaces that aren't the local network: containers,
-// bridges, VPNs and Yggdrasil's own.
-var virtual = []string{"docker", "br-", "veth", "virbr", "tun", "tap", "tailscale", "wg", "zt", "lo"}
-
 func (d *Dashboard) boxState() *BoxState {
 	b := &BoxState{Version: d.cfg.Version}
 	b.Hostname, _ = os.Hostname()
 	b.DiskFree, b.DiskTotal = diskSpace(d.cfg.StubDir)
 	ifs, _ := net.Interfaces()
-next:
 	for _, ifc := range ifs {
-		if ifc.Flags&net.FlagUp == 0 {
+		if ifc.Flags&net.FlagUp == 0 || hub.Virtual(ifc.Name) {
 			continue
-		}
-		for _, v := range virtual {
-			if strings.HasPrefix(ifc.Name, v) {
-				continue next
-			}
 		}
 		addrs, _ := ifc.Addrs()
 		for _, a := range addrs {

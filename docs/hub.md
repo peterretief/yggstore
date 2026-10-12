@@ -24,7 +24,23 @@ from outside the LAN can.
 
 ## Start it
 
-On the box, run Syncthing as the same user as yggstore, then the hub:
+On Raspberry Pi OS (or Debian, Ubuntu), as root, which suits a box that
+does only this:
+
+```sh
+apt-get install -y syncthing
+systemctl enable --now syncthing@root   # Syncthing for root, at every boot
+yggstore hub -service                   # the hub, at every boot
+```
+
+Run as root, `-service` sets up services in `/etc/systemd/system`, started
+at boot with nobody logged in (`yggstore join -service` does the same). The
+hub's service starts Syncthing's first. Check them with
+`systemctl status yggstore-hub` and `journalctl -u yggstore-hub -f`.
+
+The hub and Syncthing then run as root, and they take devices from the LAN.
+If you'd rather limit what a fault in either could do, run both as a user of
+their own instead:
 
 ```sh
 sudo apt-get install -y syncthing
@@ -47,8 +63,9 @@ for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fd00::/8 fe80::/10; do
 done
 ```
 
-The hub finds Syncthing's address and API key in its `config.xml`. The
-devices' folders go in `~/yggstore-hub/users/NAME` and websites in
+The hub finds Syncthing's address and API key in its `config.xml` (under
+`~/.local/state/syncthing/`, which for root is in `/root`). The devices'
+folders go in `~/yggstore-hub/users/NAME` and websites in
 `~/yggstore-hub/sites/DOMAIN` (`-dir` to change it).
 
 ## Syncing a device

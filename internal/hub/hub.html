@@ -48,47 +48,124 @@ p { margin: 8px 0; }
 ol, ul { margin: 10px 0; padding-left: 20px; }
 li { margin: 6px 0; }
 .row .pill + .pill { margin-left: 2px; }
+.lead { font-size: 15px; margin: 6px 0 0; }
+.step { display: flex; gap: 12px; align-items: flex-start; }
+.num { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--info); color: #fff;
+  display: grid; place-items: center; font-weight: 700; margin-top: 2px; }
+.step > .num + div { flex: 1; min-width: 0; }
+.step h3 { margin: 4px 0 6px; font-size: 16px; }
+details.os { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+details.os[open] { background: var(--bg); }
+details.os summary { cursor: pointer; font-weight: 600; }
+details.os summary .sub { font-weight: 400; }
+b.ui { font-weight: 600; background: var(--empty); padding: 0 5px; border-radius: 4px; white-space: nowrap; }
+.copyrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.copyrow pre { flex: 1; margin-top: 6px; min-width: 0; }
+.copyrow button { margin-top: 6px; }
+.note { border-left: 3px solid var(--info); padding: 2px 0 2px 10px; margin: 10px 0; }
 </style>
 </head>
 <body>
 <main>
   <h1 id="host">yggstore box</h1>
-  <div class="sub" id="ver"></div>
+  <p class="lead">Keep your files safe on this box: put them in a folder on your computer or phone, and they are stored, encrypted, on the group's machines.</p>
+  <div class="row" id="syncstate" style="margin-top:10px"></div>
 
-  <h2>This box's node</h2>
+  <h2>Set up your computer or phone</h2>
+
+  <div class="card step">
+    <div class="num">1</div>
+    <div>
+      <h3>Install Syncthing</h3>
+      <p>Syncthing is a free program that keeps a folder on your device in step with this box. Install it once:</p>
+
+      <details class="os" data-os="windows"><summary>Windows</summary>
+        <ol>
+          <li>Go to <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a>.</li>
+          <li>Under <b>Windows</b>, download <b>Syncthing Windows Setup</b> and run it. Accept what it suggests.</li>
+          <li>When it has finished, Syncthing opens in your web browser. If it doesn't, open <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a>.</li>
+        </ol>
+      </details>
+
+      <details class="os" data-os="mac"><summary>Mac</summary>
+        <ol>
+          <li>Go to <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a>.</li>
+          <li>Under <b>macOS</b>, download the <b>Syncthing app</b>, open the file and drag Syncthing into <b>Applications</b>.</li>
+          <li>Open Syncthing from Applications. Its icon appears in the menu bar at the top of the screen: click it and choose <b class="ui">Open</b>.</li>
+        </ol>
+      </details>
+
+      <details class="os" data-os="linux"><summary>Linux <span class="sub">(Ubuntu, Debian, Raspberry Pi OS)</span></summary>
+        <ol>
+          <li>Open a terminal and run:
+            <pre>sudo apt install syncthing
+systemctl --user enable --now syncthing</pre></li>
+          <li>Open <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a> in your browser.</li>
+        </ol>
+      </details>
+
+      <details class="os" data-os="android"><summary>Android phone or tablet</summary>
+        <ol>
+          <li>Install <b>Syncthing-Fork</b> from <a href="https://play.google.com/store/apps/details?id=com.github.catfriend1.syncthingandroid" target="_blank" rel="noopener">Google Play</a> or <a href="https://f-droid.org/packages/com.github.catfriend1.syncthingandroid/" target="_blank" rel="noopener">F-Droid</a>.</li>
+          <li>Open it and allow what it asks for (storage, and running in the background).</li>
+        </ol>
+      </details>
+
+      <details class="os" data-os="ios"><summary>iPhone or iPad</summary>
+        <p>There is no official Syncthing for iPhone. <b>Möbius Sync</b> from the App Store works the same way (it is a paid app made by others).</p>
+      </details>
+    </div>
+  </div>
+
+  <div class="card step" style="margin-top:12px">
+    <div class="num">2</div>
+    <div>
+      <h3>Connect to this box</h3>
+      <ol>
+        <li>In Syncthing, click <b class="ui">+ Add Remote Device</b> (bottom right; on a phone, the <b class="ui">Devices</b> tab, then <b class="ui">+</b>).</li>
+        <li>Under <b>Device ID</b>, this box may be listed among the nearby devices: click it. If it isn't, copy this box's ID and paste it in:
+          <div class="copyrow"><pre id="stid">(waiting for this box's Syncthing)</pre><button data-copy="stid">Copy</button></div></li>
+        <li>Under <b>Device Name</b>, type <b id="boxname">this box's name</b>.</li>
+        <li>Open the <b class="ui">Advanced</b> tab. Under <b>Addresses</b>, replace what's there with this, so your device finds the box even when it isn't listed nearby:
+          <div class="copyrow"><pre id="staddr">…</pre><button data-copy="staddr">Copy</button></div></li>
+        <li>Click <b class="ui">Save</b>.</li>
+        <li>Within half a minute this box welcomes your device, and Syncthing shows a message: <b>"<span class="boxname2">this box</span> wants to share folder yggstore (<span class="boxname2">this box</span>)"</b>. Click <b class="ui">Add</b>.</li>
+        <li>Choose where the folder goes on your device (<b>Folder Path</b>, in the <b class="ui">General</b> tab), for example a folder called <span class="mono">yggstore</span> in your home folder. Click <b class="ui">Save</b>.</li>
+      </ol>
+      <p class="note">Your device must be on the same network (the same Wi-Fi or router) as this box when you connect.</p>
+      <div id="sites"></div>
+    </div>
+  </div>
+
+  <div class="card step" style="margin-top:12px">
+    <div class="num">3</div>
+    <div>
+      <h3>Use the folder</h3>
+      <ul>
+        <li><b>To keep a file safe</b>, put it in the folder. A few seconds later it is stored on the group's machines, and in the folder it is replaced by a small file ending in <span class="mono">.ystub</span>. Keep that: it is how you get the file back.</li>
+        <li><b>To get a file back</b>, put its <span class="mono">.ystub</span> into the <b>restore</b> folder inside it. The file appears in the <b>restored</b> folder.</li>
+        <li><b>To delete a file for good</b>, put its <span class="mono">.ystub</span> into the <b>delete</b> folder.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>This box</h2>
   <div class="card" id="node"><span class="sub">Checking…</span></div>
 
-  <section id="sync" hidden>
-  <h2>Sync your files with this box</h2>
-  <div class="card">
-    <div class="row" id="syncstate"></div>
-    <ol>
-      <li>Install <a href="https://syncthing.net/downloads/">Syncthing</a> on your computer or phone.</li>
-      <li>In Syncthing, choose <b>Add Remote Device</b>. This box shows up in the list of nearby devices; or enter its ID:
-        <pre id="stid"></pre></li>
-      <li>A moment later Syncthing asks whether to add the <b>yggstore</b> folder this box shares. Accept it and choose where to keep it on your computer.</li>
-    </ol>
-    <div id="sites"></div>
-    <p class="sub">Files you put in that folder are stored in the group, encrypted and spread over its machines, and each is replaced by a small stub (.ystub), here and on your computer.
-    To get a file back, put its stub in <b>restore/</b>: the file appears in <b>restored/</b>.</p>
-  </div>
-  </section>
-
-  <h2>Put a node on this computer</h2>
-  <div class="card">
+  <details class="os" style="margin-top:24px"><summary>Have a computer of your own to add to the group? <span class="sub">(for members)</span></summary>
     <div id="win" hidden>
       <p>This looks like Windows. The installer below is for Linux and macOS; on Windows, follow the
       <a href="https://github.com/peterretief/yggstore/blob/main/docs/storage-box-guide.md">storage box guide</a>.</p>
     </div>
+    <p>With an invite from the group's admin, this puts a full yggstore node on your computer, which gives the group some of its disk space.</p>
     <label for="invite">Invite</label>
     <input id="invite" placeholder="yggjoin1:…" autocomplete="off" spellcheck="false">
-    <p class="sub">An admin makes one on their dashboard (Invite someone). It's used once, and only by this computer.</p>
     <div id="cmdbox" hidden>
       <p>Run this in a terminal <b>on this computer</b>. It installs yggstore for your system, joins the group and starts the node:</p>
       <pre id="cmd"></pre>
       <button id="copy">Copy</button>
     </div>
-  </div>
+  </details>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -105,36 +182,74 @@ function ago(t) {
   return Math.floor(s/86400) + ' days';
 }
 
+// Open the install steps for the visitor's own system.
+(function () {
+  const ua = navigator.userAgent;
+  const os = /Android/i.test(ua) ? 'android' : /iPhone|iPad|iPod/i.test(ua) ? 'ios'
+    : /Windows/i.test(ua) ? 'windows' : /Macintosh|Mac OS X/i.test(ua) ? 'mac' : /Linux|X11/i.test(ua) ? 'linux' : '';
+  const d = document.querySelector('details.os[data-os="' + os + '"]');
+  if (d) d.open = true;
+  $('win').hidden = os !== 'windows';
+})();
+
 async function refresh() {
   let st;
   try { st = await (await fetch('api/state', {cache: 'no-store'})).json(); }
-  catch (e) { $('node').innerHTML = '<span class="pill bad">hub not answering</span>'; return; }
-  $('host').textContent = st.hostname || 'yggstore box';
-  document.title = (st.hostname || 'yggstore') + ' · box';
-  $('ver').textContent = 'yggstore ' + st.version;
+  catch (e) { $('node').innerHTML = '<span class="pill bad">this box isn\'t answering</span>'; return; }
+  const host = st.hostname || 'yggstore box';
+  $('host').textContent = host;
+  document.title = host;
+  $('boxname').textContent = host;
+  document.querySelectorAll('.boxname2').forEach(e => e.textContent = host);
+  $('staddr').textContent = (st.lan || []).map(ip => 'tcp://' + (ip.includes(':') ? '[' + ip + ']' : ip) + ':22000').concat(['dynamic']).join(', ');
   showSync(st.sync);
   const n = st.node;
+  let html;
   if (st.problem) {
-    $('node').innerHTML = '<span class="pill bad">no group</span> <span class="sub">' + esc(st.problem) + '</span>';
+    html = '<span class="pill bad">not ready</span> <span class="sub">' + esc(st.problem) + '</span>';
   } else if (!n) {
-    $('node').innerHTML = '<span class="pill bad">not found</span> <span class="sub">This box isn\'t in its own peer list. '
-      + st.up + ' of ' + st.nodes + ' nodes in the group answer.</span>';
+    html = '<span class="pill bad">not found</span> <span class="sub">This box isn\'t in its own member list. '
+      + st.up + ' of ' + st.nodes + ' machines in the group answer.</span>';
   } else {
     const pct = n.quota_bytes ? Math.min(100, 100 * n.used_bytes / n.quota_bytes) : 0;
-    $('node').innerHTML =
-      '<div class="row"><span class="name">' + esc(n.name) + '</span>'
+    html = '<div class="row"><span class="name">' + esc(n.name) + '</span>'
       + (n.up ? '<span class="pill ok">up</span>' : '<span class="pill bad">down</span>') + '</div>'
-      + '<div class="mono sub">' + esc(n.addr) + '</div>'
       + (n.up
-        ? '<div class="stats"><div><span>Used</span><b>' + size(n.used_bytes) + '</b></div>'
-          + '<div><span>Shards</span><b>' + n.shards + '</b></div>'
+        ? '<div class="stats"><div><span>Holds for the group</span><b>' + size(n.used_bytes) + '</b></div>'
+          + '<div><span>Pieces</span><b>' + n.shards + '</b></div>'
           + '<div><span>Running for</span><b>' + ago(n.started_at) + '</b></div></div>'
           + '<div class="bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>'
           + '<p class="sub">' + size(n.quota_bytes) + ' given to the group · '
         : '<p class="sub">' + esc(n.error || '') + '<br>')
-      + st.up + ' of ' + st.nodes + ' nodes in the group answer</p>';
+      + st.up + ' of ' + st.nodes + ' machines in the group answer</p>';
   }
+  $('node').innerHTML = html + '<div class="sub" style="margin-top:6px">yggstore ' + esc(st.version) + '</div>';
 }
+
+function showSync(s) {
+  const pill = (ok, text) => '<span class="pill ' + (ok ? 'ok' : 'bad') + '">' + text + '</span>';
+  if (!s) {
+    $('syncstate').innerHTML = pill(false, 'syncing isn\'t set up on this box');
+    return;
+  }
+  $('syncstate').innerHTML = (s.problem ? pill(false, 'a problem: ' + esc(s.problem))
+      : s.paused ? pill(false, 'syncing is paused')
+      : s.pairing ? pill(true, 'ready for new devices') : pill(false, 'not taking new devices right now: ask the box\'s owner'))
+    + ' <span class="sub">' + s.users + (s.users == 1 ? ' device' : ' devices') + ' connected</span>';
+  $('stid').textContent = s.device_id || '(waiting for this box\'s Syncthing)';
+  $('sites').innerHTML = (s.sites || []).length ? '<p>Syncthing also offers you the websites kept on this box: '
+    + s.sites.map(x => '<b>' + esc(x.name) + '</b>').join(', ')
+    + '. Add them the same way to edit them: a change is published within a minute.</p>' : '';
+}
+
+document.addEventListener('click', async ev => {
+  const id = ev.target.dataset && ev.target.dataset.copy;
+  if (!id) return;
+  const b = ev.target, text = $(id).textContent;
+  try { await navigator.clipboard.writeText(text); b.textContent = 'Copied'; }
+  catch (e) { getSelection().selectAllChildren($(id)); b.textContent = 'Press Ctrl+C'; }
+  setTimeout(() => b.textContent = 'Copy', 2000);
+});
 
 const cmd = () => "curl -fsSL '" + location.origin + "/install.sh' | sh -s -- '" + $('invite').value.trim() + "'";
 $('invite').addEventListener('input', () => {
@@ -149,22 +264,6 @@ $('copy').addEventListener('click', async () => {
   catch (e) { getSelection().selectAllChildren($('cmd')); $('copy').textContent = 'Press Ctrl+C'; }
   setTimeout(() => $('copy').textContent = 'Copy', 2000);
 });
-function showSync(s) {
-  $('sync').hidden = !s;
-  if (!s) return;
-  const pill = (ok, yes, no) => '<span class="pill ' + (ok ? 'ok' : 'bad') + '">' + (ok ? yes : no) + '</span>';
-  $('syncstate').innerHTML = pill(!s.problem, 'syncing', 'problem')
-    + pill(s.pairing && !s.problem, 'taking new devices', 'not taking new devices')
-    + (s.paused ? pill(false, '', 'syncing paused') : '')
-    + ' <span class="sub">' + s.users + (s.users == 1 ? ' device' : ' devices') + ' paired</span>'
-    + (s.problem ? '<div class="sub">' + esc(s.problem) + '</div>' : '');
-  $('stid').textContent = s.device_id || '(waiting for Syncthing)';
-  $('sites').innerHTML = (s.sites || []).length ? '<p>Websites kept here, which Syncthing also offers you: edit one and it is published within a minute.</p><ul>'
-    + s.sites.map(x => '<li><b>' + esc(x.name) + '</b> <span class="sub">'
-      + (x.published ? 'published ' + new Date(x.published * 1000).toLocaleString() : 'not published from here yet')
-      + (x.problem ? ' · latest change held back: ' + esc(x.problem) : '') + '</span></li>').join('') + '</ul>' : '';
-}
-$('win').hidden = !/Windows/i.test(navigator.userAgent);
 refresh();
 setInterval(refresh, 10000);
 </script>

@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,11 +84,36 @@ func cmdHub(ctx context.Context, args []string) error {
 				cmd = append(cmd, a)
 			}
 		}
-		if err := installUnits(map[string]string{"yggstore-hub.service": unit("yggstore hub on "+*listen, cmd)}); err != nil {
+		var after []string
+		if !*noSync {
+			after = []string{"syncthing.service"} // as packaged for Debian and Raspberry Pi OS
+			if asRoot() {
+				after = []string{"syncthing@root.service"}
+			}
+		}
+		if err := installUnits(map[string]string{"yggstore-hub.service": unit("yggstore hub on "+*listen, cmd, after...)}); err != nil {
 			return fmt.Errorf("the service could not be set up: %w\nStart it by hand:\n  %s", err, shellJoin(cmd))
 		}
 		fmt.Printf("The hub is running on %s.\n", *listen)
 		return nil
+	}
+
+	// The group is the one the node on this machine is in: use its member
+	// list and messaging token, unless told otherwise. With no node yet, the
+	// member list is where join will put it, so the hub finds it the moment
+	// it exists.
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	if node, ok := hub.FindLocalNode(); ok {
+		if !given["peers"] {
+			*peersPath = node.Peers
+		}
+		if !given["msg-token"] && node.MsgToken != "" {
+			*msgToken = node.MsgToken
+		}
+		log.Printf("hub: storing through this machine's node (member list %s)", *peersPath)
+	} else if _, err := os.Stat(*peersPath); err != nil && !given["peers"] {
+		*peersPath = filepath.Join(yggstoreHome(), "peers.json")
 	}
 
 	bins := hub.Own()
@@ -143,7 +171,29 @@ func cmdHub(ctx context.Context, args []string) error {
 		go sites.Run(ctx)
 	}
 
+	// Joining, when an admin's dashboard adds this box: the same as
+	// running yggstore join -service with the invite here.
+	cfg.Join = func(ctx context.Context, invite string) (string, error) {
+		exe, err := os.Executable()
+		if err != nil {
+			return "", err
+		}
+		out, err := exec.CommandContext(ctx, exe, "join", "-service", "-name", *name, invite).CombinedOutput()
+		log.Printf("hub: joined a group, as an admin's dashboard asked:\n%s", out)
+		if err != nil {
+			return string(out), fmt.Errorf("joining failed: %v", err)
+		}
+		return string(out), nil
+	}
+
 	h := hub.New(cfg)
+	_, portStr, _ := net.SplitHostPort(*listen)
+	port, _ := strconv.Atoi(portStr)
+	if pc, err := net.ListenPacket("udp4", net.JoinHostPort("", portStr)); err != nil {
+		log.Printf("hub: dashboards on the LAN won't find this box: %v", err)
+	} else {
+		go h.Answer(ctx, pc, port)
+	}
 	srv := &http.Server{Addr: *listen, Handler: h.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

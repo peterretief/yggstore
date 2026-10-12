@@ -757,30 +757,44 @@ func (d *Dashboard) handleInvite(w http.ResponseWriter, r *http.Request) {
 		For string `json:"for"`
 	}
 	json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req)
+	inv, err := d.makeInvite(req.For)
+	if errors.Is(err, errNotAdmin) {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSONResp(w, map[string]any{"invite": inv.Encode(), "expires": inv.Expires, "group": inv.Group, "ygg_peers": inv.YggPeers})
+}
+
+var errNotAdmin = errors.New("only an admin dashboard can invite people")
+
+// makeInvite makes a one-time invite to the group, for someone or some box.
+func (d *Dashboard) makeInvite(forWhom string) (invite.Invite, error) {
 	d.mu.Lock()
 	adminEntry := d.state.AdminEntry
 	d.mu.Unlock()
 	if adminEntry == "" || d.cfg.InvitesPath == "" {
-		http.Error(w, "only an admin dashboard can invite people", http.StatusForbidden)
-		return
+		return invite.Invite{}, errNotAdmin
 	}
 	var admin peers.Peer
 	json.Unmarshal([]byte(adminEntry), &admin)
-	inv, err := invite.Create(d.cfg.InvitesPath, req.For)
+	inv, err := invite.Create(d.cfg.InvitesPath, forWhom)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return inv, err
 	}
 	inv.Group, inv.From, inv.Admin, inv.YggPeers = d.cfg.Group, d.me(), admin, inviteYggPeers(d.cfg.PeersPath, d.cfg.YggPeers)
 	if d.cfg.Identity != nil {
 		inv.SharingCode = d.cfg.Identity.Code()
 	}
-	who := strings.TrimSpace(req.For)
+	who := strings.TrimSpace(forWhom)
 	if who == "" {
 		who = "someone"
 	}
 	d.event("info", fmt.Sprintf("made an invite for %s (valid 7 days, once)", who))
-	writeJSONResp(w, map[string]any{"invite": inv.Encode(), "expires": inv.Expires, "group": inv.Group, "ygg_peers": inv.YggPeers})
+	return inv, nil
 }
 
 func writeJSONResp(w http.ResponseWriter, v any) {
