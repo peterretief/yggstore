@@ -172,7 +172,7 @@ func TestMarkLeaving(t *testing.T) {
 	peers.Write(mine, []peers.Peer{admin, {Name: "pi", Addr: "[200::2]:7400"}})
 	d := New(Config{PeersPath: mine, StubDir: dir, SelfID: "127.0.0.1", Client: client.New()})
 	kicked := 0
-	d.SetRepair(func() { kicked++ })
+	d.SetRepair(func() { kicked++ }, nil)
 	d.poll(context.Background())
 	h := d.Handler()
 	send := func(body string) int {
@@ -193,10 +193,10 @@ func TestMarkLeaving(t *testing.T) {
 		t.Fatalf("marking an unknown node: %d", code)
 	}
 	if code := send(`{"name": "pi", "leaving": false}`); code != http.StatusNoContent {
-		t.Fatalf("keep it: %d", code)
+		t.Fatalf("keep it on: %d", code)
 	}
 	if list, _ := peers.Load(mine); list[1].Leaving {
-		t.Fatal("still leaving after Keep it")
+		t.Fatal("still leaving after Keep it on")
 	}
 }
 
@@ -205,8 +205,8 @@ func TestMarkLeavingCountsMyShards(t *testing.T) {
 	list := []peers.Peer{{Name: "pi", Addr: "[200::2]:7400", Leaving: true}, {Name: "nas", Addr: "[200::3]:7400"}}
 	shards := []ShardState{{Peer: "pi"}, {Peer: "nas"}, {Peer: "pi"}}
 	files := []FileState{{Chunks: []ChunkState{{Shards: shards}}}, {SharedBy: &manifest.Sender{}, Chunks: []ChunkState{{Shards: shards}}}}
-	markLeaving(states, list, files)
-	if !states[0].Leaving || states[0].Mine != 2 || states[1].Leaving || states[1].Mine != 0 {
+	markLeaving(states, list, files, map[string]int{"[200::2]:7400": 1})
+	if !states[0].Leaving || states[0].Mine != 2 || states[0].NoRoom != 1 || states[1].Leaving || states[1].Mine != 0 {
 		t.Fatalf("got %+v", states)
 	}
 }

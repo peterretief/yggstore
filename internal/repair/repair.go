@@ -15,8 +15,10 @@ package repair
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,6 +59,18 @@ type Repairer struct {
 	mu       sync.Mutex
 	kickOnce sync.Once
 	kick     chan struct{}
+	lastWarn string // the problems last logged, so the same ones aren't logged every pass
+
+	noRoomMu sync.Mutex
+	noRoom   map[string]int // the last pass's Report.NoRoom
+}
+
+// NoRoom is, per leaving node's address, how many shards the last pass
+// left on it because no other machine may safely take them.
+func (r *Repairer) NoRoom() map[string]int {
+	r.noRoomMu.Lock()
+	defer r.noRoomMu.Unlock()
+	return maps.Clone(r.noRoom)
 }
 
 type state struct {
@@ -66,10 +80,14 @@ type state struct {
 
 // Report is what one pass did.
 type Report struct {
-	Items    int // stubs looked at
-	Rebuilt  int // shards rebuilt and stored again
-	Moved    int // shards copied off leaving nodes
-	Leaving  int // shards still on leaving nodes after the pass
+	Items   int // stubs looked at
+	Rebuilt int // shards rebuilt and stored again
+	Moved   int // shards copied off leaving nodes
+	Leaving int // shards still on leaving nodes after the pass
+	// NoRoom counts, per leaving node's address, the shards still on it
+	// because no other machine may safely take them (see files.ErrNoRoom).
+	NoRoom   map[string]int
+	NoRoomed int // chunks that had a shard with nowhere to go
 	Spread   int // shards copied off crowded machines onto others
 	Rewrote  int // stubs rewritten with the new places
 	Waiting  int // shards on nodes down, but not for long enough yet
@@ -138,7 +156,12 @@ func (r *Repairer) kicks() chan struct{} {
 func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var rep Report
+	rep := Report{NoRoom: map[string]int{}}
+	defer func() {
+		r.noRoomMu.Lock()
+		r.noRoom = rep.NoRoom
+		r.noRoomMu.Unlock()
+	}()
 	grace := r.Grace
 	if grace <= 0 {
 		grace = DefaultGrace
@@ -215,7 +238,7 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	if len(upMachines)*2 < len(machines) {
 		msg := fmt.Sprintf("only %d of %d machines answer; not repairing until more are back", len(upMachines), len(machines))
 		rep.Problems = append(rep.Problems, msg)
-		r.log("warn", "repair: %s", msg)
+		r.warn(rep.Problems)
 		return rep, nil
 	}
 	gone := func(addr string) bool {
@@ -325,7 +348,14 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 			var err error
 			out, n, err = files.MoveChunk(ctx, r.Client, j.w.layout, out, j.move, j.w.lease, online, list)
 			rep.Moved += n
-			if err != nil {
+			if errors.Is(err, files.ErrNoRoom) {
+				rep.NoRoomed++
+				for _, ref := range out.Shards {
+					if leaving[ref.Peer] {
+						rep.NoRoom[ref.Peer]++
+					}
+				}
+			} else if err != nil {
 				rep.Problems = append(rep.Problems, err.Error())
 			}
 		}
@@ -334,7 +364,9 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 			var err error
 			out, n, err = files.RepairChunk(ctx, r.Client, j.w.layout, out, j.bad, j.w.lease, online, list)
 			rep.Rebuilt += n
-			if err != nil {
+			if errors.Is(err, files.ErrNoRoom) {
+				rep.NoRoomed++
+			} else if err != nil {
 				rep.Problems = append(rep.Problems, err.Error())
 			}
 		}
@@ -390,10 +422,20 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	if rep.Spread > 0 {
 		r.log("ok", "repair: spread %d shard(s) over more machines, in %d item(s)", rep.Spread, rep.Rewrote)
 	}
-	if len(rep.Problems) > 0 {
-		r.log("warn", "repair: %s", strings.Join(rep.Problems, "; "))
+	if rep.NoRoomed > 0 {
+		rep.Problems = append(rep.Problems, fmt.Sprintf("%d chunk(s) have a shard with nowhere safe to go: every machine that is up holds its share of them already; another machine would make room", rep.NoRoomed))
 	}
+	r.warn(rep.Problems)
 	return rep, nil
+}
+
+// warn logs a pass's problems, unless they are the ones logged last time.
+func (r *Repairer) warn(problems []string) {
+	msg := strings.Join(problems, "; ")
+	if msg != "" && msg != r.lastWarn {
+		r.log("warn", "repair: %s", msg)
+	}
+	r.lastWarn = msg
 }
 
 func chunkKey(ch manifest.Chunk) string {

@@ -95,9 +95,9 @@ for f in admin-out/a.bin member-out/m.bin; do
 done
 echo "OK: with n3 and two more nodes down, both files restore"
 
-# Keep it: n3 takes new shards again.
+# Keep it on: n3 takes new shards again.
 curl -fsS -X POST -H "X-Yggstore: 1" -H "Content-Type: application/json" \
 	-d '{"name": "n3", "leaving": false}' http://127.0.0.1:17680/api/nodes/leaving
-grep -q leaving peers.json && fail "n3 is still marked after Keep it"
-echo "OK: Keep it clears the mark"
+grep -q leaving peers.json && fail "n3 is still marked after Keep it on"
+echo "OK: Keep it on clears the mark"
 echo "PASS"

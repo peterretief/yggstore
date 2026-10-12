@@ -128,7 +128,7 @@ func placeShards(ctx context.Context, c client.Client, layout erasure.Layout, ch
 			return !cands[a].Slow && cands[b].Slow
 		})
 		ok := false
-		var lastErr error = errors.New("no peer to hold it: every machine online has its share of this chunk")
+		var lastErr error = ErrNoRoom
 		for _, p := range cands {
 			hash, err := c.PutLeased(ctx, p.Addr, shards[i], leaseID)
 			if err != nil {
@@ -226,6 +226,10 @@ func SpreadChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch
 	}
 	return out, moved, errors.Join(errs...)
 }
+
+// ErrNoRoom means a shard had nowhere to go: every machine online already
+// holds as many of its chunk's shards as it safely may.
+var ErrNoRoom = errors.New("no peer to hold it: every machine online has its share of this chunk")
 
 func machinesOf(list []peers.Peer) func(addr string) string {
 	byAddr := map[string]string{}

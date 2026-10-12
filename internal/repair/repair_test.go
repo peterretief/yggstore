@@ -309,3 +309,34 @@ func TestKickRunsAPass(t *testing.T) {
 		t.Fatal("Kick didn't start a pass")
 	}
 }
+
+// TestLeavingWithNoRoom: with too few machines left, a leaving node's
+// shards stay where they are, the pass says so once, and NoRoom counts them.
+func TestLeavingWithNoRoom(t *testing.T) {
+	g := newGroup(t, 3)
+	data := make([]byte, 100<<10)
+	rand.Read(data)
+	_, m := g.put("a.bin", data)
+	leaving := g.list[0].Addr
+	held := holds(m, leaving)
+	g.list[0].Leaving = true
+	r := g.repairer(time.Hour)
+	var warns []string
+	r.Log = func(kind, msg string) {
+		if kind == "warn" {
+			warns = append(warns, msg)
+		}
+	}
+	for range 2 {
+		rep, err := r.Pass(context.Background())
+		if err != nil || rep.Moved != 0 || rep.Leaving != held || rep.NoRoom[leaving] != held {
+			t.Fatalf("no room: %+v %v", rep, err)
+		}
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0], "nowhere safe to go") {
+		t.Fatalf("warnings: %q", warns)
+	}
+	if r.NoRoom()[leaving] != held {
+		t.Fatalf("NoRoom(): %v", r.NoRoom())
+	}
+}

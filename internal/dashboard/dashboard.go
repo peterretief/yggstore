@@ -110,9 +110,11 @@ type PeerState struct {
 	Test     bool         `json:"test,omitempty"`
 	List     string       `json:"list,omitempty"` // node's peer list: current, outdated, or old software
 	// Leaving: the admin marked it as about to go down. Mine counts the
-	// shards of this dashboard's own files still on it.
+	// shards of this dashboard's own files still on it, and NoRoom those
+	// repair found nowhere safe to move.
 	Leaving bool `json:"leaving,omitempty"`
 	Mine    int  `json:"mine,omitempty"`
+	NoRoom  int  `json:"no_room,omitempty"`
 }
 
 type ShardState struct {
@@ -211,6 +213,7 @@ type Dashboard struct {
 	namesMu sync.Mutex           // NamesPath, and the list while names change
 	siteMu  sync.Mutex           // one website publish at a time
 	repair  func()               // asks for a repair pass now (see SetRepair)
+	noRoom  func() map[string]int
 }
 
 func New(cfg Config) *Dashboard {
@@ -227,10 +230,11 @@ func New(cfg Config) *Dashboard {
 }
 
 // SetRepair gives the dashboard a way to start a repair pass now, as when
-// a node is marked leaving.
-func (d *Dashboard) SetRepair(kick func()) {
+// a node is marked leaving, and to learn which leaving nodes' shards it
+// found nowhere safe to move (per node address).
+func (d *Dashboard) SetRepair(kick func(), noRoom func() map[string]int) {
 	d.mu.Lock()
-	d.repair = kick
+	d.repair, d.noRoom = kick, noRoom
 	d.mu.Unlock()
 }
 
@@ -623,7 +627,14 @@ func (d *Dashboard) poll(ctx context.Context) {
 		names[p.Addr] = p.Name
 	}
 	st.Files = d.scanFiles(ctx, d.cfg.StubDir, up, names)
-	markLeaving(st.Peers, mainList, st.Files)
+	d.mu.Lock()
+	noRoom := d.noRoom
+	d.mu.Unlock()
+	var stuck map[string]int
+	if noRoom != nil {
+		stuck = noRoom()
+	}
+	markLeaving(st.Peers, mainList, st.Files, stuck)
 	if d.cfg.TestStubDir != "" {
 		for _, f := range d.scanFiles(ctx, d.cfg.TestStubDir, up, names) {
 			f.Test = true
@@ -1030,9 +1041,10 @@ func (d *Dashboard) handleLeaving(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// markLeaving sets Leaving on the nodes marked so in list, and counts the
-// shards of this dashboard's own files still on each of them.
-func markLeaving(states []PeerState, list []peers.Peer, files []FileState) {
+// markLeaving sets Leaving on the nodes marked so in list, counts the
+// shards of this dashboard's own files still on each of them, and says how
+// many repair found nowhere safe to move (noRoom, by address).
+func markLeaving(states []PeerState, list []peers.Peer, files []FileState, noRoom map[string]int) {
 	for i := range states {
 		for _, p := range list {
 			if p.Addr == states[i].Addr && p.Leaving {
@@ -1042,6 +1054,7 @@ func markLeaving(states []PeerState, list []peers.Peer, files []FileState) {
 		if !states[i].Leaving {
 			continue
 		}
+		states[i].NoRoom = noRoom[states[i].Addr]
 		for _, f := range files {
 			if f.SharedBy != nil || f.Test {
 				continue

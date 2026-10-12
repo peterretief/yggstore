@@ -81,6 +81,8 @@ button.del:hover { border-color: var(--bad); color: var(--bad); }
 .empty { padding: 22px; color: var(--muted); text-align: center; }
 td.actions { white-space: nowrap; }
 td.actions button + button { margin-left: 4px; }
+.card button[data-leaving] { font-size: 12px; padding: 2px 8px; opacity: .75; }
+.card button[data-leaving]:hover { opacity: 1; }
 .restoreto { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; }
 .restoreto .mono { overflow-wrap: anywhere; }
 details.restoreto { display: block; }
@@ -485,13 +487,16 @@ function leavingLine(s, p, self) {
   let line = "";
   if (p.leaving && !p.up) {
     line = "Switched off: what it held is rebuilt on the other nodes.";
+  } else if (p.leaving && p.mine && p.no_room) {
+    const n = Math.min(p.no_room, p.mine), pieces = n === 1 ? "piece has" : "pieces have";
+    line = `${p.mine} piece${p.mine === 1 ? "" : "s"} of your files still on it; ${n} ${pieces} nowhere safe to go, because every other machine already holds its share of those files. Another machine joining makes room. Switched off now, those files are one piece short until then.`;
   } else if (p.leaving && p.mine) {
     line = `Moving your files off it: ${p.mine} piece${p.mine === 1 ? "" : "s"} still there.`;
   } else if (p.leaving) {
     line = "None of your files need it now. Other members' dashboards move theirs within half an hour; then it can be switched off.";
   }
   const button = s.admin_entry && !self && (p.up || p.leaving)
-    ? `<button data-leaving="${esc(p.name)}" data-to="${p.leaving ? "" : "1"}">${p.leaving ? "Keep it" : "Taking it down"}</button>` : "";
+    ? `<button data-leaving="${esc(p.name)}" data-to="${p.leaving ? "" : "1"}">${p.leaving ? "Keep it on" : "Prepare to switch off…"}</button>` : "";
   if (!line && !button) return "";
   return `<div class="sub" style="margin-top:8px;display:flex;gap:8px;align-items:center"><span style="flex:1">${line}</span>${button}</div>`;
 }
@@ -500,7 +505,7 @@ document.addEventListener("click", async e => {
   const b = e.target.closest("[data-leaving]");
   if (!b) return;
   const name = b.dataset.leaving, leaving = !!b.dataset.to;
-  if (leaving && !confirm(`Taking ${name} down?\n\nNothing new will be stored on it, and the group's files are moved off it while it is still on. Leave it on until its card says it can be switched off.`)) return;
+  if (leaving && !confirm(`Prepare to switch ${name} off?\n\nNothing new will be stored on it, and the group's files are moved off it while it is still on. Leave it on until its card says it can be switched off.`)) return;
   b.disabled = true;
   const r = await post("api/nodes/leaving", {headers: {"Content-Type": "application/json"}, body: JSON.stringify({name, leaving})});
   if (!r.ok) alert(await r.text());

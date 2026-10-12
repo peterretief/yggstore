@@ -46,7 +46,7 @@ mail). Items shared with you are the sender's to repair.
 When you know a node is going down (moving a Pi, swapping its disk,
 retiring it), tell the group first, so no file is ever short of shards.
 
-On the admin's dashboard, the node's card has a **Taking it down** button.
+On the admin's dashboard, the node's card has a **Prepare to switch off…** button.
 It marks the node `"leaving": true` in the member list, and then:
 
 - **Nothing new is stored on it.** Uploads, mail and websites leave it out.
@@ -62,8 +62,15 @@ It marks the node `"leaving": true` in the member list, and then:
   any more. Give the other members' dashboards half an hour, then switch
   the node off.
 
+Sometimes there is nowhere safe for a shard to go. Every other machine may
+already hold as many of a chunk's shards as it safely can, as when a group
+of four machines loses one. Then the shard stays put, and the card says
+how many have nowhere to go. Switched off anyway, those files are one shard
+short until another machine joins, and repair fills the gap then. The
+activity log says so once, not on every pass.
+
 If it goes down before then, what is left is rebuilt elsewhere straight
-away, without waiting the usual day. **Keep it** clears the mark: the node
+away, without waiting the usual day. **Keep it on** clears the mark: the node
 takes new shards again, and nothing moves back, since its old copies stay
 where they were.
 
