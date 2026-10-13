@@ -35,6 +35,7 @@ import (
 	"github.com/peterretief/yggstore/internal/server"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
+	"github.com/peterretief/yggstore/internal/websites"
 )
 
 //go:embed index.html
@@ -91,6 +92,11 @@ type Config struct {
 	MePath string
 	// SitesDir keeps the websites published from this machine (site.Publisher).
 	SitesDir string
+	// CloudflareToken and TunnelToken are files holding a Cloudflare API
+	// token and the web nodes' tunnel token: with both, a new site in the
+	// outbox's websites/ folder gets its route added. SiteService is where
+	// the web nodes serve, as the tunnel reaches them.
+	CloudflareToken, TunnelToken, SiteService string
 	// Version is this yggstore's, shown under My box.
 	Version string
 	// LogPath keeps the activity log on disk (default: in the outbox's
@@ -199,21 +205,22 @@ const CustomersOwner = "Paying customers"
 type Contact = contacts.Contact
 
 type Dashboard struct {
-	cfg     Config
-	mu      sync.Mutex
-	box     *mail.Box
-	state   State
-	history map[string][]float64
-	seen    map[string]int64
-	events  []Event
-	wake    chan struct{}
-	pushed  map[string]time.Time // last list push per node, used only by poll
-	took    map[string]string    // list hash@start time each node accepted last, used only by poll
-	logMu   sync.Mutex           // the activity log file
-	namesMu sync.Mutex           // NamesPath, and the list while names change
-	siteMu  sync.Mutex           // one website publish at a time
-	repair  func()               // asks for a repair pass now (see SetRepair)
-	noRoom  func() map[string]int
+	cfg      Config
+	mu       sync.Mutex
+	websites *websites.Watcher // the outbox's websites/ folder, once started
+	box      *mail.Box
+	state    State
+	history  map[string][]float64
+	seen     map[string]int64
+	events   []Event
+	wake     chan struct{}
+	pushed   map[string]time.Time // last list push per node, used only by poll
+	took     map[string]string    // list hash@start time each node accepted last, used only by poll
+	logMu    sync.Mutex           // the activity log file
+	namesMu  sync.Mutex           // NamesPath, and the list while names change
+	siteMu   sync.Mutex           // one website publish at a time
+	repair   func()               // asks for a repair pass now (see SetRepair)
+	noRoom   func() map[string]int
 }
 
 func New(cfg Config) *Dashboard {
@@ -241,6 +248,7 @@ func (d *Dashboard) SetRepair(kick func(), noRoom func() map[string]int) {
 // Run polls until ctx ends.
 func (d *Dashboard) Run(ctx context.Context) {
 	d.event("info", "dashboard started, watching "+d.cfg.StubDir)
+	go d.runWebsites(ctx)
 	t := time.NewTicker(d.cfg.Interval)
 	defer t.Stop()
 	for {
@@ -1141,9 +1149,9 @@ func (d *Dashboard) scanFiles(ctx context.Context, root string, up map[string]bo
 			return nil
 		}
 		// Stubs waiting in the outbox's restore/ and delete/ folders are not
-		// stored items, and restored/ holds rebuilt files.
+		// stored items, restored/ holds rebuilt files and websites/ sites.
 		inRestore := d.cfg.Outbox != nil && filepath.Dir(path) == root &&
-			(e.Name() == outbox.RestoreDir || e.Name() == outbox.DeleteDir || e.Name() == outbox.RestoredDir)
+			(e.Name() == outbox.RestoreDir || e.Name() == outbox.DeleteDir || e.Name() == outbox.RestoredDir || e.Name() == outbox.WebsitesDir)
 		if e.IsDir() && path != root && (inRestore || strings.HasPrefix(e.Name(), ".") || strings.Count(strings.TrimPrefix(path, root), string(os.PathSeparator)) > 16) {
 			return filepath.SkipDir
 		}

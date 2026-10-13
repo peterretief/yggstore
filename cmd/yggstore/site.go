@@ -369,41 +369,25 @@ func addRoutes(ctx context.Context, domain, cfTokenPath, tunTokenPath, service s
 	if err != nil {
 		return manual("Can't read the tunnel token " + tunTokenPath)
 	}
-	account, tunnel, err := site.TunnelFromToken(string(tunTok))
-	if err != nil {
+	if _, _, err := site.TunnelFromToken(string(tunTok)); err != nil {
 		return manual(tunTokenPath + " doesn't hold a tunnel token")
 	}
-	cf := &site.Cloudflare{APIToken: strings.TrimSpace(string(apiTok)), Account: account, Tunnel: tunnel}
-	hosts := []string{domain}
-	if _, zone, err := cf.Zone(ctx, domain); err == nil && zone == domain {
-		hosts = append(hosts, "www."+domain)
+	added, wwwErr, err := site.AddRoutes(ctx, string(apiTok), string(tunTok), domain, service)
+	for _, a := range added {
+		fmt.Printf("Added %s.\n", a)
 	}
-	ok := true
-	for _, h := range hosts {
-		added, err := cf.Route(ctx, h, service)
-		if err != nil {
-			fmt.Printf("\nCloudflare: %v\n", err)
-			ok = ok && h != domain // a www that can't be added doesn't stop the site
-			continue
-		}
-		for _, a := range added {
-			fmt.Printf("Added %s.\n", a)
-		}
+	if wwwErr != nil {
+		fmt.Printf("\nCloudflare: %v\n", wwwErr) // a www that can't be added doesn't stop the site
 	}
-	return ok
+	if err != nil {
+		fmt.Printf("\nCloudflare: %v\n", err)
+		return false
+	}
+	return true
 }
 
 // answers reports whether https://domain/ answers 200 now.
-func answers(ctx context.Context, domain string) bool {
-	c := http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+domain+"/", nil)
-	resp, err := c.Do(req)
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
+func answers(ctx context.Context, domain string) bool { return site.Answers(ctx, domain) }
 
 // waitPublic waits for https://domain/ to answer through Cloudflare.
 func waitPublic(ctx context.Context, domain string) {

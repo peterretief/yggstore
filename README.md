@@ -288,6 +288,8 @@ outfiles/whole/      drop a file or folder in → stored as one item (a folder b
 outfiles/restore/    drop any .ystub (or a copy) in → rebuilt into restored/
 outfiles/restored/   restored files and folders, in the folders they have in files/
 outfiles/delete/     drop a .ystub in → the item is removed from every node, then its stub
+outfiles/websites/   your websites, a folder per domain: a change is published
+                     (see docs/sites.md)
 outfiles/.yggstore/  stubs that have been restored (kept for reference)
 ```
 

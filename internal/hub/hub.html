@@ -237,9 +237,10 @@ function showSync(s) {
       : s.pairing ? pill(true, 'ready for new devices') : pill(false, 'not taking new devices right now: ask the box\'s owner'))
     + ' <span class="sub">' + s.users + (s.users == 1 ? ' device' : ' devices') + ' connected</span>';
   $('stid').textContent = s.device_id || '(waiting for this box\'s Syncthing)';
-  $('sites').innerHTML = (s.sites || []).length ? '<p>Syncthing also offers you the websites kept on this box: '
-    + s.sites.map(x => '<b>' + esc(x.name) + '</b>').join(', ')
-    + '. Add them the same way to edit them: a change is published within a minute.</p>' : '';
+  $('sites').innerHTML = (s.sites || []).length ? '<p>Syncthing also offers you this box\'s <b>websites</b> folder, a folder per site: '
+    + s.sites.map(x => '<b>' + esc(x.name) + '</b>' + (x.problem ? ' (not published yet)' : '')).join(', ')
+    + '. Add it the same way to edit them: a change is published within a minute. A new site is a new folder there, named after its domain;'
+    + ' a file beside it says what it needs before it goes online.</p>' : '';
 }
 
 document.addEventListener('click', async ev => {

@@ -39,6 +39,43 @@ func TunnelFromToken(token string) (account, tunnel string, err error) {
 	return t.A, t.T, nil
 }
 
+// Answers reports whether https://domain/ answers 200 now.
+func Answers(ctx context.Context, domain string) bool {
+	c := http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+domain+"/", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// AddRoutes makes a site reach the web nodes through their tunnel, with
+// the API token and the tunnel's token: its route and DNS record, and
+// those of www. too for a domain that is a whole zone. A www. that can't be
+// added is reported but doesn't fail it. It reports what it added.
+func AddRoutes(ctx context.Context, apiToken, tunnelToken, domain, service string) (added []string, wwwErr, err error) {
+	account, tunnel, err := TunnelFromToken(tunnelToken)
+	if err != nil {
+		return nil, nil, err
+	}
+	cf := &Cloudflare{APIToken: strings.TrimSpace(apiToken), Account: account, Tunnel: tunnel}
+	added, err = cf.Route(ctx, domain, service)
+	if err != nil {
+		return added, nil, err
+	}
+	if _, zone, zerr := cf.Zone(ctx, domain); zerr == nil && zone == domain {
+		more, werr := cf.Route(ctx, "www."+domain, service)
+		added = append(added, more...)
+		wwwErr = werr
+	}
+	return added, wwwErr, nil
+}
+
 // Route makes host reach the web nodes through the tunnel. It changes
 // nothing if host already has a DNS record that points elsewhere, so a
 // site still served from somewhere else isn't taken over by accident. It

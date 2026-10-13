@@ -5,7 +5,8 @@
 // into whole/ are stored as one item each. Stubs dropped into restore/ are
 // rebuilt into restored/, in the same folders they have in files/, and stubs
 // dropped into delete/ are removed from every node. A .ysend someone sent
-// you, dropped in anywhere, is opened into received/.
+// you, dropped in anywhere, is opened into received/. websites/ belongs to
+// the websites package.
 package outbox
 
 import (
@@ -33,6 +34,9 @@ const (
 	DeleteDir   = "delete"
 	WholeDir    = "whole"
 	ReceivedDir = "received"
+	// WebsitesDir holds the node's websites, a folder per domain; the
+	// websites package publishes them, and the outbox leaves it alone.
+	WebsitesDir = "websites"
 	privateDir  = ".yggstore"
 	// Two machines are the least an item can be stored on so that losing
 	// one never loses it; files refuses anything it can't store that way
@@ -237,7 +241,7 @@ func (w *Watcher) loose() []string {
 // special is true for the outbox's own folders.
 func special(name string) bool {
 	switch name {
-	case FilesDir, WholeDir, RestoreDir, RestoredDir, DeleteDir, ReceivedDir:
+	case FilesDir, WholeDir, RestoreDir, RestoredDir, DeleteDir, ReceivedDir, WebsitesDir:
 		return true
 	}
 	return false

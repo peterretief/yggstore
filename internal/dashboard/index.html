@@ -1212,7 +1212,7 @@ async function refreshSites() {
   const el = $("sites");
   if (st.error) { el.innerHTML = `<div class="err">${esc(st.error)}</div>`; return; }
   if (!st.sites.length) {
-    el.innerHTML = `<div class="sub">Once you have a name (above), you can put a website at it: a folder with an <span class="mono">index.html</span>, published from here.</div>`;
+    el.innerHTML = `<div class="sub">Once you have a name (above), you can put a website at it: a folder with an <span class="mono">index.html</span>, published from here.</div>` + siteFolders(st);
     return;
   }
   el.innerHTML = st.sites.map(s => {
@@ -1242,7 +1242,18 @@ async function refreshSites() {
   }).join("") + `<div class="sub" style="margin-top:8px"><b>Edit</b> changes pages here, adds pictures and other files, and deletes them; each save is a new version.
     Or replace the whole site with a folder (or zip) holding its <span class="mono">index.html</span>. Every version is kept, so you can go back.</div>`
     + (st.site_url && st.default ? `<div class="sub" style="margin-top:6px">Over Yggdrasil this box shows ${esc(st.default)} at
-      <a href="${esc(st.site_url)}" target="_blank" rel="noopener" class="mono">${esc(st.site_url)}</a></div>` : "");
+      <a href="${esc(st.site_url)}" target="_blank" rel="noopener" class="mono">${esc(st.site_url)}</a></div>` : "")
+    + siteFolders(st);
+}
+// siteFolders: the outbox's websites/ folder, and why any site in it isn't
+// published (the same as the note beside its folder).
+function siteFolders(st) {
+  if (!st.folder) return "";
+  const bad = (st.folders || []).filter(f => f.problem);
+  return `<div class="sub" style="margin-top:8px">Your sites are also in <span class="mono">${esc(st.folder)}</span>, a folder per domain:
+      a change there is published by itself. A new folder is published once its domain is on Cloudflare.</div>`
+    + bad.map(f => `<div class="row" style="gap:8px;margin-top:4px"><span class="pill warn">not published</span>
+      <b>${esc(f.folder)}</b> <span class="sub">${esc(f.problem.split("\n")[0])}</span></div>`).join("");
 }
 function siteMsg(name, text, bad) {
   const m = document.querySelector(`[data-site-msg="${CSS.escape(name)}"]`);
