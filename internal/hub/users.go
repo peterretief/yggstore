@@ -339,7 +339,19 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 			today++
 		}
 	}
-	for id, p := range pending {
+	// Those that asked first are paired first, while the day's limit lasts.
+	ids := make([]string, 0, len(pending))
+	for id := range pending {
+		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(a, b string) int {
+		if c := pending[a].Time.Compare(pending[b].Time); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	for _, id := range ids {
+		p := pending[id]
 		if known(st.Users, id) {
 			continue
 		}
