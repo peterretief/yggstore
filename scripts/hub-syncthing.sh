@@ -80,14 +80,16 @@ echo "OK: paired; the device has its files folder and the website"
 
 # Files: stored, stub back on the device, restored.
 sleep 3
-head -c 3000000 /dev/urandom > "$W/client-files/photo.bin"; cp "$W/client-files/photo.bin" "$W/original.bin"
-stubbed() { [ -f "$W/client-files/photo.bin.ystub" ] && [ ! -f "$W/client-files/photo.bin" ]; }
+wait_for 30 test -d "$W/client-files/files" || fail "the device's folder has no files/"
+mkdir -p "$W/client-files/files/Photos"
+head -c 3000000 /dev/urandom > "$W/client-files/files/Photos/photo.bin"; cp "$W/client-files/files/Photos/photo.bin" "$W/original.bin"
+stubbed() { [ -f "$W/client-files/files/Photos/photo.bin.ystub" ] && [ ! -f "$W/client-files/files/Photos/photo.bin" ]; }
 wait_for 90 stubbed || fail "no stub on the device"
-cp "$W/client-files/photo.bin.ystub" "$W/client-files/restore/"
-wait_for 90 test -f "$W/client-files/restored/photo.bin" || fail "not restored"
-cmp "$W/original.bin" "$W/client-files/restored/photo.bin" || fail "restored file differs"
-echo "OK: stored, stub on the device, restored and matches"
-rm "$W/client-files/photo.bin.ystub"
+cp "$W/client-files/files/Photos/photo.bin.ystub" "$W/client-files/restore/"
+wait_for 90 test -f "$W/client-files/restored/Photos/photo.bin" || fail "not restored into restored/Photos"
+cmp "$W/original.bin" "$W/client-files/restored/Photos/photo.bin" || fail "restored file differs"
+echo "OK: stored, stub on the device, restored into the same folder and matches"
+rm "$W/client-files/files/Photos/photo.bin.ystub"
 kept() { find "$W/hub/users" -path '*.stversions*' -name '*.ystub*' | grep -q .; }
 wait_for 20 kept || fail "deleted stub not kept on the hub"
 echo "OK: a stub deleted on the device is kept on the hub"

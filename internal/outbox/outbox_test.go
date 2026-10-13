@@ -41,7 +41,7 @@ func setup(t *testing.T, nodes int) (*Watcher, string, *[]string) {
 	var events []string
 	w := New(Config{Dir: dir, PeersPath: peersPath, Client: client.New(), ChunkSize: 64 << 10, Challenges: 2,
 		Event: func(kind, msg string) { events = append(events, kind+": "+msg) }})
-	for _, d := range []string{RestoreDir, RestoredDir, DeleteDir, WholeDir, filepath.Join(privateDir, "restored-stubs")} {
+	for _, d := range []string{FilesDir, RestoreDir, RestoredDir, DeleteDir, WholeDir, filepath.Join(privateDir, "restored-stubs")} {
 		os.MkdirAll(filepath.Join(dir, d), 0o755)
 	}
 	return w, dir, &events
@@ -68,7 +68,7 @@ func TestFileAndFolderRoundTrip(t *testing.T) {
 	w, dir, events := setup(t, 4)
 
 	fileData := randBytes(300_000)
-	os.WriteFile(filepath.Join(dir, "photo.jpg"), fileData, 0o644)
+	os.WriteFile(filepath.Join(dir, FilesDir, "photo.jpg"), fileData, 0o644)
 	// A folder dropped into whole/ is stored as one item.
 	folder := filepath.Join(dir, WholeDir, "Holiday")
 	os.MkdirAll(filepath.Join(folder, "day2"), 0o755)
@@ -76,9 +76,9 @@ func TestFileAndFolderRoundTrip(t *testing.T) {
 	os.WriteFile(filepath.Join(folder, "a.txt"), a, 0o644)
 	os.WriteFile(filepath.Join(folder, "day2", "b.bin"), b, 0o600)
 
-	settle(t, w, filepath.Join(dir, "photo.jpg"), folder)
+	settle(t, w, filepath.Join(dir, FilesDir, "photo.jpg"), folder)
 
-	for _, name := range []string{"photo.jpg", filepath.Join(WholeDir, "Holiday")} {
+	for _, name := range []string{filepath.Join(FilesDir, "photo.jpg"), filepath.Join(WholeDir, "Holiday")} {
 		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
 			t.Fatalf("%s still present after store (events: %v)", name, *events)
 		}
@@ -96,7 +96,7 @@ func TestFileAndFolderRoundTrip(t *testing.T) {
 	}
 
 	// Restore by dropping copies of the stubs into restore/.
-	for _, name := range []string{"photo.jpg", filepath.Join(WholeDir, "Holiday")} {
+	for _, name := range []string{filepath.Join(FilesDir, "photo.jpg"), filepath.Join(WholeDir, "Holiday")} {
 		data, _ := os.ReadFile(filepath.Join(dir, name+files.StubExt))
 		os.WriteFile(filepath.Join(dir, RestoreDir, filepath.Base(name)+files.StubExt), data, 0o600)
 	}
@@ -117,7 +117,7 @@ func TestFileAndFolderRoundTrip(t *testing.T) {
 	}
 
 	// Restoring again must not overwrite the first copy.
-	if p, err := w.RestoreStub(context.Background(), filepath.Join(dir, "photo.jpg"+files.StubExt)); err != nil || filepath.Base(p) != "photo (2).jpg" {
+	if p, err := w.RestoreStub(context.Background(), filepath.Join(dir, FilesDir, "photo.jpg"+files.StubExt)); err != nil || filepath.Base(p) != "photo (2).jpg" {
 		t.Fatalf("second restore = %q, %v", p, err)
 	}
 }
@@ -132,7 +132,7 @@ func TestContainersOnTooFewMachinesKeepOriginal(t *testing.T) {
 	b, _ := json.Marshal(list)
 	os.WriteFile(w.cfg.PeersPath, b, 0o600)
 
-	p := filepath.Join(dir, "doc.pdf")
+	p := filepath.Join(dir, FilesDir, "doc.pdf")
 	os.WriteFile(p, randBytes(1000), 0o644)
 	settle(t, w, p)
 	if _, err := os.Stat(p + files.StubExt); !os.IsNotExist(err) {
@@ -145,7 +145,7 @@ func TestContainersOnTooFewMachinesKeepOriginal(t *testing.T) {
 
 func TestTooFewNodesKeepsOriginal(t *testing.T) {
 	w, dir, events := setup(t, 1)
-	p := filepath.Join(dir, "doc.pdf")
+	p := filepath.Join(dir, FilesDir, "doc.pdf")
 	os.WriteFile(p, randBytes(1000), 0o644)
 	settle(t, w, p)
 	if _, err := os.Stat(p); err != nil {
@@ -161,7 +161,7 @@ func TestTooFewNodesKeepsOriginal(t *testing.T) {
 
 func TestUnstableItemIsLeftAlone(t *testing.T) {
 	w, dir, _ := setup(t, 4)
-	p := filepath.Join(dir, "growing.log")
+	p := filepath.Join(dir, FilesDir, "growing.log")
 	os.WriteFile(p, []byte("x"), 0o644)
 	w.poll(context.Background())
 	os.WriteFile(p, []byte("xy"), 0o644) // still being written
@@ -174,7 +174,7 @@ func TestUnstableItemIsLeftAlone(t *testing.T) {
 func TestDeleteFolderRemovesItem(t *testing.T) {
 	w, dir, events := setup(t, 4)
 	os.MkdirAll(filepath.Join(dir, DeleteDir), 0o755)
-	p := filepath.Join(dir, "old.mov")
+	p := filepath.Join(dir, FilesDir, "old.mov")
 	os.WriteFile(p, randBytes(200_000), 0o644)
 	settle(t, w, p)
 	stub := p + files.StubExt
@@ -210,16 +210,16 @@ func TestDeleteFolderRemovesItem(t *testing.T) {
 
 func TestFoldersAreStoredFileByFile(t *testing.T) {
 	w, dir, events := setup(t, 4)
-	movies := filepath.Join(dir, "Movies", "2026")
+	movies := filepath.Join(dir, FilesDir, "Movies", "2026")
 	os.MkdirAll(movies, 0o755)
 	x, y := randBytes(90_000), randBytes(3)
 	os.WriteFile(filepath.Join(movies, "x.mkv"), x, 0o644)
-	os.WriteFile(filepath.Join(dir, "Movies", "y.txt"), y, 0o644)
+	os.WriteFile(filepath.Join(dir, FilesDir, "Movies", "y.txt"), y, 0o644)
 	os.WriteFile(filepath.Join(movies, "half.mkv.part"), y, 0o644) // still downloading
-	settle(t, w, filepath.Join(dir, "Movies"))
+	settle(t, w, filepath.Join(dir, FilesDir, "Movies"))
 
 	for _, rel := range []string{"Movies/2026/x.mkv", "Movies/y.txt"} {
-		p := filepath.Join(dir, rel)
+		p := filepath.Join(dir, FilesDir, rel)
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Fatalf("%s still present after store (events: %v)", rel, *events)
 		}
@@ -256,7 +256,7 @@ func TestFoldersAreStoredFileByFile(t *testing.T) {
 
 	// Deleting a stub from inside the tree removes that item only.
 	os.Remove(filepath.Join(movies, "x.mkv"))
-	stub := filepath.Join(dir, "Movies", "y.txt"+files.StubExt)
+	stub := filepath.Join(dir, FilesDir, "Movies", "y.txt"+files.StubExt)
 	m, _ := files.ReadStub(stub)
 	os.Rename(stub, filepath.Join(dir, DeleteDir, "y.txt"+files.StubExt))
 	settle(t, w, filepath.Join(dir, DeleteDir))
@@ -282,7 +282,7 @@ func TestReceiveSharedItem(t *testing.T) {
 	bobID, _ := share.LoadOrCreate(filepath.Join(keys, "bob"))
 
 	data := randBytes(150_000)
-	p := filepath.Join(dir, "plan.pdf")
+	p := filepath.Join(dir, FilesDir, "plan.pdf")
 	os.WriteFile(p, data, 0o644)
 	settle(t, alice, p)
 	stub, _ := os.ReadFile(p + files.StubExt)
@@ -362,9 +362,9 @@ func TestReceiveSharedItem(t *testing.T) {
 func TestRestoreFolderChoice(t *testing.T) {
 	w, dir, events := setup(t, 4)
 	data := randBytes(50_000)
-	os.WriteFile(filepath.Join(dir, "notes.txt"), data, 0o644)
-	settle(t, w, filepath.Join(dir, "notes.txt"))
-	stub := filepath.Join(dir, "notes.txt"+files.StubExt)
+	os.WriteFile(filepath.Join(dir, FilesDir, "notes.txt"), data, 0o644)
+	settle(t, w, filepath.Join(dir, FilesDir, "notes.txt"))
+	stub := filepath.Join(dir, FilesDir, "notes.txt"+files.StubExt)
 
 	if w.RestoreDir() != filepath.Join(dir, RestoredDir) {
 		t.Fatalf("default restore dir = %s", w.RestoreDir())
@@ -403,5 +403,77 @@ func TestRestoreFolderChoice(t *testing.T) {
 
 	if err := w.SetRestoreDir(""); err != nil || w.RestoreDir() != filepath.Join(dir, RestoredDir) {
 		t.Fatalf("reset: %s, %v", w.RestoreDir(), err)
+	}
+}
+
+func TestLooseItemsMoveIntoFiles(t *testing.T) {
+	w, dir, events := setup(t, 4)
+	data := randBytes(20_000)
+	os.WriteFile(filepath.Join(dir, "loose.txt"), data, 0o644)
+	settle(t, w, filepath.Join(dir, "loose.txt"))
+	moved := filepath.Join(dir, FilesDir, "loose.txt")
+	if _, err := os.Stat(filepath.Join(dir, "loose.txt")); !os.IsNotExist(err) {
+		t.Fatalf("loose.txt not moved (events: %v)", *events)
+	}
+	settle(t, w, moved)
+	stub := moved + files.StubExt
+	if _, err := files.ReadStub(stub); err != nil {
+		t.Fatalf("not stored once in files/: %v (events: %v)", err, *events)
+	}
+
+	// An outbox from before files/: its stubs, with their challenges, sit at
+	// the top. They move into files/, beside nothing else of the same name.
+	old := filepath.Join(dir, "loose.txt"+files.StubExt)
+	os.Rename(stub, old)
+	os.Rename(files.ChallengesPath(stub), files.ChallengesPath(old))
+	os.WriteFile(stub, []byte("someone else's"), 0o644) // the name is taken in files/
+	settle(t, w, old)
+	again := filepath.Join(dir, FilesDir, "loose.txt (2)"+files.StubExt)
+	if _, err := files.ReadStub(again); err != nil {
+		t.Fatalf("old stub not moved to %s: %v (events: %v)", again, err, *events)
+	}
+	if _, err := os.Stat(files.ChallengesPath(again)); err != nil {
+		t.Fatalf("challenges didn't move with the stub: %v", err)
+	}
+	left, _ := os.ReadDir(dir)
+	for _, e := range left {
+		if !e.IsDir() || !(special(e.Name()) || e.Name() == privateDir) {
+			t.Fatalf("%s left at the top of the outbox", e.Name())
+		}
+	}
+}
+
+func TestRestoreIntoSameFolderAndDeleteByCopy(t *testing.T) {
+	w, dir, events := setup(t, 4)
+	photos := filepath.Join(dir, FilesDir, "Photos", "2024")
+	os.MkdirAll(photos, 0o755)
+	data := randBytes(50_000)
+	os.WriteFile(filepath.Join(photos, "beach.jpg"), data, 0o644)
+	settle(t, w, photos)
+	stub := filepath.Join(photos, "beach.jpg"+files.StubExt)
+	b, err := os.ReadFile(stub)
+	if err != nil {
+		t.Fatalf("not stored: %v (events: %v)", err, *events)
+	}
+
+	// A copy of the stub in restore/ comes back where it is kept in files/,
+	// and the stub in files/ stays.
+	os.WriteFile(filepath.Join(dir, RestoreDir, "beach.jpg"+files.StubExt), b, 0o644)
+	settle(t, w, filepath.Join(dir, RestoreDir))
+	if got, _ := os.ReadFile(filepath.Join(dir, RestoredDir, "Photos", "2024", "beach.jpg")); !bytes.Equal(got, data) {
+		t.Fatalf("not restored into restored/Photos/2024 (events: %v)", *events)
+	}
+	if _, err := os.Stat(stub); err != nil {
+		t.Fatal("the stub in files/ went away on restore")
+	}
+
+	// A copy in delete/ deletes the file, and its stub in files/ goes too.
+	os.WriteFile(filepath.Join(dir, DeleteDir, "beach.jpg"+files.StubExt), b, 0o644)
+	settle(t, w, filepath.Join(dir, DeleteDir))
+	if _, err := os.Stat(stub); !os.IsNotExist(err) {
+		t.Fatalf("stub still in files/ after delete (events: %v)", *events)
+	}
+	if left, _ := os.ReadDir(filepath.Join(dir, DeleteDir)); len(left) != 0 {
+		t.Fatalf("delete/ not emptied: %d entries", len(left))
 	}
 }

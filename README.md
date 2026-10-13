@@ -279,13 +279,14 @@ bin/yggstore watch     -peers peers.json -dir outfiles        # watcher only, lo
 ```
 
 ```
-outfiles/            drop files in, or folders of them → each file is sharded, then
-                     replaced by NAME.ystub beside it, so the folder tree stays
+outfiles/files/      put files in, or folders of them → each file is sharded, then
+                     replaced by NAME.ystub beside it, so the folder tree stays.
+                     Anything put at the top of outfiles is moved in here.
 outfiles/received/   items people sent you (drop their .ysend anywhere in outfiles)
 outfiles/whole/      drop a file or folder in → stored as one item (a folder becomes
                      one archive, restored as a whole)
-outfiles/restore/    drop any .ystub in → rebuilt into restored/
-outfiles/restored/   restored files and folders
+outfiles/restore/    drop any .ystub (or a copy) in → rebuilt into restored/
+outfiles/restored/   restored files and folders, in the folders they have in files/
 outfiles/delete/     drop a .ystub in → the item is removed from every node, then its stub
 outfiles/.yggstore/  stubs that have been restored (kept for reference)
 ```
@@ -313,7 +314,9 @@ outfiles/.yggstore/  stubs that have been restored (kept for reference)
   stubs and challenges removed; if a node is down, the stub stays in `delete/`
   and is retried every 2 minutes, so no shard is left without a record.
   Deleting cannot be undone.
-- The dashboard's Restore button rebuilds any listed stub into `restored/`.
+- The dashboard's Restore button rebuilds any listed stub into `restored/`,
+  in the same folders it has in `files/` (`files/Photos/beach.jpg.ystub`
+  comes back as `restored/Photos/beach.jpg`).
   A restore never overwrites: a second copy becomes `name (2).ext`.
 
 ## Dashboard

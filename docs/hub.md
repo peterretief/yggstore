@@ -197,11 +197,26 @@ The box's page walks users through this; in short:
 
 Then, in that folder:
 
-- **Put a file or folder in** and it is stored in the group. The file is
-  replaced by a small stub (`photo.jpg.ystub`) on the box and on the device,
-  which is what you keep to get it back.
-- **Put a stub into `restore/`** and the file comes back in `restored/`.
-- **Put a stub into `delete/`** and the file is deleted from the group.
+```
+yggstore/
+├── files/       your files and folders: each file becomes a stub
+├── restore/     copy a stub here to get the file back
+├── restored/    where it comes back, in the same folders as in files/
+├── delete/      put a stub here to delete the file from the group
+├── whole/       put a folder here to store it as one item
+└── received/    files someone sent you
+```
+
+- **Put a file or folder into `files/`** and it is stored in the group.
+  Each file is replaced by a small stub (`photo.jpg.ystub`) on the box and
+  on the device, which is what you keep to get it back. Folders stay as
+  they are, holding stubs. Anything put at the top of the folder is moved
+  into `files/`.
+- **Copy a stub into `restore/`** and the file comes back in `restored/`,
+  in the same folders: `files/Photos/2024/beach.jpg.ystub` comes back as
+  `restored/Photos/2024/beach.jpg`. The stub stays in `files/`.
+- **Put a stub (or a copy) into `delete/`** and the file is deleted from
+  the group, and its stub in `files/` goes too.
 - Put a file in again after changing it, and the older version is kept too
   (see [history](history.md)).
 

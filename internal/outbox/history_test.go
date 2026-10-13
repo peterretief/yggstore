@@ -30,7 +30,7 @@ func shardsGone(t *testing.T, w *Watcher, ms ...manifest.Manifest) bool {
 
 func TestVersionsAreKeptAndRestorable(t *testing.T) {
 	w, dir, events := setup(t, 4)
-	p := filepath.Join(dir, "Docs", "plan.txt")
+	p := filepath.Join(dir, FilesDir, "Docs", "plan.txt")
 	os.MkdirAll(filepath.Dir(p), 0o755)
 	v1 := randBytes(300_000) // 5 chunks of 64 KiB
 	os.WriteFile(p, v1, 0o644)
@@ -95,7 +95,7 @@ func TestVersionsAreKeptAndRestorable(t *testing.T) {
 func TestKeptOriginalsGetVersionsWhenEdited(t *testing.T) {
 	w, dir, events := setup(t, 4)
 	w.cfg.Keep = true
-	p := filepath.Join(dir, "notes.md")
+	p := filepath.Join(dir, FilesDir, "notes.md")
 	os.WriteFile(p, []byte("first"), 0o644)
 	settle(t, w, p)
 	w.poll(context.Background()) // unchanged: nothing happens
@@ -118,7 +118,7 @@ func TestOldVersionsArePruned(t *testing.T) {
 	defer func(n int) { KeepVersions = n }(KeepVersions)
 	KeepVersions = 2
 	w, dir, events := setup(t, 4)
-	p := filepath.Join(dir, "log.txt")
+	p := filepath.Join(dir, FilesDir, "log.txt")
 	var all []manifest.Manifest
 	for i := range 5 {
 		os.WriteFile(p, randBytes(1000+i), 0o644)
@@ -143,7 +143,7 @@ func TestOldVersionsArePruned(t *testing.T) {
 
 func TestRestoreFolderAsOf(t *testing.T) {
 	w, dir, events := setup(t, 4)
-	folder := filepath.Join(dir, "Project")
+	folder := filepath.Join(dir, FilesDir, "Project")
 	os.MkdirAll(filepath.Join(folder, "sub"), 0o755)
 	a1, a2, b := randBytes(5000), randBytes(6000), randBytes(700)
 	write := func(rel string, data []byte, at time.Time) {
@@ -161,11 +161,11 @@ func TestRestoreFolderAsOf(t *testing.T) {
 	write("a.txt", a1, t1)
 	write("sub/b.bin", b, t1.Add(24*time.Hour))
 	write("a.txt", a2, t1.Add(48*time.Hour))
-	os.WriteFile(filepath.Join(dir, "other.txt"), []byte("not in the folder"), 0o644)
-	settle(t, w, filepath.Join(dir, "other.txt"))
+	os.WriteFile(filepath.Join(dir, FilesDir, "other.txt"), []byte("not in the folder"), 0o644)
+	settle(t, w, filepath.Join(dir, FilesDir, "other.txt"))
 
 	// As of day 2: the first a.txt, and b.bin.
-	target, n, err := w.RestoreFolderAt(context.Background(), "Project", t1.Add(36*time.Hour))
+	target, n, err := w.RestoreFolderAt(context.Background(), "files/Project", t1.Add(36*time.Hour))
 	if err != nil || n != 2 {
 		t.Fatalf("restore: %d items, %v (events: %v)", n, err, *events)
 	}
@@ -179,11 +179,11 @@ func TestRestoreFolderAsOf(t *testing.T) {
 		t.Fatal("an item outside the folder was restored")
 	}
 	// As of day 1, only a.txt existed.
-	target, n, _ = w.RestoreFolderAt(context.Background(), "Project", t1.Add(time.Hour))
+	target, n, _ = w.RestoreFolderAt(context.Background(), "files/Project", t1.Add(time.Hour))
 	if _, err := os.Stat(filepath.Join(target, "sub")); n != 1 || err == nil {
 		t.Fatalf("as of day 1: %d items", n)
 	}
-	if _, _, err := w.RestoreFolderAt(context.Background(), "Project", t1.Add(-time.Hour)); err == nil {
+	if _, _, err := w.RestoreFolderAt(context.Background(), "files/Project", t1.Add(-time.Hour)); err == nil {
 		t.Fatal("restore before anything was stored succeeded")
 	}
 }

@@ -54,8 +54,8 @@ later are left out. The folder appears in the restore folder as
 From the command line:
 
 ```sh
-yggstore history outfiles/Docs/report.docx.ystub          # list the versions
-yggstore history -restore 20261005T121453Z-52f52e09.ystub outfiles/Docs/report.docx.ystub
+yggstore history outfiles/files/Docs/report.docx.ystub          # list the versions
+yggstore history -restore 20261005T121453Z-52f52e09.ystub outfiles/files/Docs/report.docx.ystub
 yggstore history -outfiles outfiles -folder Docs -at "2026-10-01 14:00"
 ```
 
