@@ -68,7 +68,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore leases  [-days 90]                              on a node: how long since its shards were last wanted (see docs/leases.md)
   yggstore mesh    [set NODE URI... | public URI...]       Yggdrasil links between members (see docs/mesh.md)
   yggstore gateway serve|customer|report ...               S3 service for paying customers (see docs/gateway.md)
-  yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything dropped into DIR (replacing it
+  yggstore watch   -peers peers.json -dir DIR [-keep]      shard anything put in DIR/files/ (replacing it
                                                            with a .ystub); restore stubs dropped into
                                                            DIR/restore/ into DIR/restored/
   yggstore version                                         which version this is

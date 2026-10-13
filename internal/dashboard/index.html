@@ -519,7 +519,7 @@ function renderFiles(s, list, el, test, received) {
   }
   if (!list.length) {
     $(el).innerHTML = s.outbox
-      ? `<tr><td colspan="6" class="empty">Nothing stored yet. Drop a file or folder into <span class="mono">${esc(s.stub_dir)}</span> and it will appear here.</td></tr>`
+      ? `<tr><td colspan="6" class="empty">Nothing stored yet. Drop a file or folder into the <span class="mono">files</span> folder in <span class="mono">${esc(s.stub_dir)}</span> and it will appear here.</td></tr>`
       : `<tr><td colspan="6" class="empty">No .ystub files in <span class="mono">${esc(s.stub_dir)}</span>. Store one with <span class="mono">yggstore put</span>.</td></tr>`;
     return;
   }

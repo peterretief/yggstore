@@ -1,9 +1,11 @@
-// Package outbox watches a folder: files dropped into it, or into folders
-// inside it, are sharded into the network one by one and each replaced by a
-// .ystub, so the folder tree stays as it was. Files or folders dropped into
-// whole/ are stored as one item each. Stubs dropped into restore/ are rebuilt
-// into restored/, and stubs dropped into delete/ are removed from every node.
-// A .ysend someone sent you, dropped in anywhere, is opened into received/.
+// Package outbox watches a folder. Files put in its files/ folder, or in
+// folders inside it, are sharded into the network one by one and each
+// replaced by a .ystub, so the folder tree stays as it was; anything put at
+// the top of the outbox is moved into files/ first. Files or folders dropped
+// into whole/ are stored as one item each. Stubs dropped into restore/ are
+// rebuilt into restored/, in the same folders they have in files/, and stubs
+// dropped into delete/ are removed from every node. A .ysend someone sent
+// you, dropped in anywhere, is opened into received/.
 package outbox
 
 import (
@@ -25,6 +27,7 @@ import (
 )
 
 const (
+	FilesDir    = "files"
 	RestoreDir  = "restore"
 	RestoredDir = "restored"
 	DeleteDir   = "delete"
@@ -128,14 +131,14 @@ func (w *Watcher) Dir() string { return w.cfg.Dir }
 func (w *Watcher) SetEvent(f func(kind, msg string)) { w.cfg.Event = f }
 
 func (w *Watcher) Run(ctx context.Context) error {
-	for _, d := range []string{w.cfg.Dir, filepath.Join(w.cfg.Dir, RestoreDir), filepath.Join(w.cfg.Dir, RestoredDir), filepath.Join(w.cfg.Dir, DeleteDir),
+	for _, d := range []string{w.cfg.Dir, filepath.Join(w.cfg.Dir, FilesDir), filepath.Join(w.cfg.Dir, RestoreDir), filepath.Join(w.cfg.Dir, RestoredDir), filepath.Join(w.cfg.Dir, DeleteDir),
 		filepath.Join(w.cfg.Dir, WholeDir), filepath.Join(w.cfg.Dir, ReceivedDir), filepath.Join(w.cfg.Dir, privateDir, "restored-stubs")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
 	}
 	os.Chmod(filepath.Join(w.cfg.Dir, privateDir), 0o700)
-	w.cfg.Event("info", "watching "+w.cfg.Dir+" (drop files or folders in, or into whole/ to keep a folder as one item; stubs into restore/ or delete/); restores go to "+w.RestoreDir())
+	w.cfg.Event("info", "watching "+w.cfg.Dir+" (drop files or folders into files/, or into whole/ to keep a folder as one item; stubs into restore/ or delete/); restores go to "+w.RestoreDir())
 	t := time.NewTicker(w.cfg.Interval)
 	defer t.Stop()
 	for {
@@ -150,6 +153,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 func (w *Watcher) poll(ctx context.Context) {
 	seen := map[string]bool{}
+	for _, path := range w.loose() {
+		seen[path] = true
+		if w.ready(path) {
+			w.tidy(path)
+		}
+	}
 	for _, path := range w.items() {
 		seen[path] = true
 		if w.ready(path) {
@@ -203,11 +212,66 @@ func (w *Watcher) candidates(dir string) []string {
 	return out
 }
 
-// items lists what is waiting to be stored: every file anywhere in the
-// outbox, each its own item with its stub beside it, and whatever sits at
-// the top of whole/, files or folders stored as one item each. Hidden and
-// half-downloaded files, and the restore/, restored/ and delete/ folders,
-// are left alone.
+// loose lists what sits at the top of the outbox outside its own folders:
+// files, folders and stubs that belong in files/ (an outbox from before
+// files/ had them all at the top). Hidden and half-downloaded files, and
+// .ysend files (opened where they are), are left alone.
+func (w *Watcher) loose() []string {
+	entries, err := os.ReadDir(w.cfg.Dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		switch {
+		case strings.HasPrefix(name, ".") || isTemp(name) || strings.HasSuffix(name, share.Ext) || strings.HasSuffix(name, files.ChallengesExt):
+		case e.IsDir() && special(name):
+		default:
+			out = append(out, filepath.Join(w.cfg.Dir, name))
+		}
+	}
+	return out
+}
+
+// special is true for the outbox's own folders.
+func special(name string) bool {
+	switch name {
+	case FilesDir, WholeDir, RestoreDir, RestoredDir, DeleteDir, ReceivedDir:
+		return true
+	}
+	return false
+}
+
+// tidy moves something from the top of the outbox into files/, under a new
+// name if that one is taken there. A stub takes its challenges with it.
+func (w *Watcher) tidy(path string) {
+	name := filepath.Base(path)
+	dest := filepath.Join(w.cfg.Dir, FilesDir, name)
+	chal := ""
+	if strings.HasSuffix(name, files.StubExt) {
+		dest = freeStub(dest)
+		chal = files.ChallengesPath(path)
+	} else {
+		dest = freePath(dest)
+	}
+	if err := os.Rename(path, dest); err != nil {
+		w.retry[path] = time.Now().Add(retryAfter)
+		w.cfg.Event("bad", fmt.Sprintf("could not move %s into %s/: %v", name, FilesDir, err))
+		return
+	}
+	if chal != "" {
+		if _, err := os.Lstat(chal); err == nil {
+			os.Rename(chal, files.ChallengesPath(dest))
+		}
+	}
+	w.cfg.Event("info", fmt.Sprintf("moved %s to %s", name, filepath.ToSlash(w.rel(dest))))
+}
+
+// items lists what is waiting to be stored: every file anywhere in files/,
+// each its own item with its stub beside it, and whatever sits at the top
+// of whole/, files or folders stored as one item each. Hidden and
+// half-downloaded files are left alone, and so is the rest of the outbox.
 func (w *Watcher) items() []string {
 	whole := filepath.Join(w.cfg.Dir, WholeDir)
 	var out []string
@@ -217,7 +281,7 @@ func (w *Watcher) items() []string {
 		}
 		name, parent := e.Name(), filepath.Dir(path)
 		if strings.HasPrefix(name, ".") || isTemp(name) || strings.HasSuffix(name, share.Ext) ||
-			(parent == w.cfg.Dir && e.IsDir() && (name == RestoreDir || name == RestoredDir || name == DeleteDir || name == ReceivedDir)) {
+			(parent == w.cfg.Dir && (!e.IsDir() || (name != FilesDir && name != WholeDir))) {
 			if e.IsDir() {
 				return filepath.SkipDir
 			}
@@ -322,6 +386,22 @@ func freeStub(path string) string {
 			return path
 		}
 		path = fmt.Sprintf("%s (%d)%s", base, i, files.StubExt)
+	}
+}
+
+// freePath returns path, or path with " (2)", " (3)", ... before the
+// extension (or at the end, for a folder) if that is taken.
+func freePath(path string) string {
+	ext := ""
+	if info, err := os.Lstat(path); err == nil && !info.IsDir() {
+		ext = filepath.Ext(path)
+	}
+	base := strings.TrimSuffix(path, ext)
+	for i := 2; ; i++ {
+		if _, err := os.Lstat(path); err != nil {
+			return path
+		}
+		path = fmt.Sprintf("%s (%d)%s", base, i, ext)
 	}
 }
 
@@ -593,7 +673,7 @@ func (w *Watcher) RestoreStub(ctx context.Context, stub string) (string, error) 
 		m.FileName = versionName(m.FileName, storedAt(m, stub))
 	}
 	start := time.Now()
-	dir := w.RestoreDir()
+	dir := filepath.Join(w.RestoreDir(), w.origin(stub, m))
 	target, err := files.Restore(w.begin(ctx, "restoring", m.FileName, int64(m.PlaintextSize)), w.cfg.Client, m, dir, nil)
 	if err != nil {
 		w.cfg.Event("bad", fmt.Sprintf("restore of %s into %s failed: %v", m.FileName, dir, err))
@@ -603,6 +683,47 @@ func (w *Watcher) RestoreStub(ctx context.Context, stub string) (string, error) 
 	w.cfg.Event("ok", fmt.Sprintf("restored %s (%s) to %s in %.1fs", m.FileName, human(int64(m.PlaintextSize)), target, time.Since(start).Seconds()))
 	w.noteRestore(Restored{Name: m.FileName, Path: target, Dir: dir, Size: int64(m.PlaintextSize)})
 	return target, nil
+}
+
+// origin is the folder, inside files/, that the item a stub describes is
+// kept in, so it is restored into the same folder under restored/: where the
+// stub is, if it is in files/, or else where a stub of the same file is
+// (for a copy dropped into restore/, or an older version). "" if neither.
+func (w *Watcher) origin(stub string, m manifest.Manifest) string {
+	root := filepath.Join(w.cfg.Dir, FilesDir)
+	inFiles := func(p string) string {
+		rel, err := filepath.Rel(root, filepath.Dir(p))
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return ""
+		}
+		return rel
+	}
+	if rel, err := filepath.Rel(root, stub); err == nil && !strings.HasPrefix(rel, "..") {
+		return inFiles(stub)
+	}
+	lineage, found := manifest.LineageOf(m), ""
+	filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
+		if err != nil || found != "" {
+			return filepath.SkipAll
+		}
+		if e.IsDir() {
+			if p != root && strings.HasPrefix(e.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(e.Name(), files.StubExt) {
+			if sm, err := files.ReadStub(p); err == nil && sm.SharedBy == nil && manifest.LineageOf(sm) == lineage {
+				found = p
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	if found == "" {
+		return ""
+	}
+	return inFiles(found)
 }
 
 // DeleteStub removes the item a stub describes from every node, then every
