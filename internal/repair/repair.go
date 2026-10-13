@@ -457,8 +457,8 @@ func isGateway(list []peers.Peer, addr string) bool {
 }
 
 // Find lists the stubs under dirs: stored items and their older versions,
-// leaving out hidden folders and an outbox's restore/, delete/ and
-// restored/ (requests and rebuilt files, not stored items).
+// leaving out hidden folders and an outbox's restore/, delete/, restored/
+// and websites/ (requests, rebuilt files and sites, not stored items).
 func Find(dirs ...string) []string {
 	var out []string
 	for _, root := range dirs {
@@ -472,7 +472,7 @@ func Find(dirs ...string) []string {
 			if e.IsDir() && path != root {
 				name := e.Name()
 				top := filepath.Dir(path) == root
-				if strings.HasPrefix(name, ".") || (top && (name == "restore" || name == "delete" || name == "restored")) {
+				if strings.HasPrefix(name, ".") || (top && (name == "restore" || name == "delete" || name == "restored" || name == "websites")) {
 					return filepath.SkipDir
 				}
 			}

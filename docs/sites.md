@@ -87,6 +87,40 @@ A web node only learns about versions announced while it is a web node or
 in the 30 days before. A web node added later needs `yggstore site announce`
 run once on the publishing machine.
 
+### Or keep them in the outbox's websites/ folder
+
+A node whose dashboard watches an outbox (`-outfiles`) also keeps its sites
+in the outbox's `websites/` folder, one folder per domain:
+
+```
+outfiles/websites/
+├── example.org/                     the live site: change it here, and it's published
+├── shop.example.org/
+└── new.example.net/                 a new site, waiting for its domain on Cloudflare
+    new.example.net - NOT PUBLISHED.txt   why, and what to do
+```
+
+- **Sites published from this machine** get their folder filled with the
+  version being served. A change there is published about 15 seconds after
+  the last edit, with the same checks as a hub (it needs an `index.html`,
+  mustn't shrink to less than half and holds at most 500 MB), at most once
+  a minute. Every version is kept, so `yggstore site rollback` undoes one.
+- **A new folder** is published only once its domain is on Cloudflare
+  (added there, with its nameservers changed). Until then nothing is
+  published, and `DOMAIN - NOT PUBLISHED.txt` beside it explains how to add
+  it. The node checks every 5 minutes. With an API token (see
+  [below](#let-publishing-add-the-routes)) it then adds the site's route
+  itself; without one, the note says what to add by hand, and goes away
+  once `https://DOMAIN/` answers.
+- **Names the group gave this node** are published straight away.
+- **A domain another node publishes** is left alone, with a note saying so.
+- **Changed elsewhere** (the dashboard's Edit, or `yggstore site publish`):
+  the folder is brought up to that version, as long as nothing in it
+  changed meanwhile, so the next edit there doesn't undo it.
+
+Deleting a site's folder doesn't take the site down: it comes back with the
+version being served. To take a site down, use `yggstore site remove`.
+
 ## 3. Put Cloudflare in front
 
 Once, in the Cloudflare dashboard (Zero Trust → Networks → Tunnels):

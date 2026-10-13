@@ -410,12 +410,17 @@ func TestLooseItemsMoveIntoFiles(t *testing.T) {
 	w, dir, events := setup(t, 4)
 	data := randBytes(20_000)
 	os.WriteFile(filepath.Join(dir, "loose.txt"), data, 0o644)
-	settle(t, w, filepath.Join(dir, "loose.txt"))
+	os.MkdirAll(filepath.Join(dir, WebsitesDir, "example.org"), 0o755) // not the outbox's
+	os.WriteFile(filepath.Join(dir, WebsitesDir, "example.org", "index.html"), []byte("site"), 0o644)
+	settle(t, w, filepath.Join(dir, "loose.txt"), filepath.Join(dir, WebsitesDir))
 	moved := filepath.Join(dir, FilesDir, "loose.txt")
 	if _, err := os.Stat(filepath.Join(dir, "loose.txt")); !os.IsNotExist(err) {
 		t.Fatalf("loose.txt not moved (events: %v)", *events)
 	}
 	settle(t, w, moved)
+	if _, err := os.Stat(filepath.Join(dir, WebsitesDir, "example.org", "index.html")); err != nil {
+		t.Fatalf("websites/ was touched: %v (events: %v)", err, *events)
+	}
 	stub := moved + files.StubExt
 	if _, err := files.ReadStub(stub); err != nil {
 		t.Fatalf("not stored once in files/: %v (events: %v)", err, *events)

@@ -343,7 +343,7 @@ func (w *Watcher) RestoreFolderAt(ctx context.Context, rel string, at time.Time)
 			return nil
 		}
 		if e.IsDir() && p != w.cfg.Dir && filepath.Dir(p) == w.cfg.Dir &&
-			(e.Name() == privateDir || e.Name() == RestoreDir || e.Name() == RestoredDir || e.Name() == DeleteDir || e.Name() == ReceivedDir) {
+			(e.Name() == privateDir || e.Name() == RestoreDir || e.Name() == RestoredDir || e.Name() == DeleteDir || e.Name() == ReceivedDir || e.Name() == WebsitesDir) {
 			return filepath.SkipDir
 		}
 		if e.IsDir() || !strings.HasSuffix(p, files.StubExt) {

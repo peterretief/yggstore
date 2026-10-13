@@ -17,8 +17,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/site"
+	"github.com/peterretief/yggstore/internal/websites"
 )
 
 // Websites: a member publishes a folder as the website of a name the group
@@ -28,10 +30,14 @@ import (
 const maxSiteUpload = 500 << 20
 
 type websiteState struct {
-	Sites   []websiteInfo `json:"sites"`
-	SiteURL string        `json:"site_url,omitempty"` // where this box shows its own site over Yggdrasil
-	Default string        `json:"default,omitempty"`  // the site it shows there
-	Error   string        `json:"error,omitempty"`
+	Sites []websiteInfo `json:"sites"`
+	// Folder is the outbox's websites/ folder, and Folders the sites in it
+	// with why any isn't published (see the websites package).
+	Folder  string            `json:"folder,omitempty"`
+	Folders []websites.Status `json:"folders,omitempty"`
+	SiteURL string            `json:"site_url,omitempty"` // where this box shows its own site over Yggdrasil
+	Default string            `json:"default,omitempty"`  // the site it shows there
+	Error   string            `json:"error,omitempty"`
 }
 
 type websiteInfo struct {
@@ -123,6 +129,12 @@ func (d *Dashboard) handleSites(w http.ResponseWriter, r *http.Request) {
 	d.mu.Unlock()
 	if d.cfg.OwnSites != nil {
 		out.SiteURL, out.Default = d.cfg.SiteURL, d.DefaultSite()
+	}
+	d.mu.Lock()
+	ws := d.websites
+	d.mu.Unlock()
+	if ws != nil {
+		out.Folder, out.Folders = ws.Dir(), ws.Status()
 	}
 	names, all := d.mySites(pub)
 	for _, s := range all {
@@ -705,4 +717,73 @@ func (d *Dashboard) contactLink(ctx context.Context, pub *site.Publisher, name s
 	}
 	d.event("ok", fmt.Sprintf("website %s: contact link %s the home page (version %s)", name, verb, v.ID[:8]))
 	return nil
+}
+
+// runWebsites publishes the sites in the outbox's websites/ folder (see the
+// websites package) until ctx ends.
+func (d *Dashboard) runWebsites(ctx context.Context) {
+	pub, err := d.publisher()
+	if err != nil || d.cfg.Outbox == nil {
+		return
+	}
+	pub.Skip = websites.Skip
+	service := d.cfg.SiteService
+	if service == "" {
+		service = "http://localhost:8480"
+	}
+	w := websites.New(websites.Config{
+		Dir:       filepath.Join(d.cfg.Outbox.Dir(), outbox.WebsitesDir),
+		StatePath: filepath.Join(d.cfg.Outbox.Dir(), ".yggstore", "websites.json"),
+		Pub:       pub, Client: d.cfg.Client,
+		Online:    func(context.Context) ([]peers.Peer, error) { return d.onlinePeers() },
+		Mine:      func() map[string]bool { names, _ := d.mySites(pub); return names },
+		Served:    d.servedSites,
+		Answers:   site.Answers,
+		Service:   strings.TrimPrefix(service, "http://"),
+		TokenPath: d.cfg.CloudflareToken,
+		MaxBytes:  maxSiteUpload,
+		Route: func(ctx context.Context, domain string) ([]string, error) {
+			api, err := os.ReadFile(d.cfg.CloudflareToken)
+			if err != nil || d.cfg.CloudflareToken == "" {
+				return nil, websites.ErrNoToken
+			}
+			tun, err := os.ReadFile(d.cfg.TunnelToken)
+			if err != nil {
+				return nil, fmt.Errorf("can't read the tunnel token: %w", err)
+			}
+			added, wwwErr, err := site.AddRoutes(ctx, string(api), string(tun), domain, service)
+			if wwwErr != nil {
+				d.event("warn", fmt.Sprintf("websites: %s: www.%s: %v", domain, domain, wwwErr))
+			}
+			return added, err
+		},
+		Logf: func(format string, args ...any) { d.event("info", fmt.Sprintf(format, args...)) },
+	})
+	d.mu.Lock()
+	d.websites = w
+	d.mu.Unlock()
+	if err := w.Run(ctx); err != nil {
+		d.event("bad", "websites: "+err.Error())
+	}
+}
+
+// servedSites is the sites the group's web nodes serve, from the info the
+// poll last got.
+func (d *Dashboard) servedSites() map[string]bool {
+	out := map[string]bool{}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, p := range d.state.Peers {
+		if p.Test || !p.Up || p.Info == nil || len(p.Info.Web) == 0 {
+			continue
+		}
+		var st site.NodeStatus
+		if json.Unmarshal(p.Info.Web, &st) != nil {
+			continue
+		}
+		for _, s := range st.Sites {
+			out[s.Site] = true
+		}
+	}
+	return out
 }
