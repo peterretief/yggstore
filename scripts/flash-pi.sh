@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Writes Raspberry Pi OS Lite (64-bit) to a USB drive or SD card for a hub
-# Pi, ready for scripts/provision-pi.sh: on its first boot the Pi takes the
-# NAME from factory/pi.conf (so it is NAME.local on the network), turns on
-# SSH, lets this machine's key in as root, and joins the Wi-Fi network if
-# WIFI_SSID is set (and BENCH_WIFI_SSID, the factory's, if that is another). Nothing else is installed.
+# Writes Raspberry Pi OS Lite (64-bit, or the image at IMAGE_URL) to a USB
+# drive or SD card for a hub Pi, ready for scripts/provision-pi.sh: on its
+# first boot the Pi takes the NAME from factory/pi.conf (so it is NAME.local
+# on the network), turns on SSH, lets this machine's key in as root, and
+# joins the Wi-Fi network if WIFI_SSID is set (and BENCH_WIFI_SSID, the
+# factory's, if that is another). Nothing else is installed.
 #
 # Run it as yourself; it asks for sudo only to write the drive.
 #
@@ -82,7 +83,7 @@ read -r answer
 [ "$answer" = "$(basename "$DEV")" ] || die "not confirmed; nothing was written"
 
 # --- The image -------------------------------------------------------------------
-say "Getting Raspberry Pi OS Lite (64-bit)"
+say "Getting Raspberry Pi OS Lite ($(basename "$IMAGE_URL"))"
 mkdir -p "$CACHE"
 url=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "$IMAGE_URL") || die "can't reach downloads.raspberrypi.com"
 img="$CACHE/$(basename "$url")"

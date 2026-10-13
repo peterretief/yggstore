@@ -65,7 +65,14 @@ say "1. Reaching the Pi"
 TARGET=$PI_SSH
 ask true 2>/dev/null || die "can't log in to $PI_SSH with this machine's SSH key. Check it is on, on this network, and that Raspberry Pi Imager put this machine's key on it"
 arch=$(ask "uname -m")
-[ "$arch" = aarch64 ] || die "the Pi runs $arch; flash the 64-bit Raspberry Pi OS Lite"
+# yggstore is built here for the Pi's processor: 64-bit, or 32-bit on a first
+# Pi Zero W (ARMv6), which can't run the 64-bit OS.
+case $arch in
+aarch64) GOENV=(GOARCH=arm64) ;;
+armv6l) GOENV=(GOARCH=arm GOARM=6) ;;
+armv7l) GOENV=(GOARCH=arm GOARM=7) ;;
+*) die "the Pi runs $arch; flash Raspberry Pi OS Lite" ;;
+esac
 ip=$(ask "hostname -I | awk '{print \$1}'")
 [ -n "$ip" ] || die "the Pi has no network address"
 # From here on, by address: its .local name changes when it is renamed.
@@ -86,10 +93,10 @@ fi
 
 # --- 3. Software ----------------------------------------------------------------
 say "3. Installing yggstore and Syncthing"
-BIN=$(mktemp -d)/yggstore-linux-arm64
+BIN=$(mktemp -d)/yggstore-linux-$arch
 trap 'rm -rf "$(dirname "$BIN")"' EXIT
 version="factory-$(cd "$ROOT" && git rev-parse --short HEAD 2>/dev/null || echo dev)"
-(cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$BIN" ./cmd/yggstore)
+(cd "$ROOT" && env CGO_ENABLED=0 GOOS=linux "${GOENV[@]}" go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$BIN" ./cmd/yggstore)
 if [ -z "$DRY" ]; then
 	scp -q "${SSH_OPTS[@]}" "$BIN" "$TARGET:/tmp/yggstore"
 else

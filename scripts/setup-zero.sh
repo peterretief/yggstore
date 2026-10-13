@@ -49,11 +49,12 @@ ok "the first start takes a few minutes on a Zero (it resizes the card and sets 
 target=${PI_SSH:-root@$NAME.local}
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new)
 up=""
-for _ in $(seq 120); do
+minutes=${WAIT_MINUTES:-10}
+for _ in $(seq $((minutes * 12))); do
 	if ssh "${SSH_OPTS[@]}" "$target" true 2>/dev/null; then up=1; break; fi
 	sleep 5
 done
-[ -n "$up" ] || die "$NAME didn't answer at $target after 10 minutes. Check the Wi-Fi name and password in $CONF (a Zero only sees 2.4 GHz networks) and that it has power; plugging a screen into its mini-HDMI shows how far it got"
+[ -n "$up" ] || die "$NAME didn't answer at $target after $minutes minutes. Check the Wi-Fi name and password in $CONF (a Zero only sees 2.4 GHz networks) and that it has power; plugging a screen into its mini-HDMI shows how far it got. A green light flashing 7 times means a first Pi Zero W (\"Zero W V1.1\" on the back), which needs scripts/setup-zero-w.sh"
 model=$(ssh "${SSH_OPTS[@]}" "$target" "tr -d '\0' </proc/device-tree/model")
 ok "it answers: $model"
 # Its first boot is still installing what it was asked to; apt is busy until then.
@@ -61,7 +62,11 @@ ssh "${SSH_OPTS[@]}" "$target" "cloud-init status --wait >/dev/null 2>&1 || true
 ok "its first boot is done"
 case $model in
 *"Zero 2"*) ;;
-*Zero*) die "this is a $model: 32-bit and too slow for a hub. It needs a Pi Zero 2 W" ;;
+*Zero*)
+	# scripts/setup-zero-w.sh sets ZERO_W, to try a first Pi Zero W anyway.
+	[ -n "${ZERO_W:-}" ] || die "this is a $model: 32-bit and too slow for a hub. It needs a Pi Zero 2 W (or scripts/setup-zero-w.sh to try it anyway)"
+	ok "note: a $model, single-core and 32-bit: it works, slowly"
+	;;
 *) ok "note: not a Pi Zero; setting it up anyway" ;;
 esac
 
