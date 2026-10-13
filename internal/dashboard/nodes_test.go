@@ -172,7 +172,7 @@ func TestMarkLeaving(t *testing.T) {
 	peers.Write(mine, []peers.Peer{admin, {Name: "pi", Addr: "[200::2]:7400"}})
 	d := New(Config{PeersPath: mine, StubDir: dir, SelfID: "127.0.0.1", Client: client.New()})
 	kicked := 0
-	d.SetRepair(func() { kicked++ }, nil)
+	d.SetRepair(func() { kicked++ }, nil, nil)
 	d.poll(context.Background())
 	h := d.Handler()
 	send := func(body string) int {
@@ -208,5 +208,29 @@ func TestMarkLeavingCountsMyShards(t *testing.T) {
 	markLeaving(states, list, files, map[string]int{"[200::2]:7400": 1})
 	if !states[0].Leaving || states[0].Mine != 2 || states[0].NoRoom != 1 || states[1].Leaving || states[1].Mine != 0 {
 		t.Fatalf("got %+v", states)
+	}
+}
+
+// TestLeftNodeDropped: a node marked leaving that has been down a day, with
+// none of this dashboard's files on it, is taken off the list.
+func TestLeftNodeDropped(t *testing.T) {
+	dir := t.TempDir()
+	admin := peers.Peer{Name: "desktop", Addr: "127.0.0.1:1", Admin: true}
+	mine := filepath.Join(dir, "peers.json")
+	peers.Write(mine, []peers.Peer{admin, {Name: "pi", Addr: "[200::2]:7400", Leaving: true}, {Name: "pi3", Addr: "[200::3]:7400"}})
+	d := New(Config{PeersPath: mine, StubDir: dir, SelfID: "127.0.0.1", Client: client.New()})
+	since := time.Now().Add(-2 * time.Hour).Unix()
+	d.SetRepair(nil, nil, func() map[string]int64 {
+		return map[string]int64{"[200::2]:7400": since, "[200::3]:7400": since - 3*86400}
+	})
+	d.poll(context.Background())
+	if list, _ := peers.Load(mine); len(list) != 3 {
+		t.Fatalf("dropped before a day was up: %+v", list)
+	}
+	since -= 86400
+	d.poll(context.Background())
+	list, _ := peers.Load(mine)
+	if len(list) != 2 || list[0].Name != "desktop" || list[1].Name != "pi3" {
+		t.Fatalf("after a day down: %+v (pi3 isn't leaving, so it stays)", list)
 	}
 }

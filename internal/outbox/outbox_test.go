@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"io/fs"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -25,10 +26,19 @@ import (
 
 func setup(t *testing.T, nodes int) (*Watcher, string, *[]string) {
 	t.Helper()
+	return setupWith(t, nodes, nil)
+}
+
+// setupWith is setup with each node's handler passed through wrap.
+func setupWith(t *testing.T, nodes int, wrap func(i int, h http.Handler) http.Handler) (*Watcher, string, *[]string) {
+	t.Helper()
 	var list []peers.Peer
 	for i := range nodes {
-		h := server.Handler(localstore.New(t.TempDir()), server.Options{
+		var h http.Handler = server.Handler(localstore.New(t.TempDir()), server.Options{
 			Transport: transport.Loopback{}, Allowed: map[string]bool{"127.0.0.1": true}})
+		if wrap != nil {
+			h = wrap(i, h)
+		}
 		srv := httptest.NewServer(h)
 		t.Cleanup(srv.Close)
 		list = append(list, peers.Peer{Name: string(rune('a' + i)), Addr: strings.TrimPrefix(srv.URL, "http://")})

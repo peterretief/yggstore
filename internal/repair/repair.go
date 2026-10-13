@@ -73,6 +73,10 @@ func (r *Repairer) NoRoom() map[string]int {
 	return maps.Clone(r.noRoom)
 }
 
+// DownSince is, per node address, when the node was first found down
+// (unix seconds), for nodes that are down now.
+func (r *Repairer) DownSince() map[string]int64 { return r.load().DownSince }
+
 type state struct {
 	DownSince map[string]int64 `json:"down_since"`        // node address -> unix seconds
 	Renewed   map[string]int64 `json:"renewed,omitempty"` // node address -> unix seconds, when its leases were last renewed

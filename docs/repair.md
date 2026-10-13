@@ -79,6 +79,10 @@ Until then, those files are one machine short, as with any node down.
 Members on older yggstore ignore the mark and repair after a day as
 before.
 
+Once a node marked leaving has been down for a day, and none of the
+admin's files are on it, the admin's dashboard takes it off the list
+itself, and says so in the activity log. Nobody edits `peers.json` for it.
+
 An admin node can't be marked leaving, since it keeps the list.
 `scripts/drain-test.sh` tries all this with seven nodes on one machine.
 

@@ -221,6 +221,7 @@ type Dashboard struct {
 	siteMu   sync.Mutex           // one website publish at a time
 	repair   func()               // asks for a repair pass now (see SetRepair)
 	noRoom   func() map[string]int
+	down     func() map[string]int64
 }
 
 func New(cfg Config) *Dashboard {
@@ -238,10 +239,11 @@ func New(cfg Config) *Dashboard {
 
 // SetRepair gives the dashboard a way to start a repair pass now, as when
 // a node is marked leaving, and to learn which leaving nodes' shards it
-// found nowhere safe to move (per node address).
-func (d *Dashboard) SetRepair(kick func(), noRoom func() map[string]int) {
+// found nowhere safe to move (per node address), and since when nodes that
+// are down have been (unix seconds, per node address).
+func (d *Dashboard) SetRepair(kick func(), noRoom func() map[string]int, downSince func() map[string]int64) {
 	d.mu.Lock()
-	d.repair, d.noRoom = kick, noRoom
+	d.repair, d.noRoom, d.down = kick, noRoom, downSince
 	d.mu.Unlock()
 }
 
@@ -643,6 +645,9 @@ func (d *Dashboard) poll(ctx context.Context) {
 		stuck = noRoom()
 	}
 	markLeaving(st.Peers, mainList, st.Files, stuck)
+	if st.AdminEntry != "" && st.PeersError == "" {
+		d.dropLeft(st.Peers)
+	}
 	if d.cfg.TestStubDir != "" {
 		for _, f := range d.scanFiles(ctx, d.cfg.TestStubDir, up, names) {
 			f.Test = true
@@ -1047,6 +1052,61 @@ func (d *Dashboard) handleLeaving(w http.ResponseWriter, r *http.Request) {
 	default:
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// leftAfter is how long a node marked leaving has to have been down before
+// the admin's dashboard takes it off the list.
+const leftAfter = 24 * time.Hour
+
+// dropLeft takes nodes off the list that were marked leaving, have been down
+// for leftAfter, and hold none of this dashboard's files (repair has moved
+// or rebuilt them all). The new list reaches the other nodes as any change
+// does, and their repair treats the node as gone.
+func (d *Dashboard) dropLeft(states []PeerState) {
+	d.mu.Lock()
+	down, kick := d.down, d.repair
+	d.mu.Unlock()
+	if down == nil {
+		return
+	}
+	since := down()
+	gone := map[string]time.Time{}
+	for _, ps := range states {
+		s := since[ps.Addr]
+		if ps.Leaving && !ps.Up && !ps.Test && ps.Mine == 0 && ps.NoRoom == 0 && s != 0 && time.Since(time.Unix(s, 0)) >= leftAfter {
+			gone[ps.Addr] = time.Unix(s, 0)
+		}
+	}
+	if len(gone) == 0 {
+		return
+	}
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		return
+	}
+	var keep []peers.Peer
+	var left []peers.Peer
+	for _, p := range list {
+		if _, ok := gone[p.Addr]; ok && p.Leaving && !p.Admin {
+			left = append(left, p)
+		} else {
+			keep = append(keep, p)
+		}
+	}
+	if len(left) == 0 {
+		return
+	}
+	if err := peers.Write(d.cfg.PeersPath, keep); err != nil {
+		d.event("warn", "could not take nodes that left off the list: "+err.Error())
+		return
+	}
+	for _, p := range left {
+		d.event("info", fmt.Sprintf("%s has left the group: it was marked leaving, has been down since %s, and none of your files are on it",
+			p.Name, gone[p.Addr].Format("2 Jan 15:04")))
+	}
+	if kick != nil {
+		kick()
+	}
 }
 
 // markLeaving sets Leaving on the nodes marked so in list, counts the

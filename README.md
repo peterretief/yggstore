@@ -312,10 +312,13 @@ outfiles/.yggstore/  stubs that have been restored (kept for reference)
 - Each stub's challenges are kept in a hidden `.NAME.ystub.challenges.json`
   next to it.
 - Deleting (the `delete/` folder, the dashboard's Delete button, or
-  `yggstore rm STUB`) removes every shard first. Only when all are gone are the
-  stubs and challenges removed; if a node is down, the stub stays in `delete/`
-  and is retried every 2 minutes, so no shard is left without a record.
-  Deleting cannot be undone.
+  `yggstore rm STUB`) removes every shard first, then the stubs and
+  challenges. A node that is down doesn't hold it up: it is sent the deletes
+  when it answers again (they are kept in `.yggstore/owed-deletes.json`), and
+  they are dropped if it leaves the group. Its shards can't be read
+  meanwhile, since the key was only in the stub. If a node that answers
+  can't delete its shards, the stub stays in `delete/` and is retried every
+  2 minutes. Deleting cannot be undone.
 - The dashboard's Restore button rebuilds any listed stub into `restored/`,
   in the same folders it has in `files/` (`files/Photos/beach.jpg.ystub`
   comes back as `restored/Photos/beach.jpg`).

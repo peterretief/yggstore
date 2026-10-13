@@ -65,6 +65,8 @@ type Watcher struct {
 	retry map[string]time.Time
 	shown map[string]bool // "already has a stub" warnings given, per path
 	stubs map[string]cachedStub
+	// owedNext: when deletes owed by nodes that were down are next tried.
+	owedNext time.Time
 
 	actMu    sync.Mutex
 	act      *Activity
@@ -187,6 +189,7 @@ func (w *Watcher) poll(ctx context.Context) {
 			w.deleteDropped(ctx, path)
 		}
 	}
+	w.payOwed(ctx)
 	for p := range w.sigs {
 		if !seen[p] {
 			delete(w.sigs, p)
@@ -731,8 +734,9 @@ func (w *Watcher) origin(stub string, m manifest.Manifest) string {
 }
 
 // DeleteStub removes the item a stub describes from every node, then every
-// stub of it in the outbox. If some nodes are unreachable nothing is removed
-// locally, so the delete can be retried.
+// stub of it in the outbox. Nodes that are down are sent their deletes when
+// they are back; if a node that answers can't delete its shards, nothing is
+// removed locally, so the delete can be retried.
 func (w *Watcher) DeleteStub(ctx context.Context, stub string) error {
 	w.work.Lock()
 	defer w.work.Unlock()
@@ -767,10 +771,19 @@ func (w *Watcher) deleteItem(ctx context.Context, stub string) error {
 		return nil
 	}
 	versions := w.allVersions(m)
-	res := files.Delete(ctx, w.cfg.Client, everyShard(versions))
+	all := everyShard(versions)
+	// Nodes that are down are owed their deletes, rather than holding the
+	// item up until they are back.
+	here, away := splitUp(all, w.answering(ctx, all))
+	res := files.Delete(ctx, w.cfg.Client, here)
 	if err := res.Err(); err != nil {
-		w.cfg.Event("warn", fmt.Sprintf("deleted %d shards of %s, but %d could not be deleted (node down?); stub kept, will retry",
+		w.cfg.Event("warn", fmt.Sprintf("deleted %d shards of %s, but %d could not be deleted; stub kept, will retry",
 			res.Deleted, m.FileName, len(res.Failed)))
+		return err
+	}
+	if err := w.owe(away); err != nil {
+		w.cfg.Event("warn", fmt.Sprintf("deleted %d shards of %s, but could not note those on nodes that are down: %v; stub kept, will retry",
+			res.Deleted, m.FileName, err))
 		return err
 	}
 	w.forget(m)
@@ -779,7 +792,11 @@ func (w *Watcher) deleteItem(ctx context.Context, stub string) error {
 	if len(versions) > 1 {
 		also = fmt.Sprintf(", with its %d older versions", len(versions)-1)
 	}
-	w.cfg.Event("ok", fmt.Sprintf("deleted %s (%s)%s from all nodes: %d shards", m.FileName, human(int64(m.PlaintextSize)), also, res.Deleted))
+	if len(away) == 0 {
+		w.cfg.Event("ok", fmt.Sprintf("deleted %s (%s)%s from all nodes: %d shards", m.FileName, human(int64(m.PlaintextSize)), also, res.Deleted))
+	} else {
+		w.cfg.Event("ok", fmt.Sprintf("deleted %s (%s)%s: %d shards%s", m.FileName, human(int64(m.PlaintextSize)), also, res.Deleted, w.awayNote(away)))
+	}
 	return nil
 }
 
