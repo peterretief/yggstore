@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
@@ -82,6 +83,7 @@ type Watcher struct {
 	cfg   Config
 	mu    sync.Mutex
 	sites map[string]*entry
+	ready atomic.Bool
 }
 
 type entry struct {
@@ -95,6 +97,7 @@ type entry struct {
 	online     time.Time // last check of https://domain/
 	answered   bool
 	routeErr   error // why the route couldn't be added, last time
+	force      bool  // publish it as it is, past the checks
 	status     Status
 }
 
@@ -136,6 +139,19 @@ func New(cfg Config) *Watcher {
 }
 
 func (w *Watcher) Dir() string { return w.cfg.Dir }
+
+// Ready is true once the watcher has looked at the folder once, so the
+// folders of this node's sites hold the versions being served.
+func (w *Watcher) Ready() bool { return w.ready.Load() }
+
+// Force publishes a site's folder as it is on the next look, even if it
+// looks like a mistake.
+func (w *Watcher) Force(folder string) {
+	e := w.entry(folder)
+	w.mu.Lock()
+	e.force = true
+	w.mu.Unlock()
+}
 
 func (w *Watcher) Run(ctx context.Context) error {
 	if err := os.MkdirAll(w.cfg.Dir, 0o755); err != nil {
@@ -222,6 +238,7 @@ func (w *Watcher) Step(ctx context.Context) {
 		w.save()
 	}
 	w.mu.Unlock()
+	w.ready.Store(true)
 }
 
 // fill fills a missing folder with the version being served, so whoever
@@ -337,14 +354,15 @@ func (w *Watcher) publish(ctx context.Context, folder, name, path string, route 
 		return
 	}
 	settled := !sc.temp && now.Sub(e.seenAt) >= w.cfg.Quiet
-	changed := e.last != sc
-	early := now.Sub(e.tried) < w.cfg.Gap
+	force := e.force
+	changed := e.last != sc || force
+	early := now.Sub(e.tried) < w.cfg.Gap && !force
 	w.mu.Unlock()
 	if !settled {
 		return
 	}
 	if changed {
-		if problem := w.check(name, sc); problem != "" {
+		if problem := w.check(name, sc); problem != "" && !force {
 			w.note(folder, name, problem)
 			return
 		}
@@ -364,7 +382,7 @@ func (w *Watcher) publish(ctx context.Context, folder, name, path string, route 
 			return
 		}
 		w.mu.Lock()
-		e.last, e.matches = sc, v.ID
+		e.last, e.matches, e.force = sc, v.ID, false
 		e.status.Published, e.status.Version = now.Unix(), short(v.ID)
 		w.save()
 		e.online = time.Time{} // check it's online again
@@ -486,17 +504,17 @@ func (w *Watcher) notePath(folder string) string {
 func (w *Watcher) note(folder, name, text string) {
 	e := w.entry(folder)
 	w.mu.Lock()
-	same := e.status.Problem == text
+	news := firstLine(e.status.Problem) != firstLine(text)
 	e.status.Problem = text
 	w.mu.Unlock()
-	if old, err := os.ReadFile(w.notePath(folder)); err == nil && string(old) == text && same {
+	if old, err := os.ReadFile(w.notePath(folder)); err == nil && string(old) == text {
 		return
 	}
 	if err := os.WriteFile(w.notePath(folder), []byte(text), 0o644); err != nil {
 		w.cfg.Logf("websites: %s: %v", name, err)
 	}
-	if !same {
-		w.cfg.Logf("websites: %s not published: %s", name, firstLine(text))
+	if news {
+		w.cfg.Logf("websites: %s", firstLine(text))
 	}
 }
 

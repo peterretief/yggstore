@@ -197,6 +197,18 @@ func TestEditsPublishedMistakesHeldBackFolderRefilled(t *testing.T) {
 		t.Fatalf("%d versions, note %q", len(vs), x.note("me.group.example"))
 	}
 
+	// Forced, it is published as it is.
+	x.w.Force("me.group.example")
+	x.settle(t)
+	if vs, _ := x.w.cfg.Pub.Versions("me.group.example"); len(vs) != 3 {
+		t.Fatalf("%d versions after forcing", len(vs))
+	}
+	os.WriteFile(filepath.Join(x.dir, "me.group.example", "index.html"), []byte(strings.Repeat("v2 ", 100)), 0o644)
+	x.settle(t)
+	if vs, _ := x.w.cfg.Pub.Versions("me.group.example"); len(vs) != 4 {
+		t.Fatalf("%d versions after putting index.html back", len(vs))
+	}
+
 	// The folder deleted: it comes back with the version being served.
 	os.RemoveAll(filepath.Join(x.dir, "me.group.example"))
 	x.settle(t)
@@ -207,7 +219,7 @@ func TestEditsPublishedMistakesHeldBackFolderRefilled(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(x.dir, "me.group.example"+NoteSuffix)); !os.IsNotExist(err) {
 		t.Fatal("the note stayed after the folder was refilled")
 	}
-	if vs, _ := x.w.cfg.Pub.Versions("me.group.example"); len(vs) != 2 {
+	if vs, _ := x.w.cfg.Pub.Versions("me.group.example"); len(vs) != 4 {
 		t.Fatalf("refilling made a new version: %d", len(vs))
 	}
 }

@@ -252,9 +252,13 @@ else
 	on "yggstore hub -service -pair-limit '$PAIR_LIMIT' -site-max '$SITE_MAX_MB'"
 	ok "hub runs at every boot, on port 7490"
 fi
+# Sites published from the Pi are in the hub's websites/ folder by themselves.
 for site in ${SITES:-}; do
-	on "yggstore hub site add '$site' || true"
-	ok "keeps the website $site"
+	if ask "yggstore site list 2>/dev/null | grep -q '^$site '" 2>/dev/null; then
+		ok "keeps the website $site, in ~/yggstore-hub/websites/$site"
+	else
+		ok "note: $site isn't published from the Pi yet; publish it once there (yggstore site publish FOLDER -name $site)"
+	fi
 done
 
 # --- 6. Check -------------------------------------------------------------------------

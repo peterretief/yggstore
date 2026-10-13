@@ -178,7 +178,7 @@ done
 The hub finds Syncthing's address and API key in its `config.xml` (under
 `~/.local/state/syncthing/`, which for root is in `/root`). The devices'
 folders go in `~/yggstore-hub/users/NAME` and websites in
-`~/yggstore-hub/sites/DOMAIN` (`-dir` to change it).
+`~/yggstore-hub/websites/DOMAIN` (`-dir` to change it).
 
 ## Syncing a device
 
@@ -225,23 +225,30 @@ A stub deleted on the device is kept on the box, in the folder's
 
 ## Websites
 
-A hub can also keep websites. Each one is a folder of its own, separate
-from the files: Syncthing offers it to every paired device next to the
-**yggstore** folder, and when someone changes it, the hub publishes it to
-the group (see [websites](sites.md)) about 15 seconds after the last change.
+A hub also keeps its websites, in one folder separate from the files:
+`~/yggstore-hub/websites/`, a folder per domain. Syncthing offers it to
+every paired device as **websites (NAME)**, next to the **yggstore**
+folder, and when someone changes a site there, the hub publishes it to the
+group (see [websites](sites.md)) about 15 seconds after the last change.
+It works the same as the `websites/` folder of a dashboard's outbox.
 
-Set a site up on the box before devices pair. Publish it once from the box,
-which makes the box the machine allowed to change it, then hand it to the
-hub:
-
-```sh
-yggstore site publish ./shop -name shop.example.org    # once, from the box
-yggstore hub site add shop.example.org
+```
+websites/
+├── shop.example.org/                    the live site: edit it, and it is published
+└── new.example.net/                     a new site
+    new.example.net - NOT PUBLISHED.txt  why not yet, and what to do
 ```
 
-The hub fills the site's folder (`~/yggstore-hub/sites/shop.example.org`)
-with the version being served, so everyone starts from the live site.
-A hub can keep several sites; each is published separately.
+- **Sites published from the box** are there by themselves, filled with the
+  version being served, so everyone starts from the live site. To bring a
+  site that is online elsewhere to the box, publish it once from the box
+  (`yggstore site publish ./shop -name shop.example.org`).
+- **A new site** is a new folder named after its domain. It is published
+  once the domain is on Cloudflare; until then, a note beside it says how
+  to add it there, and the box checks again every 5 minutes. With a
+  Cloudflare API token on the box, its route is added too; without one, the
+  note says what to add by hand, until the site answers.
+- **A domain another node publishes** is left alone, with a note.
 
 An edit that looks like a mistake is held back, and the live site stays as
 it was:
@@ -252,14 +259,20 @@ it was:
 
 `yggstore hub sites` shows why, and `yggstore hub site publish DOMAIN`
 publishes it anyway. Every version is kept, so `yggstore site rollback
-DOMAIN` undoes an edit. A site is published at most once a minute.
-Syncthing's own files (`.stfolder`, `.stversions`, `.stignore`) are never
-published.
+DOMAIN` undoes an edit. A site is published at most once a minute. Hidden
+files, Syncthing's among them, are never published (`.well-known/` is).
+
+Deleting a site's folder doesn't take the site down: the folder comes back
+with the version being served. `yggstore site remove DOMAIN` takes it off
+the web.
 
 ```sh
-yggstore hub sites                       # the sites, when each was last published
-yggstore hub site remove shop.example.org   # stop syncing and publishing it (it stays up)
+yggstore hub sites                       # the sites, when each was last published, and why not
 ```
+
+A hub that kept each site in a folder of its own (before `websites/`)
+moves them into `websites/` when it starts, and stops syncing the old
+folders; devices are offered the websites folder instead.
 
 For now every paired device can edit every site on the hub. Keep the hub's
 LAN to people you'd let change them.

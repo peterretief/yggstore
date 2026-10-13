@@ -92,7 +92,13 @@ type UsersConfig struct {
 	Limit int
 	// Watch stores what arrives in a user's folder, until ctx ends.
 	Watch func(ctx context.Context, u User)
-	Logf  func(format string, args ...any)
+	// Websites is the hub's websites/ folder, shared with every paired
+	// device once WebsitesReady (its sites' folders hold the versions
+	// being served, so nobody syncs an empty folder over a live site).
+	// "": none.
+	Websites      string
+	WebsitesReady func() bool
+	Logf          func(format string, args ...any)
 }
 
 type Users struct {
@@ -103,7 +109,7 @@ type Users struct {
 	err      string // the last problem talking to Syncthing
 	watchers map[string]context.CancelFunc
 	paused   map[string]bool   // folders as last set in Syncthing
-	shared   map[string]string // site folders: the devices last shared with, and paused
+	shared   map[string]string // the websites folder: the devices last shared with, and paused
 }
 
 func NewUsers(cfg UsersConfig) *Users {
@@ -145,7 +151,7 @@ func (u *Users) Status() Status {
 	}
 	s.Sites = []SiteStatus{}
 	for _, si := range st.Sites {
-		if !si.Remove {
+		if si.Folder == "" {
 			s.Sites = append(s.Sites, SiteStatus{Name: si.Name, Published: si.Published, Problem: si.Problem})
 		}
 	}
@@ -265,13 +271,39 @@ func (u *Users) step(ctx context.Context) error {
 			return err
 		}
 	}
-	return u.shareSites(ctx, st, have)
+	return u.shareWebsites(ctx, st, have)
 }
 
-// shareSites keeps each site's folder shared with every paired device, and
-// drops the folders of sites removed. Sites are shared once seeded (see
-// Sites.seed), so nobody syncs an empty folder over the live site.
-func (u *Users) shareSites(ctx context.Context, st HubState, have map[string]bool) error {
+// shareWebsites keeps the websites folder shared with every paired device,
+// once it is ready, and stops syncing the folders sites had of their own
+// before websites/ (Websites moves their files over).
+func (u *Users) shareWebsites(ctx context.Context, st HubState, have map[string]bool) error {
+	var dropped []string
+	for _, si := range st.Sites {
+		if si.Folder == "" {
+			continue
+		}
+		if err := u.cfg.ST.RemoveFolder(ctx, si.Folder); err != nil && !notFound(err) {
+			return err
+		}
+		dropped = append(dropped, si.Name)
+		u.cfg.Logf("hub: site %s is now synced in the websites folder, not a folder of its own", si.Name)
+	}
+	if len(dropped) > 0 {
+		if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
+			for i := range s.Sites {
+				if slices.Contains(dropped, s.Sites[i].Name) {
+					s.Sites[i].Folder, s.Sites[i].Path = "", ""
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	if u.cfg.Websites == "" || (u.cfg.WebsitesReady != nil && !u.cfg.WebsitesReady()) {
+		return nil
+	}
 	devs := []string{u.myID}
 	for _, us := range st.Users {
 		if !us.Remove {
@@ -279,35 +311,18 @@ func (u *Users) shareSites(ctx context.Context, st HubState, have map[string]boo
 		}
 	}
 	want := fmt.Sprint(devs, st.Paused)
-	var removed []string
-	for _, si := range st.Sites {
-		switch {
-		case si.Remove:
-			if err := u.cfg.ST.RemoveFolder(ctx, si.Folder); err != nil && !notFound(err) {
-				return err
-			}
-			delete(u.shared, si.Folder)
-			removed = append(removed, si.Name)
-			u.cfg.Logf("hub: site %s no longer synced; its files stay in %s", si.Name, si.Path)
-		case !si.Seeded:
-		case !have[si.Folder] || u.shared[si.Folder] != want:
-			if err := u.cfg.ST.AddFolder(ctx, syncthing.Folder{ID: si.Folder, Label: si.Name + " (website)", Path: si.Path,
-				Devices: devs, Paused: st.Paused, TrashDays: 0}); err != nil {
-				return err
-			}
-			if !have[si.Folder] {
-				u.cfg.Logf("hub: site %s shared with the paired devices", si.Name)
-			}
-			u.shared[si.Folder] = want
-		}
+	if have[WebsitesFolderID] && u.shared[WebsitesFolderID] == want {
+		return nil
 	}
-	if len(removed) > 0 {
-		_, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
-			s.Sites = slices.DeleteFunc(s.Sites, func(x Site) bool { return x.Remove && slices.Contains(removed, x.Name) })
-			return nil
-		})
+	host, _ := os.Hostname()
+	if err := u.cfg.ST.AddFolder(ctx, syncthing.Folder{ID: WebsitesFolderID, Label: "websites (" + host + ")", Path: u.cfg.Websites,
+		Devices: devs, Paused: st.Paused, TrashDays: 0}); err != nil {
 		return err
 	}
+	if !have[WebsitesFolderID] {
+		u.cfg.Logf("hub: the websites folder is shared with the paired devices")
+	}
+	u.shared[WebsitesFolderID] = want
 	return nil
 }
 

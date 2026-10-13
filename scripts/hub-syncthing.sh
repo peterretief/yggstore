@@ -57,26 +57,26 @@ done
 myid() { P=/rest/system/status api "$1" "$2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["myID"])'; }
 PIID=$(myid 18384 "$PK"); CID=$(myid 18385 "$CK")
 
-# The hub, keeping the website.
-"$BIN" hub -dir "$W/hub" site add shop.example.org >/dev/null
+# The hub: it keeps the website in its websites/ folder by itself, as it
+# was published from this machine.
 "$BIN" hub -listen 127.0.0.1:17490 -peers peers.json -dir "$W/hub" -msg-api 127.0.0.1:17411 -msg-token "$W/msg.token" \
 	-syncthing-config "$W/st-pi/config.xml" -syncthing-url http://127.0.0.1:18384 >hub.log 2>&1 &
 sleep 2
 
 # The device adds the hub (as a person would, by its ID), then accepts the
-# folders it is offered: its files, and the website.
+# folders it is offered: its files, and the websites.
 M=PUT P=/rest/config/devices/$PIID api 18385 "$CK" -H 'Content-Type: application/json' \
 	-d "{\"deviceID\":\"$PIID\",\"name\":\"pi\",\"addresses\":[\"tcp://127.0.0.1:22100\"]}"
 offered() { P=/rest/cluster/pending/folders api 18385 "$CK" | python3 -c 'import sys,json;print(" ".join(sorted(json.load(sys.stdin))))'; }
 two_offered() { [ "$(offered | wc -w)" = 2 ]; }
-wait_for 60 two_offered || fail "the device wasn't offered its folder and the website: $(offered)"
+wait_for 60 two_offered || fail "the device wasn't offered its folder and the websites: $(offered)"
 for fid in $(offered); do
-	case $fid in yggstore-site-*) path="$W/client-site" ;; *) path="$W/client-files" ;; esac
+	case $fid in yggstore-websites) path="$W/client-websites" ;; *) path="$W/client-files" ;; esac
 	mkdir -p "$path"
 	M=PUT P=/rest/config/folders/$fid api 18385 "$CK" -H 'Content-Type: application/json' \
 		-d "{\"id\":\"$fid\",\"path\":\"$path\",\"devices\":[{\"deviceID\":\"$PIID\"},{\"deviceID\":\"$CID\"}],\"fsWatcherDelayS\":1,\"rescanIntervalS\":5}"
 done
-echo "OK: paired; the device has its files folder and the website"
+echo "OK: paired; the device has its files folder and the websites"
 
 # Files: stored, stub back on the device, restored.
 sleep 3
@@ -95,12 +95,19 @@ wait_for 20 kept || fail "deleted stub not kept on the hub"
 echo "OK: a stub deleted on the device is kept on the hub"
 
 # Website: the device starts from the live site, edits it, and it is published.
-wait_for 30 grep -q v1 "$W/client-site/index.html" || fail "the device's website folder wasn't filled with v1"
-echo "OK: the device's website folder holds the live site"
-echo "<h1>v2</h1>" > "$W/client-site/index.html"
+SITE="$W/client-websites/shop.example.org"
+wait_for 30 grep -q v1 "$SITE/index.html" || fail "the device's websites folder wasn't filled with v1"
+echo "OK: the device's websites folder holds the live site"
+echo "<h1>v2</h1>" > "$SITE/index.html"
 wait_for 90 served v2 || fail "the edit wasn't published"
 echo "OK: an edit on the device is published (v2)"
-rm "$W/client-site/index.html"
+# A new site whose domain isn't on Cloudflare: nothing published, and the
+# note saying why reaches the device.
+mkdir -p "$W/client-websites/new.example.test" && echo "<h1>new</h1>" > "$W/client-websites/new.example.test/index.html"
+wait_for 60 grep -q "isn't set up on Cloudflare" "$W/client-websites/new.example.test - NOT PUBLISHED.txt" || fail "no note for a domain not on Cloudflare"
+curl -fsS -H "Host: new.example.test" http://127.0.0.1:18480/ 2>/dev/null | grep -q new && fail "a domain not on Cloudflare was published"
+echo "OK: a new site waits for its domain on Cloudflare, and the device is told why"
+rm "$SITE/index.html"
 sleep 30
 served v2 || fail "the site broke when index.html was deleted"
 "$BIN" hub -dir "$W/hub" sites | grep -q "no index.html" || fail "the held-back change isn't reported"
@@ -110,7 +117,7 @@ echo "OK: deleting index.html is held back; v2 stays up"
 "$BIN" hub users
 "$BIN" hub off
 curl -s 127.0.0.1:17490/api/state | python3 -c 'import sys,json;print("page sync:",json.load(sys.stdin)["sync"])'
-fid=$(P=/rest/config/folders api 18384 "$PK" | python3 -c 'import sys,json;print([f["id"] for f in json.load(sys.stdin) if not f["id"].startswith("yggstore-site-")][0])')
+fid=$(P=/rest/config/folders api 18384 "$PK" | python3 -c 'import sys,json;print([f["id"] for f in json.load(sys.stdin) if f["id"] != "yggstore-websites"][0])')
 "$BIN" hub pause; sleep 7
 P=/rest/config/folders/$fid api 18384 "$PK" | python3 -c 'import sys,json;print("hub folder paused:",json.load(sys.stdin)["paused"])'
 "$BIN" hub resume; sleep 7

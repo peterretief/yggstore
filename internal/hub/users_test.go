@@ -173,42 +173,41 @@ func TestSwitchesAndLimit(t *testing.T) {
 	}
 }
 
-// TestSitesSharedWithEveryDevice: a site's folder goes to every paired
-// device once seeded, follows new devices, and is dropped when removed.
-func TestSitesSharedWithEveryDevice(t *testing.T) {
+// TestWebsitesSharedWithEveryDevice: the websites folder goes to every
+// paired device once ready, and follows new devices; a site's old folder of
+// its own is no longer synced.
+func TestWebsitesSharedWithEveryDevice(t *testing.T) {
 	u, fake, dir := setupUsers(t, 0)
 	statePath := filepath.Join(dir, "hub.json")
 	ctx := context.Background()
-	sitePath := filepath.Join(dir, "sites", "shop.example.org")
-	os.MkdirAll(sitePath, 0o755)
+	ready := false
+	u.cfg.Websites, u.cfg.WebsitesReady = filepath.Join(dir, "websites"), func() bool { return ready }
+	fake.folders["yggstore-site-shop.example.org"] = map[string]any{"id": "yggstore-site-shop.example.org"}
 	Update(ctx, statePath, func(s *HubState) error {
-		s.Sites = append(s.Sites, Site{Name: "shop.example.org", Folder: SiteFolderID("shop.example.org"), Path: sitePath})
+		s.Sites = append(s.Sites, Site{Name: "shop.example.org", Folder: "yggstore-site-shop.example.org", Path: filepath.Join(dir, "sites", "shop.example.org")})
 		return nil
 	})
 	fake.pending["ANNAAAA-1"] = syncthing.PendingDevice{Name: "anna", Address: "192.168.1.20:22000"}
 	u.step(ctx)
-	if fake.folders[SiteFolderID("shop.example.org")] != nil {
-		t.Fatal("site shared before its folder was seeded")
+	if fake.folders[WebsitesFolderID] != nil {
+		t.Fatal("websites shared before the folder was ready")
+	}
+	if st, _ := Load(statePath); fake.folders["yggstore-site-shop.example.org"] != nil || st.Sites[0].Folder != "" {
+		t.Fatalf("the site's old folder is still synced: %+v", st.Sites)
 	}
 
-	Update(ctx, statePath, func(s *HubState) error { s.Sites[0].Seeded = true; return nil })
+	ready = true
 	u.step(ctx)
 	devices := func() string {
-		b, _ := json.Marshal(fake.folders[SiteFolderID("shop.example.org")]["devices"])
+		b, _ := json.Marshal(fake.folders[WebsitesFolderID]["devices"])
 		return string(b)
 	}
 	if d := devices(); !strings.Contains(d, "HUBHUBH") || !strings.Contains(d, "ANNAAAA-1") {
-		t.Fatalf("site shared with %s; want the hub and anna", d)
+		t.Fatalf("websites shared with %s; want the hub and anna", d)
 	}
 	fake.pending["BOBBBBB-2"] = syncthing.PendingDevice{Name: "bob", Address: "192.168.1.21:22000"}
 	u.step(ctx)
 	if d := devices(); !strings.Contains(d, "BOBBBBB-2") {
-		t.Fatalf("new device not given the site: %s", d)
-	}
-
-	Update(ctx, statePath, func(s *HubState) error { s.Sites[0].Remove = true; return nil })
-	u.step(ctx)
-	if st, _ := Load(statePath); len(st.Sites) != 0 || fake.folders[SiteFolderID("shop.example.org")] != nil {
-		t.Fatalf("site not removed: %+v", st.Sites)
+		t.Fatalf("new device not given the websites: %s", d)
 	}
 }

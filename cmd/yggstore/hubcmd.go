@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/client"
@@ -26,6 +28,7 @@ import (
 	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/syncthing"
 	"github.com/peterretief/yggstore/internal/transport"
+	"github.com/peterretief/yggstore/internal/websites"
 )
 
 const hubUsage = `yggstore hub: a box such as a Raspberry Pi that the devices on its LAN
@@ -36,18 +39,16 @@ sync their files with, and a page showing how it is
   yggstore hub pause | resume    stop or start syncing for every device
   yggstore hub users             the devices paired
   yggstore hub remove NAME       unpair a device (its files stay on the hub)
-  yggstore hub sites             the websites kept here
-  yggstore hub site add DOMAIN   keep a website here: synced with the devices,
-                                 published whenever it changes
+  yggstore hub sites             the websites kept here, in DIR/websites/
   yggstore hub site publish DOMAIN   publish it now, even if it looks broken
-  yggstore hub site remove DOMAIN    stop syncing and publishing it
 
 Devices pair through Syncthing, which must run on this box as the same user:
 a device on the LAN that adds this box is accepted, and shares a folder
 here, DIR/users/NAME. Files put in it are stored in the group and replaced
 by stubs, on the device too. Only devices on the local network are accepted.
-Each website is a folder of its own, DIR/sites/DOMAIN, shared with every
-paired device; publish it from this box first (yggstore site publish).
+The box's websites are in DIR/websites/, a folder per domain, shared with
+every paired device: a change there is published. A new site's folder is
+published once its domain is on Cloudflare (see docs/sites.md).
 
 The page (port 7490) shows this box's node and Syncthing ID, and puts a node
 on the computer that opens it, with an invite. See docs/hub.md.
@@ -62,7 +63,7 @@ func cmdHub(ctx context.Context, args []string) error {
 	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
 	name := fs.String("name", hostname(), "this box's node, by name, if its address isn't found")
 	binDir := fs.String("bin", "", "folder of more yggstore builds to hand out (yggstore-PLATFORM)")
-	dir := fs.String("dir", hubDir(), "where the devices' folders (users/) and websites (sites/) are kept")
+	dir := fs.String("dir", hubDir(), "where the devices' folders (users/) and websites (websites/) are kept")
 	statePath := fs.String("state", hubState(), "the hub's list of devices and its switches")
 	limit := fs.Int("pair-limit", 5, "devices that may pair in a day (0 = no limit)")
 	noSync := fs.Bool("no-sync", false, "don't pair devices through Syncthing")
@@ -146,8 +147,38 @@ func cmdHub(ctx context.Context, args []string) error {
 		}
 		wc := client.New()
 		wc.HTTP.Timeout = 2 * time.Minute // uploads and restores move whole files
+		pub := &site.Publisher{Dir: filepath.Join(yggstoreHome(), "sites"), Client: wc, Log: log.Printf, Skip: websites.Skip}
+		cfToken, tunToken := filepath.Join(yggstoreHome(), "cloudflare-api.token"), filepath.Join(yggstoreHome(), "group-sites.token")
+		sites := websites.New(websites.Config{Dir: filepath.Join(*dir, "websites"), StatePath: filepath.Join(*dir, "websites.json"),
+			Pub: pub, Client: wc, MaxBytes: *siteMax << 20, Logf: log.Printf, TokenPath: cfToken,
+			Online: func(ctx context.Context) ([]peers.Peer, error) {
+				token, err := msg.ReadToken(*msgToken)
+				if err != nil {
+					return nil, fmt.Errorf("this box's node's messaging token: %w", err)
+				}
+				pub.Announce = localAnnouncer{msg.Local{Addr: *msgAPI, Token: token}}
+				return onlinePeers(ctx, *peersPath)
+			},
+			Mine:    func() map[string]bool { return givenNames(*peersPath, self) },
+			Served:  servedSites(*peersPath),
+			Answers: site.Answers,
+			Route: func(ctx context.Context, domain string) ([]string, error) {
+				api, err := os.ReadFile(cfToken)
+				if err != nil {
+					return nil, websites.ErrNoToken
+				}
+				tun, err := os.ReadFile(tunToken)
+				if err != nil {
+					return nil, fmt.Errorf("can't read the tunnel token: %w", err)
+				}
+				added, wwwErr, err := site.AddRoutes(ctx, string(api), string(tun), domain, "http://localhost:8480")
+				if wwwErr != nil {
+					log.Printf("websites: %s: www.%s: %v", domain, domain, wwwErr)
+				}
+				return added, err
+			}})
 		cfg.Users = hub.NewUsers(hub.UsersConfig{ST: syncthing.New(base, key), Dir: filepath.Join(*dir, "users"), StatePath: *statePath,
-			Limit: *limit, Logf: log.Printf,
+			Limit: *limit, Logf: log.Printf, Websites: sites.Dir(), WebsitesReady: sites.Ready,
 			Watch: func(ctx context.Context, u hub.User) {
 				w := outbox.New(outbox.Config{Dir: u.Path, PeersPath: *peersPath, Client: wc, Identity: id,
 					Event: func(kind, msg string) { log.Printf("%s: %s", u.Name, msg) }})
@@ -156,19 +187,7 @@ func cmdHub(ctx context.Context, args []string) error {
 				}
 			}})
 		go cfg.Users.Run(ctx)
-
-		pub := &site.Publisher{Dir: filepath.Join(yggstoreHome(), "sites"), Client: wc, Log: log.Printf, Skip: hub.SyncthingFile}
-		sites := hub.NewSites(hub.SitesConfig{StatePath: *statePath, Pub: pub, Client: wc, MaxBytes: *siteMax << 20,
-			Quiet: 15 * time.Second, Gap: time.Minute, Logf: log.Printf,
-			Online: func(ctx context.Context) ([]peers.Peer, error) {
-				token, err := msg.ReadToken(*msgToken)
-				if err != nil {
-					return nil, fmt.Errorf("this box's node's messaging token: %w", err)
-				}
-				pub.Announce = localAnnouncer{msg.Local{Addr: *msgAPI, Token: token}}
-				return onlinePeers(ctx, *peersPath)
-			}})
-		go sites.Run(ctx)
+		go (&hub.Websites{W: sites, StatePath: *statePath, Logf: log.Printf}).Run(ctx)
 	}
 
 	// Joining, when an admin's dashboard adds this box: the same as
@@ -285,7 +304,7 @@ func cmdHubControl(ctx context.Context, args []string) error {
 			return err
 		}
 		if len(st.Sites) == 0 {
-			fmt.Println("No websites yet (yggstore hub site add DOMAIN).")
+			fmt.Printf("No websites yet. Put one in %s, a folder named after its domain.\n", filepath.Join(*dir, "websites"))
 			return nil
 		}
 		for _, si := range st.Sites {
@@ -293,12 +312,9 @@ func cmdHubControl(ctx context.Context, args []string) error {
 			if si.Published > 0 && si.Version != "" {
 				state = "published " + time.Unix(si.Published, 0).Format("2 Jan 15:04") + ", version " + si.Version
 			}
-			if si.Remove {
-				state = "being removed"
-			}
-			fmt.Printf("%-30s %s\n  folder %s\n", si.Name, state, si.Path)
+			fmt.Printf("%-30s %s\n  folder %s\n", si.Name, state, filepath.Join(*dir, "websites", si.Name))
 			if si.Problem != "" {
-				fmt.Printf("  latest change not published: %s\n", si.Problem)
+				fmt.Printf("  not published: %s\n", strings.SplitN(si.Problem, "\n", 2)[0])
 			}
 		}
 		return nil
@@ -307,42 +323,23 @@ func cmdHubControl(ctx context.Context, args []string) error {
 		if err := site.ValidName(name); err != nil {
 			return err
 		}
-		find := func(s *hub.HubState) (*hub.Site, error) {
-			for i := range s.Sites {
-				if s.Sites[i].Name == name {
-					return &s.Sites[i], nil
-				}
-			}
-			return nil, fmt.Errorf("no website %s here (see yggstore hub sites)", name)
-		}
 		switch fs.Arg(1) {
 		case "add":
-			path := filepath.Join(*dir, "sites", name)
-			return set(func(s *hub.HubState) error {
-				if si, _ := find(s); si != nil && !si.Remove {
-					return fmt.Errorf("%s is kept here already, in %s", name, si.Path)
-				}
-				s.Sites = append(s.Sites, hub.Site{Name: name, Folder: hub.SiteFolderID(name), Path: path, Added: time.Now().Unix()})
-				return nil
-			}, fmt.Sprintf("%s is kept in %s. The hub fills it with the version being served, if this box published one,\n"+
-				"shares it with every paired device, and publishes it whenever it changes.", name, path))
+			return fmt.Errorf("websites are folders now: put %s in %s (publish it from this box first if it is already online elsewhere)",
+				name, filepath.Join(*dir, "websites", name))
 		case "publish":
 			return set(func(s *hub.HubState) error {
-				si, err := find(s)
-				if err == nil {
-					si.Force = true
+				for i := range s.Sites {
+					if s.Sites[i].Name == name {
+						s.Sites[i].Force = true
+						return nil
+					}
 				}
-				return err
+				return fmt.Errorf("no website %s here (see yggstore hub sites)", name)
 			}, name+" will be published as it is within a few seconds.")
 		case "remove":
-			return set(func(s *hub.HubState) error {
-				si, err := find(s)
-				if err == nil {
-					si.Remove = true
-				}
-				return err
-			}, name+" will no longer be synced or published from the hub. Its folder stays, and the site stays up\n"+
-				"(yggstore site remove takes it off the web).")
+			return fmt.Errorf("a website stays while its folder is in %s; yggstore site remove %s takes it off the web",
+				filepath.Join(*dir, "websites"), name)
 		}
 	case cmd == "remove" && fs.NArg() == 2:
 		return set(func(s *hub.HubState) error {
@@ -357,4 +354,61 @@ func cmdHubControl(ctx context.Context, args []string) error {
 	}
 	fs.Usage()
 	return errors.New("unknown hub command")
+}
+
+// givenNames is the names the group gave this node (its entry's Names), which
+// it publishes without the Cloudflare check.
+func givenNames(peersPath, self string) map[string]bool {
+	out := map[string]bool{}
+	list, err := peers.Load(peersPath)
+	if err != nil {
+		return out
+	}
+	for _, p := range list {
+		if self != "" && p.IP() == self {
+			for _, n := range p.Names {
+				out[n] = true
+			}
+		}
+	}
+	return out
+}
+
+// servedSites returns what the group's web nodes serve, asking them at most
+// once a minute.
+func servedSites(peersPath string) func() map[string]bool {
+	var mu sync.Mutex
+	var at time.Time
+	have := map[string]bool{}
+	return func() map[string]bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if time.Since(at) < time.Minute {
+			return have
+		}
+		at = time.Now()
+		list, err := peers.Load(peersPath)
+		if err != nil {
+			return have
+		}
+		c := client.New()
+		got := map[string]bool{}
+		for _, p := range list {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			info, err := c.Info(ctx, p.Addr)
+			cancel()
+			if err != nil || len(info.Web) == 0 {
+				continue
+			}
+			var st site.NodeStatus
+			if json.Unmarshal(info.Web, &st) != nil {
+				continue
+			}
+			for _, s := range st.Sites {
+				got[s.Site] = true
+			}
+		}
+		have = got
+		return have
+	}
 }
