@@ -100,3 +100,23 @@ func TestOnlineLeavesOutLeaving(t *testing.T) {
 		t.Fatalf("Probe: %+v", got)
 	}
 }
+
+// A second write in the same clock tick, which leaves the file's time as
+// it was, is still picked up.
+func TestRefreshSameTick(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "peers.json")
+	tick := time.Now()
+	Write(base, []Peer{{Name: "me", Addr: "127.0.0.1:1"}})
+	os.Chtimes(base, tick, tick)
+	l, err := NewLive(base, filepath.Join(dir, "pushed.json"), "200::9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	Write(base, []Peer{{Name: "me", Addr: "127.0.0.1:1", Admin: true}})
+	os.Chtimes(base, tick, tick)
+	l.Refresh()
+	if !l.IsAdmin("127.0.0.1") {
+		t.Fatal("the second write in the same tick was missed")
+	}
+}
