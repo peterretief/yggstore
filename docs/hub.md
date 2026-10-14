@@ -228,6 +228,15 @@ yggstore/
 A stub deleted on the device is kept on the box, in the folder's
 `.stversions`, so deleting one by mistake doesn't lose the file.
 
+The box looks after what it stores, as a member's dashboard does: every
+30 minutes (and two minutes after it starts) it rebuilds the shards held
+by nodes down for more than a day, or gone from the group, onto nodes
+that are up, and once a day it renews their leases. That covers each
+person's files and their older versions, team folders, and the recovery
+copies. While someone's files are being worked on at another place, that
+place repairs them and the box only renews their leases. Its state is in
+`repair.json` in the hub's folder, and what it does is in its log.
+
 ### People with several devices
 
 The box keeps track of people, not just devices: each person has one

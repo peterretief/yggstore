@@ -385,8 +385,8 @@ one machine and disk: this tests behaviour, not real redundancy.
 - Membership is the admin's `peers.json`, pushed to every node; there is
   no gossip or vouching yet.
 - Repair runs on each member's dashboard and looks after their own files
-  only: while a member's dashboard is off, their files wait. A box doesn't
-  run repair or renew leases for its people yet.
+  only: while a member's dashboard is off, their files wait. A box repairs
+  and renews leases for its people and teams.
 - Once your files are worked on at a box, moving them back to your
   computer isn't built yet, and mail still arrives at your computer.
 - Challenges are run by hand, are not signed and produce no receipts.

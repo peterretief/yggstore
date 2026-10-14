@@ -25,6 +25,7 @@ import (
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/recovery"
+	"github.com/peterretief/yggstore/internal/repair"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/syncthing"
@@ -225,6 +226,27 @@ func cmdHub(ctx context.Context, args []string) error {
 			}
 		}()
 		go (&hub.Websites{W: sites, StatePath: *statePath, Logf: log.Printf}).Run(ctx)
+		// What the box stores for its people and teams is kept whole as
+		// nodes come and go, and its leases renewed.
+		rc := client.New()
+		rc.HTTP.Timeout = 2 * time.Minute
+		rep := &repair.Repairer{Client: rc, Grace: repair.DefaultGrace,
+			State: filepath.Join(*dir, "repair.json"),
+			Peers: func() ([]peers.Peer, error) { return peers.Load(*peersPath) },
+			Stubs: func() []string {
+				mine, _ := cfg.Users.Stubs()
+				return append(mine, repair.Find(filepath.Join(*dir, "recovery"))...)
+			},
+			Received: func() []string { _, renew := cfg.Users.Stubs(); return renew },
+			Log:      func(kind, msg string) { log.Printf("repair: %s", msg) }}
+		go rep.Run(ctx, 30*time.Minute)
+		go func() { // a box is often switched off: a first pass soon after it starts
+			select {
+			case <-ctx.Done():
+			case <-time.After(2 * time.Minute):
+				rep.Kick()
+			}
+		}()
 	}
 
 	// Joining, when an admin's dashboard adds this box: the same as
