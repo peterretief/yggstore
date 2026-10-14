@@ -270,3 +270,38 @@ func TestMailReachesTheRecipient(t *testing.T) {
 		t.Fatal("the group copy outlived the delete")
 	}
 }
+
+// A mailbox brought back with only its stubs (as by recovery) fetches the
+// messages back from the group.
+func TestRefillFromStubs(t *testing.T) {
+	var list []peers.Peer
+	for i := range 4 {
+		srv := httptest.NewServer(server.Handler(localstore.New(t.TempDir()), server.Options{
+			Transport: transport.Loopback{}, Allowed: map[string]bool{"127.0.0.1": true}}))
+		t.Cleanup(srv.Close)
+		list = append(list, peers.Peer{Name: string(rune('a' + i)), Addr: strings.TrimPrefix(srv.URL, "http://")})
+	}
+	me := identity(t)
+	box := &Box{Dir: t.TempDir(), ID: me}
+	ctx := context.Background()
+	id, err := box.Keep(ctx, client.New(), list, []byte(sample), Sent, nil, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := box.Read(id)
+	os.Remove(filepath.Join(box.Dir, id+".sealed"))
+	if got, _ := (&Box{Dir: box.Dir, ID: me}).List(); len(got) != 0 {
+		t.Fatalf("listed without its copy: %v", got)
+	}
+	n, err := box.Refill(ctx, client.New())
+	if err != nil || n != 1 {
+		t.Fatalf("refilled %d: %v", n, err)
+	}
+	after, err := (&Box{Dir: box.Dir, ID: me}).Read(id)
+	if err != nil || after.Subject != before.Subject || after.Folder != Sent {
+		t.Fatalf("after refill: %+v, %v", after.Summary, err)
+	}
+	if n, _ := box.Refill(ctx, client.New()); n != 0 {
+		t.Fatal("refilled a message it already had")
+	}
+}

@@ -56,9 +56,10 @@ type Node struct {
 	Client client.Client
 	Log    func(string, ...any)
 
-	mu   sync.Mutex
-	st   state
-	wake chan struct{}
+	mu        sync.Mutex
+	st        state
+	wake      chan struct{}
+	refillErr string // the last refill error logged, so it is logged once
 }
 
 type state struct {
@@ -224,6 +225,20 @@ func (n *Node) work(ctx context.Context) {
 		}
 		n.save()
 		n.mu.Unlock()
+	}
+	// Messages the mailbox has only a stub for (after recovery) are
+	// fetched from the group.
+	if n.Box != "" {
+		box := &Box{Dir: n.Box}
+		if got, err := box.Refill(ctx, n.Client); err != nil {
+			if msg := err.Error(); msg != n.refillErr {
+				n.refillErr = msg
+				n.logf("mail: fetching messages back from the group: %v (will retry)", err)
+			}
+		} else if got > 0 {
+			n.refillErr = ""
+			n.logf("mail: fetched %d messages back from the group", got)
+		}
 	}
 	// Collected copies go after collecting, so a message this node both
 	// took and collected is cleaned up in the same pass.

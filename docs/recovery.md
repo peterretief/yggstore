@@ -8,8 +8,11 @@ So the dashboard keeps a **recovery copy** in the group, stored like any
 other item: encrypted, in pieces across the nodes. It holds:
 
 - your outbox's stubs (`files/`, `whole/`, `received/`) and their history;
-- from `~/.yggstore`: your sharing key, contacts, mail, websites, names,
-  invites and devices;
+- from `~/.yggstore`: your sharing key, contacts, websites, names, invites
+  and devices;
+- your mail as its stubs, folders and flags: each message is already
+  stored in the group, and a recovered mailbox fetches the messages back
+  from there;
 - the group's list of nodes (`peers.json`).
 
 It's kept small, at a few hundred KB for most people. Restored files,

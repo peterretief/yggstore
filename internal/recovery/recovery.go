@@ -563,8 +563,13 @@ var homeKeep = map[string]bool{
 	"devices.json": true, "me.name": true, "mail": true, "sites": true, "own-sites": true, "notes": true,
 }
 
-// HomeKeep is what of ~/.yggstore goes into the copy.
+// HomeKeep is what of ~/.yggstore goes into the copy. Mail goes in as its
+// stubs (each message is stored in the group) and its folders and flags,
+// not the copies of the messages: the mailbox fetches those back.
 func HomeKeep(rel string, dir bool) bool {
 	top, _, _ := strings.Cut(rel, "/")
+	if top == "mail" && strings.HasSuffix(rel, ".sealed") {
+		return false
+	}
 	return homeKeep[top]
 }

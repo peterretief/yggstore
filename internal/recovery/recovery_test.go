@@ -54,6 +54,8 @@ func setup(t *testing.T) *world {
 	put(t, filepath.Join(x.out, ".yggstore", "activity.log"), "busy")
 	put(t, filepath.Join(x.home, "sharing.key"), "secret identity")
 	put(t, filepath.Join(x.home, "mail", "m1.ystub"), `{"mail":1}`)
+	put(t, filepath.Join(x.home, "mail", "m1.json"), `{"folder":"INBOX"}`)
+	put(t, filepath.Join(x.home, "mail", "m1.sealed"), "the message itself")
 	put(t, filepath.Join(x.home, "shards", "aa", "bb"), "a node's shard")
 	put(t, filepath.Join(x.home, "mail-out.json"), `{"password":"relay"}`)
 	peersPath := filepath.Join(t.TempDir(), "peers.json")
@@ -99,7 +101,7 @@ func TestCopyHoldsWhatIsNeededAndNothingElse(t *testing.T) {
 	x := setup(t)
 	x.k.Step(context.Background())
 	dir, got := x.restored(t)
-	want := []string{"home/mail/m1.ystub", "home/sharing.key", "outbox/.yggstore/history/abc/1.ystub",
+	want := []string{"home/mail/m1.json", "home/mail/m1.ystub", "home/sharing.key", "outbox/.yggstore/history/abc/1.ystub",
 		"outbox/files/Photos/beach.jpg.ystub", "peers.json"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("copy holds\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))

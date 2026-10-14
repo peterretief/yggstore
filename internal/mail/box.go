@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"io"
 	"mime"
@@ -162,6 +163,56 @@ func (b *Box) Attachment(id string, n int) (Attachment, []byte, error) {
 	}
 	a := m.Attachments[n]
 	return a, a.data, nil
+}
+
+// Refill fetches from the group the messages the mailbox has a stub for but
+// no copy of, as after recovery (which brings back only the stubs). It
+// returns how many it fetched; a message it couldn't fetch is tried again
+// next time.
+func (b *Box) Refill(ctx context.Context, c client.Client) (int, error) {
+	ents, err := os.ReadDir(b.Dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+	n := 0
+	var firstErr error
+	for _, e := range ents {
+		id, ok := strings.CutSuffix(e.Name(), ".ystub")
+		if !ok || !validID.MatchString(id) {
+			continue
+		}
+		sealed := filepath.Join(b.Dir, id+".sealed")
+		if _, err := os.Stat(sealed); err == nil {
+			continue
+		}
+		err := func() error {
+			m, err := files.ReadStub(filepath.Join(b.Dir, e.Name()))
+			if err != nil {
+				return err
+			}
+			if m.PlaintextSize > MaxSize {
+				return errors.New("too large for a message")
+			}
+			var buf bytes.Buffer
+			if err := files.Get(ctx, c, m, &buf, func(string, ...any) {}); err != nil {
+				return err
+			}
+			if !IsSealed(buf.Bytes()) {
+				return errors.New("not a sealed message")
+			}
+			return atomicfile.Replace(sealed, buf.Bytes(), 0o600)
+		}()
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("message %s: %w", id, err)
+			}
+			continue
+		}
+		n++
+	}
+	return n, firstErr
 }
 
 // Delete removes a message from the mailbox and its copy from the group.
