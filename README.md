@@ -31,9 +31,12 @@ independent. Don't make it the only copy of anything you can't lose.
 - No box? The [gateway](docs/gateway.md) lets people pay a monthly fee and
   use the group's storage from any S3 program (rclone, Cyberduck, Duplicati).
   Members choose whether their box holds customers' data, and earn credit.
-- [Work from anywhere](docs/recovery.md): open a link from your email on
-  any device, and your files come to it through your group's box, whether
-  you're working remotely or can't get to your computer.
+- [Work from anywhere](docs/recovery.md): a link in your email opens your
+  files in any browser, to download, upload, rename, move and delete, with
+  nothing to install. Or it moves your folder to the device you're on,
+  through your group's box. Only one place changes your files at a time,
+  and a recovery copy of your stubs, keys and mail in the group means
+  losing your computer loses nothing.
 - Every version is kept: [history](docs/history.md) lets you restore an
   older version of a file, or a folder as it was on a given day. A new
   version only stores the parts that changed.
@@ -44,15 +47,19 @@ independent. Don't make it the only copy of anything you can't lose.
   with no daemon, TUN device or root. It talks to nodes on the daemon too.
 - The [mesh](docs/mesh.md) keeps members' Yggdrasil linked directly to each
   other, so losing one tunnel or public peer doesn't cut anyone off.
-- Your dashboard can [open on your other devices](docs/remote-dashboard.md),
-  at `yourbox.local` on the LAN or over Yggdrasil from anywhere. A device is
-  let in by its Yggdrasil address, so there's no password to steal.
+- Your dashboard, and a [files page](docs/remote-dashboard.md#your-files)
+  that works on your folder directly, [open on your other devices](docs/remote-dashboard.md)
+  over Yggdrasil from anywhere, with no size limit. A device is let in by
+  its Yggdrasil address, which only its own key can use, so there's no
+  password to steal: it asks, and you press Allow.
 - A box such as a Raspberry Pi can be a [hub](docs/hub.md): the computers
   and phones on the LAN sync a folder with it through Syncthing, and what
   they put there is stored in the group. They need nothing but Syncthing,
-  and the box's own page shows them how to set it up. The admin prepares
-  each box from their machine with two scripts, so it arrives named, in the
-  group and ready.
+  and the box's own page shows them how to set it up. A person's phone and
+  laptop share one folder, team folders are shared by several people, and
+  devices keep syncing when away from the LAN. The admin prepares each box
+  from their machine with two scripts, so it arrives named, in the group
+  and ready.
 - [Websites](docs/sites.md) can live on the group: publish a folder, and
   several machines serve it, so a site stays up when one of them goes down.
   A site's [contact form](docs/sites.md#a-contact-form) sends to your
@@ -372,13 +379,18 @@ one machine and disk: this tests behaviour, not real redundancy.
 
 - No machine holds more than 2 of a chunk's 6 shards, so any one machine
   can fail. Surviving two failures at once needs 6 or more machines.
-- Stubs live only where they were made. If that machine's disk dies, the
-  shards are still in the group but nobody can decrypt them: back up your
-  stubs and `sharing.key`.
+- Stubs live where they were made, and in the [recovery copy](docs/recovery.md)
+  (on by default; the last 5 kept). With it turned off, a dead disk leaves
+  the shards in the group with nobody able to decrypt them.
 - Membership is the admin's `peers.json`, pushed to every node; there is
   no gossip or vouching yet.
 - Repair runs on each member's dashboard and looks after their own files
-  only: while a member's dashboard is off, their files wait.
+  only: while a member's dashboard is off, their files wait. A box doesn't
+  run repair or renew leases for its people yet.
+- Once your files are worked on at a box, moving them back to your
+  computer isn't built yet, and mail still arrives at your computer.
+- Uploads through the work-from-anywhere link are limited to 100 MB a file
+  (Cloudflare); over Yggdrasil there's no limit.
 - Challenges are run by hand, are not signed and produce no receipts.
 - Plain HTTP; confidentiality in transit comes from Yggdrasil's end-to-end
   encryption, and shards are ciphertext anyway.

@@ -1,8 +1,11 @@
-# Open your dashboard from your other devices
+# Open your dashboard and files from your other devices
 
 The dashboard has no password: whoever can open it can restore, share and
 delete your files and read your mail. So by default it only answers on the
 machine it runs on, at <http://127.0.0.1:7480>.
+
+It also serves [your files](#your-files) at `/files`, to browse and change
+in the browser, and both open on your own laptop and phone over Yggdrasil.
 
 Started with `-remote` (`yggstore join -service` does this), it also opens
 to **your own devices, over Yggdrasil**:
@@ -73,14 +76,29 @@ dashboard also on http://[200:1f12::cfd6]:7480 for the devices in /home/anna/.yg
 
 ## 4. Add your devices
 
-On the device, open <http://anna-box.local:7480>. The first time, the page
-says the device isn't on the list and shows its address. On the box:
+The dashboard's **Your devices** section lists them, and says how to add
+one:
+
+1. Install Yggdrasil on the device
+   ([Windows, Mac, Linux, Android and iPhone](https://yggdrasil-network.github.io/installation.html)).
+   It makes the device its own key, which never leaves it.
+2. Give it one of the public peers the section shows (in its settings,
+   under Peers), so it finds your computer from anywhere.
+3. On the device, open the address the section shows, such as
+   `http://[200:1f12::cfd6]:7480/files`. The page says the device isn't on
+   the list, shows its address, and has **Ask to let it in**.
+4. Press **Allow** next to it under **Your devices**, on your computer or
+   on a device already let in. Reload the page on the device.
+
+**Remove** shuts a device out at once (the device you're using can't remove
+itself). Requests are kept for a day, ten at most, so strangers on
+Yggdrasil can't fill the list.
+
+Or add a device by its address, on the dashboard or the command line:
 
 ```sh
 yggstore devices add 201:5e1:8a3c::7 "anna's laptop"
 ```
-
-Reload the page: it's your dashboard. The list takes effect at once.
 
 ```sh
 yggstore devices                      # who may open it
@@ -94,3 +112,19 @@ Remove a device when you sell or lose it. Its Yggdrasil keys are in its
 > The page goes over Yggdrasil, which encrypts it end to end, but the
 > browser sees plain `http://`. So "copy" buttons may not reach the
 > clipboard; they select the text instead, for Ctrl+C.
+
+## Your files
+
+`/files` on the dashboard (`http://127.0.0.1:7480/files` on its own
+machine, or its Yggdrasil address on your devices) is the same page as
+your [work from anywhere](recovery.md#your-files-in-the-browser) link, but
+served by your computer and working on your folder directly:
+
+- browse, and click a file to download it;
+- upload files, or drag them onto the page, of any size;
+- new folders, and **⋯** to rename, move or delete.
+
+Changes are made at once, with no waiting on the web nodes and no 100 MB
+limit. A file just uploaded shows *storing…* until it's stored in the
+group, a minute or so, and is then a stub like any other. While your files
+are being worked on at another place, the page only shows them.

@@ -67,7 +67,7 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var errElsewhere = errors.New("Your files are being worked on at another place right now, so they can only be looked at here. Move them here on your dashboard (Work here) to change them.")
+var errElsewhere = errors.New("Your files are being worked on at another place right now, so they can only be looked at here. Change them there, or on your link page.")
 
 func (l *Live) holding() bool { return l.Holding == nil || l.Holding() }
 

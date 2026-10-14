@@ -758,7 +758,7 @@ func (w *Watcher) origin(stub string, m manifest.Manifest) string {
 
 // ErrNotHere means the person's working copy is at another place, which
 // alone changes their files.
-var ErrNotHere = errors.New("your files are being worked on at another place; press Work here to move them here first")
+var ErrNotHere = errors.New("your files are being worked on at another place; change them there, or on your link page")
 
 // DeleteStub removes the item a stub describes from every node, then every
 // stub of it in the outbox. Nodes that are down are sent their deletes when

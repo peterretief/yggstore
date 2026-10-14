@@ -255,11 +255,14 @@ keeping recovery copies of their folder, keeps their record on the group's
 web nodes, and has a web node send them their link from `yggstore@` the
 group's domain.
 
-Opening the link on another device, at a client's office, say, pairs that
-device with their folder from wherever it is (see
-[working from anywhere](recovery.md)). Only one device has the folder at a
-time: the page says which one has it, and **Move them here** takes it from
-that one.
+The link opens their files in any browser: they can download, upload,
+rename, move and delete there, and the box makes the changes in their
+folder within 20 seconds (see
+[your files in the browser](recovery.md#your-files-in-the-browser)). The
+same page can also pair another device with their folder from wherever it
+is, at a client's office, say. Only one device has the folder at a time:
+the page says which one has it, and **Move them here** takes it from that
+one.
 
 ### Team folders
 
