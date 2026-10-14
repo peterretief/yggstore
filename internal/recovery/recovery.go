@@ -54,6 +54,11 @@ type Config struct {
 	Online  func(context.Context) ([]peers.Peer, error)
 	Event   func(kind, msg string)
 
+	// Holding, if set, says whether this place holds the working copy:
+	// copies are made only there. OnCopy hears of each new copy.
+	Holding func() bool
+	OnCopy  func(context.Context, manifest.Manifest)
+
 	Check  time.Duration // how often to look for changes (1 minute)
 	Settle time.Duration // how long nothing must change before a copy (2 minutes)
 	Keep   int           // copies kept (5)
@@ -93,10 +98,11 @@ type Status struct {
 }
 
 type Keeper struct {
-	cfg  Config
-	mu   sync.Mutex
-	st   State
-	wake chan struct{}
+	cfg    Config
+	saveMu sync.Mutex // one copy at a time
+	mu     sync.Mutex
+	st     State
+	wake   chan struct{}
 
 	seen    string    // the fingerprint last looked at
 	changed time.Time // when it last changed
@@ -219,7 +225,7 @@ func (k *Keeper) Step(ctx context.Context) {
 		last = k.st.Copies[n-1]
 	}
 	k.mu.Unlock()
-	if off {
+	if off || k.cfg.Holding != nil && !k.cfg.Holding() {
 		return
 	}
 	k.reseal(last)
@@ -235,7 +241,13 @@ func (k *Keeper) Step(ctx context.Context) {
 	if print == last.Print || now.Sub(k.changed) < k.cfg.Settle && last.Print != "" {
 		return
 	}
-	if err := k.store(ctx, print); err != nil {
+	k.saveMu.Lock()
+	err = k.store(ctx, print)
+	k.saveMu.Unlock()
+	switch {
+	case errors.Is(err, errNoNodes):
+		// Just started, or offline: tried again next time, quietly.
+	case err != nil:
 		k.problem("recovery copy not saved: " + err.Error())
 	}
 }
@@ -320,7 +332,7 @@ func (k *Keeper) store(ctx context.Context, print string) error {
 		return err
 	}
 	if len(online) == 0 {
-		return errors.New("no node answers")
+		return errNoNodes
 	}
 	pr, pw := io.Pipe()
 	var count int
@@ -359,11 +371,16 @@ func (k *Keeper) store(ctx context.Context, print string) error {
 		return err
 	}
 	k.cfg.Event("ok", fmt.Sprintf("recovery copy saved: %d files, %s", count, human(size)))
+	if k.cfg.OnCopy != nil {
+		k.cfg.OnCopy(ctx, m)
+	}
 	for _, c := range drop {
 		k.forget(ctx, c)
 	}
 	return nil
 }
+
+var errNoNodes = errors.New("no node answers")
 
 // forget deletes an old copy from the group, and its stub.
 func (k *Keeper) forget(ctx context.Context, c Copy) {
@@ -506,6 +523,30 @@ func gcm(key []byte) (cipher.AEAD, error) {
 		return nil, err
 	}
 	return cipher.NewGCM(block)
+}
+
+// SaveNow makes a copy straight away, if anything changed since the last
+// one, and returns the newest copy's stub: the final copy when the working
+// copy moves to another place.
+func (k *Keeper) SaveNow(ctx context.Context) (manifest.Manifest, error) {
+	k.saveMu.Lock()
+	defer k.saveMu.Unlock()
+	print, err := k.fingerprint()
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	k.mu.Lock()
+	var last Copy
+	if n := len(k.st.Copies); n > 0 {
+		last = k.st.Copies[n-1]
+	}
+	k.mu.Unlock()
+	if print != last.Print {
+		if err := k.store(ctx, print); err != nil {
+			return manifest.Manifest{}, err
+		}
+	}
+	return k.Latest()
 }
 
 // Latest is the newest copy's stub, for restoring on this machine.

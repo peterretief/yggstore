@@ -37,6 +37,7 @@ import (
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/websites"
+	"github.com/peterretief/yggstore/internal/workcopy"
 )
 
 //go:embed index.html
@@ -174,6 +175,7 @@ type State struct {
 	Activity    *outbox.Activity `json:"activity,omitempty"` // upload, read-back or restore in progress
 	Restore     *RestoreState    `json:"restore,omitempty"`  // where restores go, and the latest ones
 	Recovery    *recovery.Status `json:"recovery,omitempty"` // the recovery copy
+	WorkCopy    *workcopy.State  `json:"workcopy,omitempty"` // where the working copy is
 	// This node's own peers.json entry, for a new node's first list; empty
 	// unless this node is an admin and so can add nodes.
 	AdminEntry string `json:"admin_entry,omitempty"`
@@ -214,6 +216,7 @@ type Dashboard struct {
 	mu       sync.Mutex
 	websites *websites.Watcher // the outbox's websites/ folder, once started
 	recovery *recovery.Keeper  // the recovery copy, once started
+	workcopy *workcopy.Tracker // where the working copy is, once started
 	box      *mail.Box
 	state    State
 	history  map[string][]float64
@@ -292,6 +295,7 @@ func (d *Dashboard) Handler() http.Handler {
 			st.Activity = d.cfg.Outbox.Activity()
 			st.Restore = d.restoreState()
 			st.Recovery = d.recoveryStatus()
+			st.WorkCopy = d.workcopyState()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")

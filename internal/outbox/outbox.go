@@ -68,6 +68,9 @@ type Watcher struct {
 	// owedNext: when deletes owed by nodes that were down are next tried.
 	owedNext time.Time
 
+	holdMu sync.Mutex
+	hold   func() bool // see SetHold
+
 	actMu    sync.Mutex
 	act      *Activity
 	restored []Restored // latest restores, oldest first
@@ -136,6 +139,23 @@ func (w *Watcher) Dir() string { return w.cfg.Dir }
 // SetEvent replaces the event sink; call before Run.
 func (w *Watcher) SetEvent(f func(kind, msg string)) { w.cfg.Event = f }
 
+// SetHold gives the watcher a way to know whether this place holds the
+// person's working copy (see package workcopy). While it doesn't, the
+// outbox stores, restores and deletes nothing.
+func (w *Watcher) SetHold(f func() bool) {
+	w.holdMu.Lock()
+	w.hold = f
+	w.holdMu.Unlock()
+}
+
+// Holding is whether this place may change the person's files.
+func (w *Watcher) Holding() bool {
+	w.holdMu.Lock()
+	f := w.hold
+	w.holdMu.Unlock()
+	return f == nil || f()
+}
+
 func (w *Watcher) Run(ctx context.Context) error {
 	for _, d := range []string{w.cfg.Dir, filepath.Join(w.cfg.Dir, FilesDir), filepath.Join(w.cfg.Dir, RestoreDir), filepath.Join(w.cfg.Dir, RestoredDir), filepath.Join(w.cfg.Dir, DeleteDir),
 		filepath.Join(w.cfg.Dir, WholeDir), filepath.Join(w.cfg.Dir, ReceivedDir), filepath.Join(w.cfg.Dir, privateDir, "restored-stubs")} {
@@ -158,6 +178,9 @@ func (w *Watcher) Run(ctx context.Context) error {
 }
 
 func (w *Watcher) poll(ctx context.Context) {
+	if !w.Holding() {
+		return
+	}
 	seen := map[string]bool{}
 	for _, path := range w.loose() {
 		seen[path] = true
@@ -733,11 +756,18 @@ func (w *Watcher) origin(stub string, m manifest.Manifest) string {
 	return inFiles(found)
 }
 
+// ErrNotHere means the person's working copy is at another place, which
+// alone changes their files.
+var ErrNotHere = errors.New("your files are being worked on at another place; press Work here to move them here first")
+
 // DeleteStub removes the item a stub describes from every node, then every
 // stub of it in the outbox. Nodes that are down are sent their deletes when
 // they are back; if a node that answers can't delete its shards, nothing is
 // removed locally, so the delete can be retried.
 func (w *Watcher) DeleteStub(ctx context.Context, stub string) error {
+	if !w.Holding() {
+		return ErrNotHere
+	}
 	w.work.Lock()
 	defer w.work.Unlock()
 	return w.deleteItem(ctx, stub)

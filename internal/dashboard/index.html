@@ -186,6 +186,8 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <span class="live"><span class="dot" id="dot"></span><span id="updated">connecting…</span></span>
   </header>
 
+  <section class="card" id="workBanner" hidden style="margin-bottom:14px;border-color:var(--warn)"></section>
+
   <h2>My box</h2>
   <section class="card" id="mybox"><div class="sub">Loading…</div></section>
   <section class="job" id="job" hidden></section>
@@ -790,6 +792,17 @@ $("restoreRecent").onclick = async ev => {
   }
 };
 
+function renderWorkCopy(w) {
+  const b = $("workBanner");
+  const away = w && w.holder && !w.mine;
+  b.hidden = !away;
+  if (!away) return;
+  const html = `<b>Your files are being worked on at ${esc(w.holder)}</b> <span class="sub">since ${ago(Math.floor(w.since / 1000))}</span>
+    <div class="sub" style="margin-top:4px">Only one place changes your files at a time. Here, nothing is stored, restored or deleted until they are moved back.
+    This machine's node carries on as usual for the group.</div>`;
+  if (b.dataset.html !== html) { b.innerHTML = html; b.dataset.html = html; }
+}
+
 function renderRecovery(r) {
   $("recoveryWrap").hidden = !r;
   if (!r) return;
@@ -848,6 +861,7 @@ async function refresh() {
     renderInvites(s);
     renderRestore(s.restore);
     renderRecovery(s.recovery);
+    renderWorkCopy(s.workcopy);
     renderFolderRestore(s);
     renderFiles(s, s.files.filter(f => !f.test && !f.shared_by), "files", false);
     const rec = s.files.filter(f => !f.test && f.shared_by);

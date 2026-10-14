@@ -50,6 +50,9 @@ type Repairer struct {
 	Received func() []string
 	// RenewOnly makes a pass only renew leases, repairing nothing.
 	RenewOnly bool
+	// Hold, if set, says whether this place holds the person's working
+	// copy. Repair rewrites stubs, so elsewhere it only renews leases.
+	Hold func() bool
 	// State is where it remembers since when each node has been down.
 	State string
 	Grace time.Duration
@@ -226,7 +229,7 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 	}
 	r.renew(ctx, answering, &st, now, &rep)
 	r.save(st)
-	if r.RenewOnly {
+	if r.RenewOnly || r.Hold != nil && !r.Hold() {
 		return rep, nil
 	}
 

@@ -728,6 +728,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	}
 	if w != nil {
 		w.SetEvent(d.Event)
+		w.SetHold(d.Holding)
 		go func() {
 			if err := w.Run(ctx); err != nil {
 				log.Printf("outbox: %v", err)
@@ -745,6 +746,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 		r := newRepairer(*peersPath, *repairAfter, absStubs, history, *mailbox, dashboard.RecoveryDir(yggstoreHome()))
 		r.RenewOnly = *repairAfter <= 0 // leases are renewed either way
 		r.Log = d.Event
+		r.Hold = d.Holding
 		d.SetRepair(r.Kick, r.NoRoom, r.DownSince)
 		go r.Run(ctx, 30*time.Minute)
 		if *pushed == "" {
