@@ -62,7 +62,7 @@ func TestLinkOpensThroughTheBox(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, PagePath, nil))
-	if !strings.Contains(w.Body.String(), "Open your files") {
+	if !strings.Contains(w.Body.String(), "<h1>Your files</h1>") {
 		t.Fatal("no page")
 	}
 }

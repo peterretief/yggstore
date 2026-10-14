@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
+	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/recovery"
 )
 
@@ -58,6 +59,10 @@ type Store struct {
 	// Email, if set, sends a message from the group (this node holds the
 	// mail relay): the link, for people whose box asks.
 	Email func(ctx context.Context, to, subject, text string) error
+	// Shards fetches files from the group, for browsing (see browse.go).
+	Shards client.Client
+
+	cache viewCache
 }
 
 func (s *Store) path(id string) string { return filepath.Join(s.Dir, id+".json") }
@@ -211,7 +216,12 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Write(page)
 	case http.MethodPost:
-		s.open(w, r)
+		switch op := r.URL.Query().Get("op"); op {
+		case "list", "get":
+			s.browse(w, r, op)
+		default:
+			s.open(w, r)
+		}
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

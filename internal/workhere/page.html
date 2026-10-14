@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Open your files</title>
+<title>Your files</title>
 <style>
 :root { --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --sub: #5b6475; --line: #dde1e8; --accent: #2f6fde; --ok: #1f8a4c; --bad: #c0392b; }
 @media (prefers-color-scheme: dark) {
@@ -24,6 +24,15 @@ button.plain { background: transparent; color: var(--accent); border: 1px solid 
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
 .err { color: var(--bad); margin-top: 10px; }
 .ok { color: var(--ok); font-weight: 600; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 8px; }
+.crumbs button { margin: 0; padding: 4px 8px; background: transparent; color: var(--accent); border: 0; font-weight: 600; }
+.row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .size { color: var(--sub); font-size: 13px; white-space: nowrap; }
+.row button { margin: 0; padding: 6px 12px; font-size: 14px; }
+.row.folder .name { cursor: pointer; color: var(--accent); font-weight: 600; }
+details summary { cursor: pointer; font-weight: 600; }
 ol { padding-left: 20px; margin: 6px 0 0; }
 li { margin: 4px 0; }
 a { color: var(--accent); }
@@ -31,12 +40,21 @@ a { color: var(--accent); }
 </head>
 <body>
 <main>
-  <h1>Open your files</h1>
-  <div class="sub">Your files come to this device through Syncthing, from your group's box. Only one device has them at a time.</div>
+  <h1>Your files</h1>
+  <div class="sub" id="saved"></div>
+
+  <div class="card" id="browser" hidden>
+    <div class="crumbs" id="crumbs"></div>
+    <div id="list"><span class="sub">Loading…</span></div>
+    <div class="err" id="listErr"></div>
+  </div>
+  <form id="dl" method="post" action="?op=get" hidden><input name="id"><input name="link"><input name="path"></form>
 
   <div class="card" id="bad" hidden><h2>This link isn't complete</h2>
     <div class="sub">Open it again from your recovery email, all of it: the part after the # is what opens your files.</div></div>
 
+  <details class="card" id="stepsWrap"><summary>Work on this device: your folder through Syncthing</summary>
+  <div class="sub" style="margin-top:8px">To add, change and delete files, sync your folder to this device. Only one device has it at a time.</div>
   <div id="steps">
   <div class="card"><h2>1. Install Syncthing</h2>
     <div class="sub">If this device doesn't have it yet:
@@ -55,6 +73,7 @@ a { color: var(--accent); }
     </div>
   </div>
   </div>
+  </details>
 
   <div class="card" id="done" hidden><h2 class="ok">Your files are ready on the box</h2>
     <ol>
@@ -71,7 +90,43 @@ const $ = id => document.getElementById(id);
 const frag = location.hash.slice(1);
 const dot = frag.indexOf(".");
 const id = dot > 0 ? frag.slice(0, dot) : "", link = dot > 0 ? frag.slice(dot + 1) : "";
-if (!id || !link) { $("bad").hidden = false; $("steps").hidden = true; }
+if (!id || !link) { $("bad").hidden = false; $("stepsWrap").hidden = true; }
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const size = n => n >= 1 << 30 ? (n / (1 << 30)).toFixed(1) + " GB" : n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB"
+  : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " bytes";
+let here = "";
+async function list(dir) {
+  $("listErr").textContent = "";
+  try {
+    const r = await fetch(location.pathname + "?op=list", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({id, link, path: dir})});
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(out.error || "Something went wrong (" + r.status + ")");
+    here = out.path;
+    if (out.saved) $("saved").textContent = "As saved " + new Date(out.saved * 1000).toLocaleString() + ". Changes since then show within a few minutes.";
+    const parts = here ? here.split("/") : [];
+    $("crumbs").innerHTML = `<button data-dir="">Your files</button>` + parts.map((p, i) =>
+      `› <button data-dir="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`).join("");
+    $("list").innerHTML = out.entries.length ? out.entries.map(e => e.folder
+      ? `<div class="row folder"><span class="name" data-dir="${esc((here ? here + "/" : "") + e.name)}">📁 ${esc(e.name)}</span></div>`
+      : `<div class="row"><span class="name">${e.whole ? "🗂" : "📄"} ${esc(e.name)}</span><span class="size">${size(e.size || 0)}</span>
+          <button data-get="${esc((here ? here + "/" : "") + e.name)}">Download${e.whole ? " (.tar)" : ""}</button></div>`).join("")
+      : `<span class="sub">Nothing here yet.</span>`;
+    $("browser").hidden = false;
+  } catch (e) { $("listErr").textContent = e.message; $("browser").hidden = false; $("list").innerHTML = ""; }
+}
+document.addEventListener("click", ev => {
+  const d = ev.target.closest("[data-dir]");
+  if (d) { list(d.dataset.dir); return; }
+  const g = ev.target.closest("[data-get]");
+  if (g) {
+    const f = $("dl");
+    f.elements.id.value = id; f.elements.link.value = link; f.elements.path.value = g.dataset.get;
+    f.submit();
+  }
+});
+if (id && link) list("");
 
 async function open(move) {
   $("err").textContent = ""; $("go").disabled = $("move").disabled = true;
@@ -86,7 +141,7 @@ async function open(move) {
     }
     if (!r.ok) throw new Error(out.error || "Something went wrong (" + r.status + ")");
     $("boxid").textContent = out.box_id; $("folder").textContent = out.folder;
-    $("steps").hidden = true; $("done").hidden = false;
+    $("steps").hidden = true; $("done").hidden = false; $("stepsWrap").open = true;
   } catch (e) {
     $("err").textContent = e.message;
   } finally {
