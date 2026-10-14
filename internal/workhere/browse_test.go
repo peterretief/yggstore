@@ -85,3 +85,74 @@ func TestBrowseAndDownload(t *testing.T) {
 		t.Fatalf("a path outside: %d", w.Code)
 	}
 }
+
+// A file uploaded on the page waits on the web node, shows as arriving,
+// and is collected into the outbox by the place holding the working copy;
+// then the web node's copy goes.
+func TestUploadIsCollected(t *testing.T) {
+	ctx := context.Background()
+	var nodes []peers.Peer
+	for i := range 4 {
+		srv := httptest.NewServer(server.Handler(localstore.New(t.TempDir()), server.Options{
+			Transport: transport.Loopback{}, Allowed: map[string]bool{"127.0.0.1": true}}))
+		t.Cleanup(srv.Close)
+		nodes = append(nodes, peers.Peer{Name: string(rune('a' + i)), Addr: strings.TrimPrefix(srv.URL, "http://")})
+	}
+	out := t.TempDir()
+	os.MkdirAll(filepath.Join(out, "files", "Docs"), 0o755)
+	os.WriteFile(filepath.Join(out, "files", "Docs", "old.txt.ystub"), []byte(`{}`), 0o644)
+	k := recovery.New(recovery.Config{Dir: filepath.Join(t.TempDir(), "recovery"), Client: client.New(),
+		Sources: []recovery.Source{{Name: "outbox", Path: out, Keep: recovery.OutboxKeep}},
+		Online:  func(context.Context) ([]peers.Peer, error) { return nodes, nil }})
+	if _, err := k.SaveNow(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ks := k.Keys()
+	s := &Store{Dir: t.TempDir(), Online: func(context.Context) ([]peers.Peer, error) { return nodes, nil }}
+	b, _ := json.Marshal(Record{ID: ks.ID, GroupHalf: ks.GroupHalf, Sealed: ks.Sealed, Name: "anna"})
+	s.Serve(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/v1/work/"+ks.ID, strings.NewReader(string(b))), "200::1")
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.Serve(w, r, "200::1") {
+			http.NotFound(w, r)
+		}
+	}))
+	defer web.Close()
+
+	up := func(link, name string) int {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, PagePath+"?op=put", strings.NewReader("minutes of the meeting"))
+		r.Header.Set("X-Id", ks.ID)
+		r.Header.Set("X-Link", link)
+		r.Header.Set("X-Dir", "Docs")
+		r.Header.Set("X-Name", url.PathEscape(name))
+		s.ServeHTTP(w, r)
+		return w.Code
+	}
+	if code := up(strings.Repeat("A", 43), "minutes.txt"); code != http.StatusForbidden {
+		t.Fatalf("upload with a wrong link: %d", code)
+	}
+	if code := up(ks.LinkHalf, "../../escape.txt"); code != 200 {
+		t.Fatalf("a name with a path is taken as its base: %d", code)
+	}
+	if code := up(ks.LinkHalf, "minutes ü.txt"); code != 200 {
+		t.Fatalf("upload: %d", code)
+	}
+	key, _ := recovery.Key(ks.LinkHalf, ks.GroupHalf)
+	if p := s.pending(ks.ID, key); len(p) != 2 {
+		t.Fatalf("pending %v", p)
+	}
+
+	n, err := Collect(ctx, client.New(), []string{strings.TrimPrefix(web.URL, "http://")}, ks, filepath.Join(out, "files"), nil)
+	if err != nil || n != 2 {
+		t.Fatalf("collected %d: %v", n, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(out, "files", "Docs", "minutes ü.txt")); string(b) != "minutes of the meeting" {
+		t.Fatalf("collected file: %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(out, "files", "Docs", "escape.txt")); err != nil {
+		t.Fatal("the name with a path wasn't kept in the folder it was uploaded to")
+	}
+	if p := s.pending(ks.ID, key); len(p) != 0 {
+		t.Fatalf("still pending after collecting: %v", p)
+	}
+}

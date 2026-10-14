@@ -48,6 +48,8 @@ type Entry struct {
 	Folder bool   `json:"folder,omitempty"` // a folder of the tree
 	Whole  bool   `json:"whole,omitempty"`  // a folder stored as one item, downloaded as .tar
 	Size   int64  `json:"size,omitempty"`
+	// Arriving: uploaded, and not in the working copy yet.
+	Arriving bool `json:"arriving,omitempty"`
 }
 
 // Listing is a folder of the copy.
@@ -256,6 +258,16 @@ func (s *Store) browse(w http.ResponseWriter, r *http.Request, op string) {
 	}
 	if op == "list" {
 		l, err := v.list(p)
+		if rec, gerr := s.get(id); gerr == nil {
+			if key, kerr := recovery.Key(link, rec.GroupHalf); kerr == nil {
+				for _, up := range s.pending(id, key) {
+					if dir := path.Dir(up); dir == l.Path || (dir == "." && l.Path == "") {
+						l.Entries = append(l.Entries, Entry{Name: path.Base(up), Arriving: true})
+						err = nil
+					}
+				}
+			}
+		}
 		if err != nil {
 			jsonError(w, http.StatusNotFound, err.Error())
 			return

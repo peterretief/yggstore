@@ -31,7 +31,11 @@ button.plain { background: transparent; color: var(--accent); border: 1px solid 
 .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .size { color: var(--sub); font-size: 13px; white-space: nowrap; }
 .row button { margin: 0; padding: 6px 12px; font-size: 14px; }
-.row.folder .name { cursor: pointer; color: var(--accent); font-weight: 600; }
+.row.folder .name, .row .name.get { cursor: pointer; color: var(--accent); font-weight: 600; }
+.row .name.get:hover, .row.folder .name:hover { text-decoration: underline; }
+.row.arriving .name { color: var(--sub); }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.bar button { margin: 0; }
 details summary { cursor: pointer; font-weight: 600; }
 ol { padding-left: 20px; margin: 6px 0 0; }
 li { margin: 4px 0; }
@@ -44,7 +48,9 @@ a { color: var(--accent); }
   <div class="sub" id="saved"></div>
 
   <div class="card" id="browser" hidden>
-    <div class="crumbs" id="crumbs"></div>
+    <div class="bar"><div class="crumbs" id="crumbs"></div>
+      <div><button id="up">Upload files here</button><input type="file" id="pick" multiple hidden></div></div>
+    <div class="sub" id="upMsg"></div>
     <div id="list"><span class="sub">Loading…</span></div>
     <div class="err" id="listErr"></div>
   </div>
@@ -108,10 +114,13 @@ async function list(dir) {
     const parts = here ? here.split("/") : [];
     $("crumbs").innerHTML = `<button data-dir="">Your files</button>` + parts.map((p, i) =>
       `› <button data-dir="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`).join("");
+    const at = n => esc((here ? here + "/" : "") + n);
     $("list").innerHTML = out.entries.length ? out.entries.map(e => e.folder
-      ? `<div class="row folder"><span class="name" data-dir="${esc((here ? here + "/" : "") + e.name)}">📁 ${esc(e.name)}</span></div>`
-      : `<div class="row"><span class="name">${e.whole ? "🗂" : "📄"} ${esc(e.name)}</span><span class="size">${size(e.size || 0)}</span>
-          <button data-get="${esc((here ? here + "/" : "") + e.name)}">Download${e.whole ? " (.tar)" : ""}</button></div>`).join("")
+      ? `<div class="row folder"><span class="name" data-dir="${at(e.name)}">📁 ${esc(e.name)}</span></div>`
+      : e.arriving
+      ? `<div class="row arriving"><span class="name">⏳ ${esc(e.name)}</span><span class="size">arriving in your files…</span></div>`
+      : `<div class="row"><span class="name get" data-get="${at(e.name)}" title="Download">${e.whole ? "🗂" : "📄"} ${esc(e.name)}</span>
+          <span class="size">${size(e.size || 0)}${e.whole ? " · .tar" : ""}</span></div>`).join("")
       : `<span class="sub">Nothing here yet.</span>`;
     $("browser").hidden = false;
   } catch (e) { $("listErr").textContent = e.message; $("browser").hidden = false; $("list").innerHTML = ""; }
@@ -126,6 +135,23 @@ document.addEventListener("click", ev => {
     f.submit();
   }
 });
+$("up").onclick = () => $("pick").click();
+$("pick").onchange = async () => {
+  const picked = [...$("pick").files];
+  $("pick").value = "";
+  for (const [i, f] of picked.entries()) {
+    $("upMsg").textContent = `Uploading ${f.name} (${i + 1} of ${picked.length})…`;
+    try {
+      const r = await fetch(location.pathname + "?op=put", {method: "POST", body: f,
+        headers: {"X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(here), "X-Name": encodeURIComponent(f.name)}});
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(out.error || "Upload failed (" + r.status + ")");
+    } catch (e) { $("upMsg").textContent = f.name + ": " + e.message; return; }
+  }
+  $("upMsg").textContent = picked.length + (picked.length == 1 ? " file" : " files") +
+    " stored. They appear in your files, as stubs, within a few minutes.";
+  list(here);
+};
 if (id && link) list("");
 
 async function open(move) {

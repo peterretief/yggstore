@@ -27,6 +27,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/client"
+	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/recovery"
 )
 
@@ -61,6 +62,8 @@ type Store struct {
 	Email func(ctx context.Context, to, subject, text string) error
 	// Shards fetches files from the group, for browsing (see browse.go).
 	Shards client.Client
+	// Online lists the nodes that answer, for storing uploads.
+	Online func(context.Context) ([]peers.Peer, error)
 
 	cache viewCache
 }
@@ -88,6 +91,10 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 	}
 	if id, ok := strings.CutSuffix(id, "/email"); ok {
 		s.email(w, r, id)
+		return true
+	}
+	if pid, rest, ok := strings.Cut(id, "/inbox"); ok {
+		s.serveInbox(w, r, pid, strings.TrimPrefix(rest, "/"))
 		return true
 	}
 	if r.Method != http.MethodPut {
@@ -219,6 +226,8 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch op := r.URL.Query().Get("op"); op {
 		case "list", "get":
 			s.browse(w, r, op)
+		case "put":
+			s.upload(w, r)
 		default:
 			s.open(w, r)
 		}

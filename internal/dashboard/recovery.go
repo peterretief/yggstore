@@ -71,6 +71,7 @@ func (d *Dashboard) runRecovery(ctx context.Context) {
 	d.recovery, d.workcopy, d.recoveryKick = k, t, kick
 	d.mu.Unlock()
 	go d.keepRecords(ctx, k, kick)
+	go d.collectUploads(ctx, k)
 	if err := k.Run(ctx); err != nil {
 		d.event("bad", "recovery: "+err.Error())
 	}
@@ -378,4 +379,31 @@ func (d *Dashboard) handleBoxes(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	writeJSONResp(w, d.boxes(ctx))
+}
+
+// collectUploads fetches files uploaded on the link page into the outbox,
+// every minute, while this place holds the working copy.
+func (d *Dashboard) collectUploads(ctx context.Context, k *recovery.Keeper) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if !d.Holding() || !k.Status().On {
+			continue
+		}
+		var nodes []string
+		for _, n := range d.webNodes() {
+			nodes = append(nodes, n.Addr)
+		}
+		c := d.cfg.Client
+		c.HTTP = &http.Client{Timeout: 10 * time.Minute}
+		if _, err := workhere.Collect(ctx, c, nodes, k.Keys(), filepath.Join(d.cfg.Outbox.Dir(), "files"),
+			func(f string, a ...any) { d.event("ok", fmt.Sprintf(f, a...)) }); err != nil {
+			d.event("warn", "collecting a file uploaded on the web: "+err.Error())
+		}
+	}
 }

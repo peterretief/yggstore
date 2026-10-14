@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	netmail "net/mail"
 	"os"
 	"path/filepath"
@@ -82,6 +83,7 @@ func (u *Users) startPlace(ctx context.Context, p Person) (*place, error) {
 		Event:   func(kind, msg string) { u.cfg.Logf("%s: %s", p.Name, msg) },
 	})
 	go pl.tracker.Run(pctx)
+	go u.collectUploads(pctx, p, pl)
 	go func() {
 		if err := pl.keeper.Run(pctx); err != nil {
 			u.cfg.Logf("%s: recovery copies: %v", p.Name, err)
@@ -238,4 +240,27 @@ func (u *Users) Anywhere(ctx context.Context, device, email string) (string, err
 	}
 	u.cfg.Logf("hub: %s can work from anywhere now; their link went to %s", person.Name, email)
 	return "Done: your link is on its way to " + email + ". Keep that email: open the link on any device to work there.", nil
+}
+
+// collectUploads fetches files the person uploaded on their link page into
+// their folder, every minute, while the box holds their working copy.
+func (u *Users) collectUploads(ctx context.Context, p Person, pl *place) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if !pl.tracker.Holding() || u.cfg.WebNodes == nil {
+			continue
+		}
+		c := u.cfg.Client
+		c.HTTP = &http.Client{Timeout: 10 * time.Minute}
+		if _, err := workhere.Collect(ctx, c, u.cfg.WebNodes(ctx), pl.keeper.Keys(), filepath.Join(p.Path, "files"),
+			func(f string, a ...any) { u.cfg.Logf("%s: "+f, append([]any{p.Name}, a...)...) }); err != nil {
+			u.cfg.Logf("%s: collecting a file uploaded on the web: %v", p.Name, err)
+		}
+	}
 }
