@@ -186,7 +186,7 @@ func cmdHub(ctx context.Context, args []string) error {
 				return added, err
 			}})
 		cfg.Users = hub.NewUsers(hub.UsersConfig{ST: syncthing.New(base, key), Dir: filepath.Join(*dir, "users"), StatePath: *statePath,
-			Limit: *limit, Logf: log.Printf, Websites: sites.Dir(), WebsitesReady: sites.Ready,
+			Limit: *limit, Logf: log.Printf, Websites: sites.Dir(), WebsitesReady: sites.Ready, Client: wc,
 			Watch: func(ctx context.Context, p hub.Person) {
 				w := outbox.New(outbox.Config{Dir: p.Path, PeersPath: *peersPath, Client: wc, Identity: id,
 					Event: func(kind, msg string) { log.Printf("%s: %s", p.Name, msg) }})
@@ -195,6 +195,10 @@ func cmdHub(ctx context.Context, args []string) error {
 				}
 			}})
 		go cfg.Users.Run(ctx)
+		cfg.Work = cfg.Users.WorkHandler(func(ip string) bool {
+			list, err := peers.Load(*peersPath)
+			return err == nil && peers.AllowedIPs(list)[ip]
+		})
 		// The team folders' stubs are the box's to keep: a copy of them is
 		// kept in the group, so losing the box loses no team's files.
 		teams := recovery.New(recovery.Config{Dir: filepath.Join(*dir, "recovery"), Client: wc,

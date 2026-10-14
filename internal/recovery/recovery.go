@@ -531,6 +531,14 @@ func gcm(key []byte) (cipher.AEAD, error) {
 func (k *Keeper) SaveNow(ctx context.Context) (manifest.Manifest, error) {
 	k.saveMu.Lock()
 	defer k.saveMu.Unlock()
+	k.mu.Lock()
+	loaded := k.st.ID != ""
+	k.mu.Unlock()
+	if !loaded {
+		if err := k.load(); err != nil {
+			return manifest.Manifest{}, err
+		}
+	}
 	print, err := k.fingerprint()
 	if err != nil {
 		return manifest.Manifest{}, err

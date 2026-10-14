@@ -62,6 +62,9 @@ type Config struct {
 	// Join, if set, joins this box to a group with an invite, when an
 	// admin's dashboard adds it (see join.go); it returns what join said.
 	Join func(ctx context.Context, invite string) (string, error)
+	// Work, if set, answers the group's web nodes over Yggdrasil when
+	// someone opens their recovery link (POST /v1/work; see WorkHere).
+	Work http.Handler
 }
 
 type Hub struct {
@@ -186,7 +189,14 @@ func (h *Hub) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeFile(w, r, path)
 	})
-	return lanOnly(mux)
+	lan := lanOnly(mux)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/work" && h.cfg.Work != nil {
+			h.cfg.Work.ServeHTTP(w, r) // checks the caller is a member itself
+			return
+		}
+		lan.ServeHTTP(w, r)
+	})
 }
 
 // lanOnly answers this machine and the local network (see OnLAN), and

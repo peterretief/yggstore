@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
+	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/filelock"
 	"github.com/peterretief/yggstore/internal/syncthing"
 )
@@ -43,6 +44,9 @@ type Person struct {
 	Folder string `json:"folder"` // Syncthing folder ID
 	Path   string `json:"path"`
 	Added  int64  `json:"added"`
+	// RecoveryID is the person's recovery ID, for someone who came through
+	// their recovery link (see WorkHere).
+	RecoveryID string `json:"recovery_id,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.
@@ -162,6 +166,8 @@ type UsersConfig struct {
 	Websites      string
 	WebsitesReady func() bool
 	Logf          func(format string, args ...any)
+	// Client fetches recovery copies from the group (see WorkHere).
+	Client client.Client
 }
 
 type Users struct {
