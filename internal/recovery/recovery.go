@@ -381,6 +381,12 @@ func (k *Keeper) walk(f func(name, path string, info fs.FileInfo) error) error {
 func (k *Keeper) fingerprint() (string, error) {
 	h := sha256.New()
 	err := k.walk(func(name, _ string, info fs.FileInfo) error {
+		// A folder's time changes with files in it that don't go in (the
+		// activity log, say), so folders count by name only.
+		if info.IsDir() {
+			fmt.Fprintf(h, "%s/\x00", name)
+			return nil
+		}
 		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", name, info.Size(), info.ModTime().UnixNano())
 		return nil
 	})

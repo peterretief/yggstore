@@ -118,12 +118,19 @@ func TestRefreshedAfterChangesSettle(t *testing.T) {
 	if n := x.k.Status().Copies; n != 1 {
 		t.Fatalf("%d copies at first", n)
 	}
-	// The activity log changing makes no new copy.
+	// The activity log changing makes no new copy, nor do files that
+	// don't go in touching their folders' times.
 	put(t, filepath.Join(x.out, ".yggstore", "activity.log"), "busier")
+	put(t, filepath.Join(x.home, "repair.json"), "{}")
+	later := x.now.Add(time.Hour)
+	os.Chtimes(x.home, later, later)
+	os.Chtimes(filepath.Join(x.out, ".yggstore"), later, later)
+	x.now = x.now.Add(10 * time.Minute)
+	x.k.Step(ctx)
 	x.now = x.now.Add(10 * time.Minute)
 	x.k.Step(ctx)
 	if n := x.k.Status().Copies; n != 1 {
-		t.Fatal("a new copy for the activity log")
+		t.Fatal("a new copy though nothing that goes in changed")
 	}
 
 	// A new stub: not straight away, but once nothing has changed for a while.
