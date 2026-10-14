@@ -380,6 +380,12 @@ func (d *Dashboard) guard(next http.Handler) http.Handler {
 				d.notAllowed(w, remote)
 				return
 			}
+			if r.Method == http.MethodPost && r.URL.Path == "/ask" {
+				// Let in already (the asked page reloaded, which sends the
+				// ask again): on to the files.
+				http.Redirect(w, r, "/files", http.StatusSeeOther)
+				return
+			}
 		}
 		host := r.Host
 		if h, _, err := net.SplitHostPort(r.Host); err == nil {

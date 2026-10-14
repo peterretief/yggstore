@@ -123,6 +123,9 @@ func TestDeviceAsks(t *testing.T) {
 	if w := do("GET", "/files", "", "201::9"); w.Code == http.StatusForbidden {
 		t.Fatalf("files page from the device let in: %d", w.Code)
 	}
+	if w := do("POST", "/ask", "name=Anna's phone", "201::9"); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/files" {
+		t.Fatalf("asking again once let in: %d %s", w.Code, w.Body)
+	}
 	if w := do("GET", "/api/devices", "", "200::1"); strings.Contains(w.Body.String(), `"asks":[{`) {
 		t.Fatalf("still asking once let in: %s", w.Body)
 	}

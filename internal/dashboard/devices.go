@@ -74,7 +74,7 @@ func (d *Dashboard) ask(w http.ResponseWriter, r *http.Request, remote string) {
 	}
 	d.mu.Unlock()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	msg := `Asked. On your computer, open the dashboard and press <b>Allow</b> under <b>Your devices</b>; then reload this page.`
+	msg := `Asked. On your computer, open the dashboard and press <b>Allow</b> under <b>Your devices</b>; then <a href="/files">open your files</a>.`
 	if full {
 		w.WriteHeader(http.StatusTooManyRequests)
 		msg = `Too many devices are asking right now. Add this one on your computer instead (below).`
