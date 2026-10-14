@@ -235,7 +235,7 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   </section>
 
   <div id="recoveryWrap" hidden>
-  <h2>If you lose this computer</h2>
+  <h2>Work from anywhere</h2>
   <section class="card" id="recovery"></section>
   </div>
 
@@ -810,25 +810,25 @@ function renderRecovery(r) {
   if (box.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return; // being typed in
   let html;
   if (!r.on) {
-    html = `<div><span class="pill warn">off</span> Recovery is off. Your files can only be opened with the stubs on this computer: if it is lost, so are they.</div>
-      <div style="margin-top:10px"><button id="recOn">Turn recovery on</button> <span class="sub" id="recMsg"></span></div>`;
+    html = `<div><span class="pill warn">off</span> Your files can only be reached through this computer: you can't work on them from anywhere else, and if you can't get to this computer, you can't get to them.</div>
+      <div style="margin-top:10px"><button id="recOn">Turn it on</button> <span class="sub" id="recMsg"></span></div>`;
   } else {
     const last = r.last
       ? `Last saved ${ago(r.last.at)}: ${r.last.files} files, ${size(r.last.bytes)}.`
       : "The first copy is being made.";
-    html = `<div><span class="pill ok">on</span> A copy of what you need to carry on without this computer is kept in the group, encrypted:
-        your stubs and their history, your sharing key, contacts and mail. ${last}</div>
+    html = `<div><span class="pill ok">on</span> If you want to work remotely, or can't get to this computer, you can carry on from any device.
+        What you need is kept in the group, encrypted: your stubs and their history, your sharing key, contacts and mail. ${last}</div>
       ${r.problem ? `<div class="err" style="margin-top:6px">${esc(r.problem)}</div>` : ""}
-      <div class="restoreto" style="margin-top:10px"><span class="sub">Send the recovery link to</span>
+      <div class="restoreto" style="margin-top:10px"><span class="sub">Email the link to</span>
         <input type="email" id="recEmail" style="flex:1;min-width:220px" placeholder="an address that isn't on this computer, such as Gmail" value="${esc(r.email || "")}">
         <button id="recSave">Save</button> <span class="sub" id="recMsg"></span></div>
       <div class="restoreto" style="margin-top:6px"><span class="sub">When away, work through the box</span>
         <select id="recBox"><option value="">${r.box ? esc(r.box) : "choose a box…"}</option></select></div>
       <div class="sub" style="margin-top:6px">${r.sent ? `The link was emailed to <b>${esc(r.sent)}</b>. <button id="recResend">Send it again</button>`
         : r.email && !r.box ? "Choose a box, and the link is emailed." : r.email ? "The link is emailed once the first copy is saved." : ""}</div>
-      <div class="sub" style="margin-top:6px">Open the link on any device to work there: your files come to it through the box, and only one device has them at a time.
-        Anyone who can read that mailbox can open them too: if that worries you, turn recovery off.</div>
-      <div style="margin-top:8px"><button id="recOff">Turn recovery off</button></div>`;
+      <div class="sub" style="margin-top:6px">Open the link on any device to work there: your files come to it through the box, and only one place has them at a time.
+        Anyone who can read that mailbox can open them too: if that worries you, turn this off.</div>
+      <div style="margin-top:8px"><button id="recOff">Turn it off</button></div>`;
   }
   if (box.dataset.html === html) return;
   box.innerHTML = html; box.dataset.html = html;
@@ -841,7 +841,7 @@ function renderRecovery(r) {
   };
   if ($("recOn")) $("recOn").onclick = () => send(true, r.email || "");
   if ($("recOff")) $("recOff").onclick = () => {
-    if (confirm("Turn recovery off? If this computer is lost, your files can't be opened.")) send(false, r.email || "");
+    if (confirm("Turn working from anywhere off? Your files can then only be reached through this computer, and not at all if you can't get to it.")) send(false, r.email || "");
   };
   if ($("recBox")) {
     fetch("api/recovery/boxes", {cache: "no-store"}).then(x => x.json()).then(list => {

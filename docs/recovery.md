@@ -1,8 +1,9 @@
-# If you lose your computer
+# Work from anywhere
 
 Your files are stored across the group, but the stubs that open them are
-on your computer, with your sharing key and your mail. Lose the computer
-and, without a copy of those, the files can't be opened.
+on your computer, with your sharing key and your mail. To work on them
+somewhere else (at a client's, on a laptop), or if you can't get to your
+computer at all, those need to be somewhere you can reach.
 
 So the dashboard keeps a **recovery copy** in the group, stored like any
 other item: encrypted, in pieces across the nodes. It holds:
@@ -19,21 +20,21 @@ It's kept small, at a few hundred KB for most people. Restored files,
 files not stored yet, the stubs' challenges (which only spot-check the
 nodes) and the node's own shards, tokens and passwords stay out. A new copy is made a couple of minutes after something
 changes, the last 5 are kept, and repair looks after them like your
-files. The dashboard's **If you lose this computer** section shows when
+files. The dashboard's **Work from anywhere** section shows when
 the last one was saved.
 
-Recovery is **on by default**. Anyone who would rather not have a copy can
-turn it off there.
+It is **on by default**. Anyone who would rather not have a copy can turn
+it off there.
 
 ## Working from somewhere else
 
-On the dashboard, under **If you lose this computer**, give an email
+On the dashboard, under **Work from anywhere**, give an email
 address that isn't on this computer (Gmail, say) and choose the **box** you
 work through when away. The dashboard keeps a record on the group's web
 nodes and emails you a link, once: keep that email.
 
-Open the link on any device, at a client's office or after losing your
-computer. The page asks for the device's Syncthing ID, and then:
+Open the link on any device, at a client's office or anywhere you can't
+get to your computer. The page asks for the device's Syncthing ID, and then:
 
 1. The box asks the place holding your files (your computer, say) to hand
    them over. It saves a final copy and stops changing them, so nothing
@@ -59,6 +60,6 @@ which a browser never sends to a website; the group's web nodes hold the
 other. Either half alone opens nothing.
 
 Anyone who can read the email can open your files, as with the "forgot
-password" emails other services send. If that worries you, turn recovery
-off. More is planned: an optional code from an authenticator app, and an
+password" emails other services send. If that worries you, turn **Work
+from anywhere** off. More is planned: an optional code from an authenticator app, and an
 admin who knows you resetting it if you lose your phone.

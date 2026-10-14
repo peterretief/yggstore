@@ -149,7 +149,7 @@ func (s *Store) open(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rec.Box == "" {
-		jsonError(w, http.StatusConflict, "No box is set for you to work through. On your dashboard, choose one under \"If you lose this computer\".")
+		jsonError(w, http.StatusConflict, "No box is set for you to work through. On your dashboard, choose one under \"Work from anywhere\".")
 		return
 	}
 	body, _ := json.Marshal(map[string]any{"id": rec.ID, "name": rec.Name, "stub": json.RawMessage(stub), "device": req.Device, "move": req.Move})

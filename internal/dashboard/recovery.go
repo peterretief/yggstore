@@ -168,9 +168,9 @@ func (d *Dashboard) handleRecovery(w http.ResponseWriter, r *http.Request) {
 	d.kickRecords()
 	switch {
 	case was && !req.On:
-		d.event("warn", "recovery turned off: if this machine is lost, your files can't be opened")
+		d.event("warn", "working from anywhere turned off: your files can only be reached through this computer")
 	case !was && req.On:
-		d.event("info", "recovery turned on")
+		d.event("info", "working from anywhere turned on")
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -303,19 +303,20 @@ func (d *Dashboard) sendLink(ctx context.Context, k *recovery.Keeper) error {
 	if from == "" {
 		return errors.New("you have no email address on the group to send it from (yggstore mail address you@example.org)")
 	}
-	text := `This is your yggstore recovery link. Keep this email.
+	text := `This is your yggstore link for working from anywhere. Keep this email.
 
-If you lose your computer, or want to work somewhere else, open the link on
-the device you want to work on. It asks for that device's Syncthing ID, and
-your files then come to it through your group's box:
+When you want to work remotely, or can't get to your computer, open the link
+on the device you want to work on. It asks for that device's Syncthing ID,
+and your files then come to it through your group's box:
 
 ` + link + `
 
 Only one device has your files at a time: opening the link elsewhere moves
 them there. Anyone who can read this email can open your files, so keep it
-somewhere safe. If that worries you, turn recovery off on your dashboard.
+somewhere safe. If that worries you, turn "Work from anywhere" off on your
+dashboard.
 `
-	raw, rcpts, err := mail.Draft{From: from, Name: d.me(), To: st.Email, Subject: "Your yggstore recovery link", Text: text}.Compose()
+	raw, rcpts, err := mail.Draft{From: from, Name: d.me(), To: st.Email, Subject: "Your link for working from anywhere", Text: text}.Compose()
 	if err != nil {
 		return err
 	}
