@@ -239,6 +239,9 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   <section class="card" id="recovery"></section>
   </div>
 
+  <h2>Your devices</h2>
+  <section class="card" id="devices"><div class="sub">Loading…</div></section>
+
   <h2>Your files</h2>
   <div id="restoreBox" hidden>
     <div class="restoreto"><span class="sub">Restores go to</span> <span class="mono" id="restoreDir"></span> <span class="pill info" id="restoreDefault" hidden>default</span>
@@ -1278,6 +1281,66 @@ $("names").addEventListener("keydown", ev => {
 });
 refreshNames();
 setInterval(refreshNames, 5000);
+
+// Your devices: laptops and phones that open the dashboard and your files
+// over Yggdrasil, each known by its own key.
+let devKey = "";
+async function refreshDevices() {
+  if (document.activeElement && document.activeElement.closest && document.activeElement.closest("#devices input")) return;
+  let st;
+  try { st = await (await fetch("api/devices", {cache: "no-store"})).json(); } catch { return; }
+  const key = JSON.stringify(st);
+  if (key === devKey) return;
+  devKey = key;
+  const el = $("devices");
+  if (!st.on) {
+    el.innerHTML = `<div class="sub">Your files open in the browser here: <a href="files" target="_blank">open your files</a>.
+      To open them on your laptop or phone too, start the dashboard with <span class="mono">-remote</span>.</div>`;
+    return;
+  }
+  const filesURL = st.url + "/files";
+  const asks = st.asks.map(a => `<tr><td><b>${esc(a.name)}</b> asks to be let in<div class="sub mono">${esc(a.addr)}</div></td>
+    <td style="white-space:nowrap"><button data-allow="${esc(a.addr)}" data-name="${esc(a.name)}">Allow</button>
+    <button class="del" data-dismiss="${esc(a.addr)}">Ignore</button></td></tr>`).join("");
+  const list = st.devices.map(v => `<tr><td><b>${esc(v.name || "a device")}</b>${v.addr === st.you ? ` <span class="pill info">this one</span>` : ""}
+    <div class="sub mono">${esc(v.addr)}</div></td><td class="sub">added ${esc(new Date(v.added).toLocaleDateString())}</td>
+    <td>${v.addr === st.you ? "" : `<button class="del" data-unallow="${esc(v.addr)}" data-name="${esc(v.name)}">Remove</button>`}</td></tr>`).join("");
+  el.innerHTML = `<div>Open your files on this computer: <a href="files" target="_blank">your files</a>.
+      On your laptop or phone, over a secure Yggdrasil connection that only your devices can use:</div>
+    <div class="mono" style="margin:6px 0"><a href="${esc(filesURL)}" target="_blank">${esc(filesURL)}</a></div>
+    <div class="sub">There you can browse, download, upload (any size), rename, move and delete, straight in your folder.</div>
+    ${asks ? `<h3 style="font-size:13px;margin:16px 0 4px">Asking to be let in</h3><table>${asks}</table>` : ""}
+    <h3 style="font-size:13px;margin:16px 0 4px">Devices let in</h3>
+    ${list ? `<table>${list}</table>` : `<div class="sub">None yet.</div>`}
+    <details style="margin-top:12px"><summary><b>Add a laptop or phone</b></summary><ol style="margin:8px 0 0;padding-left:20px">
+      <li>Install Yggdrasil on it: <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noreferrer">Windows, Mac, Linux, Android and iPhone</a>.
+        It makes the device its own key; the key never leaves it.</li>
+      <li>Give it a peer, so it can find your computer from anywhere (in its settings, under Peers), one of:
+        <div class="mono sub">${(st.peers || []).map(esc).join("<br>") || "(none known: ask your group's admin)"}</div></li>
+      <li>On it, open <span class="mono">${esc(filesURL)}</span> and press <b>Ask to let it in</b>.</li>
+      <li>Press <b>Allow</b> here. Removing a device later shuts it out at once.</li></ol>
+      <div class="sub" style="margin-top:8px">Or add one by its Yggdrasil address:</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px"><input id="devAddr" placeholder="200:…" style="flex:2;min-width:180px">
+        <input id="devName" placeholder="name, e.g. my phone" style="flex:1;min-width:120px"><button id="devAdd">Add</button></div>
+      <div id="devMsg" class="err"></div></details>`;
+}
+$("devices").addEventListener("click", async ev => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  let r;
+  if (b.dataset.allow) r = await post("api/devices/add", {body: JSON.stringify({addr: b.dataset.allow, name: b.dataset.name})});
+  else if (b.dataset.dismiss) r = await post("api/devices/dismiss", {body: JSON.stringify({addr: b.dataset.dismiss})});
+  else if (b.dataset.unallow) {
+    if (!confirm(`Remove ${b.dataset.name || "this device"}? It can't open your dashboard or files any more.`)) return;
+    r = await post("api/devices/remove", {body: JSON.stringify({addr: b.dataset.unallow})});
+  } else if (b.id === "devAdd") r = await post("api/devices/add", {body: JSON.stringify({addr: $("devAddr").value.trim(), name: $("devName").value.trim()})});
+  else return;
+  if (!r.ok) { const m = await r.text(); if ($("devMsg")) $("devMsg").textContent = m; else alert(m); return; }
+  if (document.activeElement) document.activeElement.blur();
+  devKey = ""; refreshDevices();
+});
+refreshDevices();
+setInterval(refreshDevices, 5000);
 
 // Your website: publish a folder or zip as the site of one of this box's
 // names, or edit the version being served file by file.

@@ -82,3 +82,48 @@ func TestRemoteOff(t *testing.T) {
 		t.Fatalf("without -remote, from another machine: %d", w.Code)
 	}
 }
+
+// A device not on the list can ask to be let in, and nothing else; the
+// owner allows it from the dashboard, and then it opens the files page.
+func TestDeviceAsks(t *testing.T) {
+	dir := t.TempDir()
+	list := filepath.Join(dir, "devices.json")
+	d := New(Config{PeersPath: filepath.Join(dir, "peers.json"), StubDir: dir, Listen: "127.0.0.1:7480",
+		YggAddr: "200::1", Devices: devices.NewWatch(list)})
+	h := d.Handler()
+	do := func(method, target, body, remote string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, target, strings.NewReader(body))
+		r.Host, r.RemoteAddr = "[200::1]:7480", net.JoinHostPort(remote, "50000")
+		if strings.HasPrefix(body, "name=") {
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		} else {
+			r.Header.Set("X-Yggstore", "1")
+		}
+		r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.ParseIP("200::1"), Port: 7480}))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := do("GET", "/files", "", "201::9"); w.Code != http.StatusForbidden {
+		t.Fatalf("files page from a device not let in: %d", w.Code)
+	}
+	if w := do("POST", "/api/devices/add", `{"addr":"201::9","name":"me"}`, "201::9"); w.Code != http.StatusForbidden {
+		t.Fatalf("a device adding itself: %d", w.Code)
+	}
+	if w := do("POST", "/ask", "name=Anna's phone", "201::9"); w.Code != http.StatusOK {
+		t.Fatalf("ask: %d %s", w.Code, w.Body)
+	}
+	w := do("GET", "/api/devices", "", "200::1")
+	if !strings.Contains(w.Body.String(), `"addr":"201::9","name":"Anna's phone"`) {
+		t.Fatalf("the ask isn't shown: %s", w.Body)
+	}
+	if w := do("POST", "/api/devices/add", `{"addr":"201::9","name":"Anna's phone"}`, "200::1"); w.Code != http.StatusNoContent {
+		t.Fatalf("allow: %d %s", w.Code, w.Body)
+	}
+	if w := do("GET", "/files", "", "201::9"); w.Code == http.StatusForbidden {
+		t.Fatalf("files page from the device let in: %d", w.Code)
+	}
+	if w := do("GET", "/api/devices", "", "200::1"); strings.Contains(w.Body.String(), `"asks":[{`) {
+		t.Fatalf("still asking once let in: %s", w.Body)
+	}
+}

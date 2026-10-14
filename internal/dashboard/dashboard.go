@@ -234,6 +234,7 @@ type Dashboard struct {
 	repair       func()               // asks for a repair pass now (see SetRepair)
 	noRoom       func() map[string]int
 	down         func() map[string]int64
+	asks         []deviceAsk // devices asking to be let in
 }
 
 func New(cfg Config) *Dashboard {
@@ -339,6 +340,9 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sites/download", d.handleSiteDownload)
 	mux.HandleFunc("GET /api/sites/files", d.handleSiteFiles)
 	mux.HandleFunc("POST /api/sites/{action}", d.handleSiteAction)
+	mux.HandleFunc("GET /api/devices", d.handleDevices)
+	mux.HandleFunc("POST /api/devices/{action}", d.handleDeviceAction)
+	mux.Handle(FilesPage, d.filesPage())
 	return d.guard(mux)
 }
 
@@ -369,6 +373,10 @@ func (d *Dashboard) guard(next http.Handler) http.Handler {
 				return
 			}
 			if remote := remoteIP(r); remote != d.cfg.YggAddr && (d.cfg.Devices == nil || !d.cfg.Devices.Allowed(remote)) {
+				if r.Method == http.MethodPost && r.URL.Path == "/ask" {
+					d.ask(w, r, remote)
+					return
+				}
 				d.notAllowed(w, remote)
 				return
 			}
@@ -435,9 +443,12 @@ func (d *Dashboard) notAllowed(w http.ResponseWriter, remote string) {
 	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Not one of your devices</title>
 <body style="font-family:system-ui,sans-serif;max-width:40em;margin:3em auto;padding:0 1em;line-height:1.5">
-<h1>This dashboard opens only on its owner's devices</h1>
+<h1>This opens only on its owner's devices</h1>
 <p>This device's Yggdrasil address is <code>%s</code>.</p>
-<p>If it's yours, run this on the machine the dashboard runs on, then reload this page:</p>
+<p>If it's yours, ask to let it in, then press <b>Allow</b> under <b>Your devices</b> on your computer's dashboard:</p>
+<form method="post" action="/ask"><input name="name" placeholder="Name this device, e.g. my phone" maxlength="60"
+ style="padding:.5em;width:16em"> <button style="padding:.5em 1em">Ask to let it in</button></form>
+<p style="color:#666">Or run this on the machine the dashboard runs on, then reload this page:</p>
 <pre style="background:#eee;padding:.8em;white-space:pre-wrap">yggstore devices%s add %s "my laptop"</pre>
 </body>`, html.EscapeString(remote), html.EscapeString(file), html.EscapeString(remote))
 }

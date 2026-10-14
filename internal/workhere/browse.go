@@ -214,7 +214,12 @@ func (s *Store) browse(w http.ResponseWriter, r *http.Request, op string) {
 		http.Error(w, "this file's stub is damaged", http.StatusInternalServerError)
 		return
 	}
-	name := path.Base(strings.TrimSuffix(p, "/"))
+	sendStored(w, r.Context(), s.shards(), m, path.Base(strings.TrimSuffix(p, "/")), s.logf)
+}
+
+// sendStored sends a stored file, or a folder kept whole as a .tar, to
+// the browser to save.
+func sendStored(w http.ResponseWriter, ctx context.Context, c client.Client, m manifest.Manifest, name string, logf func(string, ...any)) {
 	ctype := mime.TypeByExtension(path.Ext(name))
 	if m.Kind == files.KindFolder {
 		name, ctype = name+".tar", "application/x-tar"
@@ -229,10 +234,10 @@ func (s *Store) browse(w http.ResponseWriter, r *http.Request, op string) {
 	if m.Kind != files.KindFolder {
 		w.Header().Set("Content-Length", itoa(int64(m.PlaintextSize)))
 	}
-	dctx, dcancel := context.WithTimeout(r.Context(), 6*time.Hour)
+	dctx, dcancel := context.WithTimeout(ctx, 6*time.Hour)
 	defer dcancel()
-	if err := files.Get(dctx, s.shards(), m, w, func(string, ...any) {}); err != nil {
-		s.logf("files: downloading %s: %v", name, err)
+	if err := files.Get(dctx, c, m, w, func(string, ...any) {}); err != nil {
+		logf("files: downloading %s: %v", name, err)
 	}
 }
 

@@ -103,7 +103,15 @@ const $ = id => document.getElementById(id);
 const frag = location.hash.slice(1);
 const dot = frag.indexOf(".");
 const id = dot > 0 ? frag.slice(0, dot) : "", link = dot > 0 ? frag.slice(dot + 1) : "";
-if (!id || !link) { $("bad").hidden = false; $("stepsWrap").hidden = true; }
+// live: served by the computer or box that has the files, to its owner's
+// devices over Yggdrasil; changes are made at once.
+const live = document.documentElement.dataset.live === "1";
+const H = {"X-Yggstore": "1"};
+if (live) {
+  $("stepsWrap").hidden = true;
+  $("saved").textContent = "Straight from your computer, over your secure Yggdrasil connection.";
+  $("pendingMsg").textContent = "Files marked storing… are being stored in the group, which takes a minute or so; then they can be downloaded.";
+} else if (!id || !link) { $("bad").hidden = false; $("stepsWrap").hidden = true; }
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const size = n => n >= 1 << 30 ? (n / (1 << 30)).toFixed(1) + " GB" : n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB"
@@ -112,12 +120,12 @@ let here = "", entries = [], folders = [""], refresh;
 async function list(dir) {
   $("listErr").textContent = "";
   try {
-    const r = await fetch(location.pathname + "?op=list", {method: "POST", headers: {"Content-Type": "application/json"},
+    const r = await fetch(location.pathname + "?op=list", {method: "POST", headers: {...H, "Content-Type": "application/json"},
       body: JSON.stringify({id, link, path: dir})});
     const out = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(out.error || "Something went wrong (" + r.status + ")");
     here = out.path;
-    if (out.saved) $("saved").textContent = "As saved " + new Date(out.saved * 1000).toLocaleString() + ". Changes since then show within a few minutes.";
+    if (out.saved && !live) $("saved").textContent = "As saved " + new Date(out.saved * 1000).toLocaleString() + ". Changes since then show within a few minutes.";
     const parts = here ? here.split("/") : [];
     $("crumbs").innerHTML = `<button data-dir="">Your files</button>` + parts.map((p, i) =>
       `› <button data-dir="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`).join("");
@@ -135,13 +143,13 @@ async function list(dir) {
     const waiting = out.entries.some(e => e.note);
     $("pendingMsg").hidden = !waiting;
     clearTimeout(refresh);
-    if (waiting) refresh = setTimeout(() => { if (!document.querySelector(".acts")) list(here); }, 15000);
+    if (waiting) refresh = setTimeout(() => { if (!document.querySelector(".acts")) list(here); }, live ? 5000 : 15000);
     $("browser").hidden = false;
   } catch (e) { $("listErr").textContent = e.message; $("browser").hidden = false; $("list").innerHTML = ""; }
 }
 async function change(op, path, to) {
   try {
-    const r = await fetch(location.pathname + "?op=change", {method: "POST", headers: {"Content-Type": "application/json"},
+    const r = await fetch(location.pathname + "?op=change", {method: "POST", headers: {...H, "Content-Type": "application/json"},
       body: JSON.stringify({id, link, op, path, to})});
     const out = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(out.error || "That didn't work (" + r.status + ")");
@@ -180,6 +188,7 @@ document.addEventListener("click", ev => {
   const d = ev.target.closest("[data-dir]");
   if (d) { list(d.dataset.dir); return; }
   const g = ev.target.closest("[data-get]");
+  if (g && live) { location.href = location.pathname + "?op=get&path=" + encodeURIComponent(g.dataset.get); return; }
   if (g) {
     const f = $("dl");
     f.elements.id.value = id; f.elements.link.value = link; f.elements.path.value = g.dataset.get;
@@ -203,12 +212,13 @@ async function upload(picked) {
     $("upMsg").textContent = `Uploading ${f.name} (${i + 1} of ${picked.length})…`;
     try {
       const r = await fetch(location.pathname + "?op=put", {method: "POST", body: f,
-        headers: {"X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(here), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"}});
+        headers: {...H, "X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(here), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"}});
       const out = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(out.error || "Upload failed (" + r.status + ")");
     } catch (e) { $("upMsg").textContent = f.name + ": " + e.message; return; }
   }
-  $("upMsg").textContent = "Uploaded. They appear in your files, as stubs, within a few minutes.";
+  $("upMsg").textContent = live ? "Uploaded: in your files now, and stored in the group within a minute or so."
+    : "Uploaded. They appear in your files, as stubs, within a few minutes.";
   list(here);
 }
 $("pick").onchange = () => { const p = [...$("pick").files]; $("pick").value = ""; upload(p); };
@@ -220,7 +230,7 @@ card.addEventListener("drop", ev => {
   const p = [...ev.dataTransfer.files].filter(f => f.size || f.type); // folders can't be dropped here
   if (p.length) upload(p);
 });
-if (id && link) list("");
+if (live || (id && link)) list("");
 
 async function open(move) {
   $("err").textContent = ""; $("go").disabled = $("move").disabled = true;
