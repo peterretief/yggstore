@@ -29,9 +29,20 @@ type User struct {
 	Path    string `json:"path"`
 	Added   int64  `json:"added"`
 	Address string `json:"address,omitempty"` // where it paired from
-	// Remove is set by "yggstore hub remove"; the hub then unshares the
-	// folder and forgets the device, keeping the files.
+	// Remove is set by "yggstore hub remove"; the hub then forgets the
+	// device. Its person's folder and files stay.
 	Remove bool `json:"remove,omitempty"`
+	// Person is whose device it is: the device syncs their folder.
+	Person string `json:"person,omitempty"`
+}
+
+// Person is someone who uses the box, from one or more devices. They have
+// one folder on the box, which every device of theirs syncs.
+type Person struct {
+	Name   string `json:"name"`
+	Folder string `json:"folder"` // Syncthing folder ID
+	Path   string `json:"path"`
+	Added  int64  `json:"added"`
 }
 
 // Switches are what the hub's owner turns on and off.
@@ -45,8 +56,30 @@ type Switches struct {
 // HubState is kept in the hub's state file, shared with the hub commands.
 type HubState struct {
 	Switches
-	Users []User `json:"users"`
-	Sites []Site `json:"sites,omitempty"`
+	Users  []User   `json:"users"` // devices
+	People []Person `json:"people,omitempty"`
+	Sites  []Site   `json:"sites,omitempty"`
+}
+
+// DevicesOf lists the devices of a person that aren't being removed.
+func (s HubState) DevicesOf(person string) []User {
+	var out []User
+	for _, us := range s.Users {
+		if us.Person == person && !us.Remove {
+			out = append(out, us)
+		}
+	}
+	return out
+}
+
+// PersonNamed finds a person by name, ignoring case.
+func (s HubState) PersonNamed(name string) (Person, bool) {
+	for _, p := range s.People {
+		if strings.EqualFold(p.Name, name) {
+			return p, true
+		}
+	}
+	return Person{}, false
 }
 
 // Update changes the state file under its lock.
@@ -90,8 +123,8 @@ type UsersConfig struct {
 	StatePath string
 	// Limit is how many devices may pair in a day.
 	Limit int
-	// Watch stores what arrives in a user's folder, until ctx ends.
-	Watch func(ctx context.Context, u User)
+	// Watch stores what arrives in a person's folder, until ctx ends.
+	Watch func(ctx context.Context, p Person)
 	// Websites is the hub's websites/ folder, shared with every paired
 	// device once WebsitesReady (its sites' folders hold the versions
 	// being served, so nobody syncs an empty folder over a live site).
@@ -108,15 +141,14 @@ type Users struct {
 	myID     string
 	err      string // the last problem talking to Syncthing
 	watchers map[string]context.CancelFunc
-	paused   map[string]bool   // folders as last set in Syncthing
-	shared   map[string]string // the websites folder: the devices last shared with, and paused
+	shared   map[string]string // per folder: the devices last shared with, and paused
 }
 
 func NewUsers(cfg UsersConfig) *Users {
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
 	}
-	return &Users{cfg: cfg, watchers: map[string]context.CancelFunc{}, paused: map[string]bool{}, shared: map[string]string{}}
+	return &Users{cfg: cfg, watchers: map[string]context.CancelFunc{}, shared: map[string]string{}}
 }
 
 // Status is what the hub page shows of pairing.
@@ -124,7 +156,8 @@ type Status struct {
 	DeviceID string       `json:"device_id,omitempty"` // the hub's Syncthing ID, to add on a device
 	Pairing  bool         `json:"pairing"`
 	Paused   bool         `json:"paused"`
-	Users    int          `json:"users"`
+	Users    int          `json:"users"` // devices
+	People   int          `json:"people"`
 	Problem  string       `json:"problem,omitempty"`
 	Sites    []SiteStatus `json:"sites"`
 }
@@ -149,6 +182,7 @@ func (u *Users) Status() Status {
 			s.Users++
 		}
 	}
+	s.People = len(st.People)
 	s.Sites = []SiteStatus{}
 	for _, si := range st.Sites {
 		if si.Folder == "" {
@@ -215,9 +249,9 @@ func (u *Users) setup(ctx context.Context) error {
 	return nil
 }
 
-// step does one round: removals, pause, new devices, watchers.
+// step does one round: removals, people's folders, new devices, watchers.
 func (u *Users) step(ctx context.Context) error {
-	st, err := Load(u.cfg.StatePath)
+	st, err := u.migrate(ctx)
 	if err != nil {
 		return err
 	}
@@ -226,14 +260,10 @@ func (u *Users) step(ctx context.Context) error {
 		if !us.Remove {
 			continue
 		}
-		u.stopWatch(us.Folder)
-		if err := u.cfg.ST.RemoveFolder(ctx, us.Folder); err != nil && !notFound(err) {
-			return err
-		}
 		if err := u.cfg.ST.RemoveDevice(ctx, us.Device); err != nil && !notFound(err) {
 			return err
 		}
-		u.cfg.Logf("hub: removed %s; its files stay in %s", us.Name, us.Path)
+		u.cfg.Logf("hub: removed %s; %s's files stay on the box", us.Name, us.Person)
 		removed = append(removed, us.Device)
 	}
 	if len(removed) > 0 {
@@ -249,18 +279,8 @@ func (u *Users) step(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, us := range st.Users {
-		if !have[us.Folder] { // lost from Syncthing's config: share it again
-			if err := u.share(ctx, us, st.Paused); err != nil {
-				return err
-			}
-		} else if p, ok := u.paused[us.Folder]; !ok || p != st.Paused {
-			if err := u.cfg.ST.PauseFolder(ctx, us.Folder, st.Paused); err != nil {
-				return err
-			}
-		}
-		u.paused[us.Folder] = st.Paused
-		u.startWatch(ctx, us)
+	if err := u.sharePeople(ctx, st, have); err != nil {
+		return err
 	}
 
 	if !st.PairingOff {
@@ -270,8 +290,73 @@ func (u *Users) step(ctx context.Context) error {
 		if st, err = Load(u.cfg.StatePath); err != nil { // with the devices just paired
 			return err
 		}
+		if err := u.sharePeople(ctx, st, have); err != nil {
+			return err
+		}
 	}
 	return u.shareWebsites(ctx, st, have)
+}
+
+// migrate makes a person of each device paired before people existed,
+// keeping its folder, so nothing moves.
+func (u *Users) migrate(ctx context.Context) (HubState, error) {
+	st, err := Load(u.cfg.StatePath)
+	if err != nil || !slices.ContainsFunc(st.Users, func(us User) bool { return us.Person == "" }) {
+		return st, err
+	}
+	return Update(ctx, u.cfg.StatePath, func(s *HubState) error {
+		for i, us := range s.Users {
+			if us.Person != "" {
+				continue
+			}
+			if j := slices.IndexFunc(s.People, func(p Person) bool { return p.Folder == us.Folder }); j >= 0 {
+				s.Users[i].Person = s.People[j].Name
+				continue
+			}
+			s.People = append(s.People, Person{Name: us.Name, Folder: us.Folder, Path: us.Path, Added: us.Added})
+			s.Users[i].Person = us.Name
+		}
+		return nil
+	})
+}
+
+// sharePeople keeps each person's folder shared with their devices, and
+// stored by a watcher. A person with no devices left keeps their files on
+// the box, unshared.
+func (u *Users) sharePeople(ctx context.Context, st HubState, have map[string]bool) error {
+	for _, p := range st.People {
+		devs := st.DevicesOf(p.Name)
+		if len(devs) == 0 {
+			if have[p.Folder] {
+				if err := u.cfg.ST.RemoveFolder(ctx, p.Folder); err != nil && !notFound(err) {
+					return err
+				}
+				delete(have, p.Folder)
+			}
+			u.stopWatch(p.Folder)
+			delete(u.shared, p.Folder)
+			continue
+		}
+		ids := []string{u.myID}
+		for _, d := range devs {
+			ids = append(ids, d.Device)
+		}
+		want := fmt.Sprint(ids, st.Paused)
+		if !have[p.Folder] || u.shared[p.Folder] != want {
+			for _, d := range devs {
+				if err := u.cfg.ST.AddDevice(ctx, d.Device, d.Name); err != nil {
+					return err
+				}
+			}
+			if err := u.share(ctx, p, ids, st.Paused); err != nil {
+				return err
+			}
+			have[p.Folder] = true
+			u.shared[p.Folder] = want
+		}
+		u.startWatch(ctx, p)
+	}
+	return nil
 }
 
 // shareWebsites keeps the websites folder shared with every paired device,
@@ -364,23 +449,22 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 			u.cfg.Logf("hub: not pairing %s (%s) yet: %d devices paired in the last day already", p.Name, short(id), today)
 			continue
 		}
+		// A new device is a new person until it is linked to someone
+		// (yggstore hub link).
 		var us User
+		var person Person
 		if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
-			us = User{Name: uniqueName(s.Users, u.cfg.Dir, p.Name, id), Device: id, Folder: "yggstore-" + short(id),
-				Added: time.Now().Unix(), Address: p.Address}
-			us.Path = filepath.Join(u.cfg.Dir, us.Name)
+			name := uniqueName(s.Users, s.People, u.cfg.Dir, p.Name, id)
+			person = Person{Name: name, Folder: "yggstore-" + short(id), Path: filepath.Join(u.cfg.Dir, name), Added: time.Now().Unix()}
+			us = User{Name: name, Device: id, Folder: person.Folder, Path: person.Path, Added: person.Added, Address: p.Address, Person: name}
 			s.Users = append(s.Users, us)
+			s.People = append(s.People, person)
 			return nil
 		}); err != nil {
 			return err
 		}
-		if err := u.share(ctx, us, st.Paused); err != nil {
-			return err
-		}
 		today++
-		u.paused[us.Folder] = st.Paused
-		u.startWatch(ctx, us)
-		u.cfg.Logf("hub: paired %s (%s) from %s; its folder is %s", us.Name, short(id), p.Address, us.Path)
+		u.cfg.Logf("hub: paired %s (%s) from %s; its folder is %s", us.Name, short(id), p.Address, person.Path)
 	}
 	return nil
 }
@@ -389,33 +473,30 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 // and each stub's challenges.
 const ignore = "// Kept on the hub by yggstore\n.yggstore\n.*.challenges.json\n"
 
-// share makes the user's folder and shares it with their device. Files their
-// device deletes or replaces are kept in .stversions on the hub, so a stub
-// deleted by mistake isn't lost.
-func (u *Users) share(ctx context.Context, us User, paused bool) error {
-	if err := os.MkdirAll(us.Path, 0o700); err != nil {
+// share makes a person's folder and shares it with their devices. Files
+// their devices delete or replace are kept in .stversions on the hub, so a
+// stub deleted by mistake isn't lost.
+func (u *Users) share(ctx context.Context, p Person, devices []string, paused bool) error {
+	if err := os.MkdirAll(p.Path, 0o700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(us.Path, ".stignore"), []byte(ignore), 0o644); err != nil {
-		return err
-	}
-	if err := u.cfg.ST.AddDevice(ctx, us.Device, us.Name); err != nil {
+	if err := os.WriteFile(filepath.Join(p.Path, ".stignore"), []byte(ignore), 0o644); err != nil {
 		return err
 	}
 	host, _ := os.Hostname()
-	return u.cfg.ST.AddFolder(ctx, syncthing.Folder{ID: us.Folder, Label: "yggstore (" + host + ")", Path: us.Path,
-		Devices: []string{u.myID, us.Device}, Paused: paused, TrashDays: 0})
+	return u.cfg.ST.AddFolder(ctx, syncthing.Folder{ID: p.Folder, Label: "yggstore (" + host + ")", Path: p.Path,
+		Devices: devices, Paused: paused, TrashDays: 0})
 }
 
-func (u *Users) startWatch(ctx context.Context, us User) {
+func (u *Users) startWatch(ctx context.Context, p Person) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if _, ok := u.watchers[us.Folder]; ok || u.cfg.Watch == nil {
+	if _, ok := u.watchers[p.Folder]; ok || u.cfg.Watch == nil {
 		return
 	}
 	wctx, cancel := context.WithCancel(ctx)
-	u.watchers[us.Folder] = cancel
-	go u.cfg.Watch(wctx, us)
+	u.watchers[p.Folder] = cancel
+	go u.cfg.Watch(wctx, p)
 }
 
 func (u *Users) stopWatch(folder string) {
@@ -444,9 +525,9 @@ func short(id string) string {
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
-// uniqueName is a folder name for a device: its own name, made safe, and
-// numbered if another user or folder has it.
-func uniqueName(list []User, dir, name, id string) string {
+// uniqueName is a name for a new device and its person: its own name, made
+// safe, and numbered if another device, person or folder has it.
+func uniqueName(list []User, people []Person, dir, name, id string) string {
 	base := strings.Trim(unsafeName.ReplaceAllString(name, "-"), "-.")
 	if base == "" {
 		base = "device-" + strings.ToLower(short(id))
@@ -454,6 +535,11 @@ func uniqueName(list []User, dir, name, id string) string {
 	taken := func(n string) bool {
 		for _, us := range list {
 			if strings.EqualFold(us.Name, n) {
+				return true
+			}
+		}
+		for _, p := range people {
+			if strings.EqualFold(p.Name, n) {
 				return true
 			}
 		}

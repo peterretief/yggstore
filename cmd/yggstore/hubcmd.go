@@ -37,7 +37,9 @@ sync their files with, and a page showing how it is
   yggstore hub [-listen :7490] [-dir DIR] [-pair-limit 5] [-bin DIR] [-service]
   yggstore hub off | on          stop or start taking new devices
   yggstore hub pause | resume    stop or start syncing for every device
-  yggstore hub users             the devices paired
+  yggstore hub users             the devices paired, and whose they are
+  yggstore hub people            the people, their devices and folders
+  yggstore hub link DEVICE PERSON  make a device sync that person's folder
   yggstore hub remove NAME       unpair a device (its files stay on the hub)
   yggstore hub sites             the websites kept here, in DIR/websites/
   yggstore hub site publish DOMAIN   publish it now, even if it looks broken
@@ -179,11 +181,11 @@ func cmdHub(ctx context.Context, args []string) error {
 			}})
 		cfg.Users = hub.NewUsers(hub.UsersConfig{ST: syncthing.New(base, key), Dir: filepath.Join(*dir, "users"), StatePath: *statePath,
 			Limit: *limit, Logf: log.Printf, Websites: sites.Dir(), WebsitesReady: sites.Ready,
-			Watch: func(ctx context.Context, u hub.User) {
-				w := outbox.New(outbox.Config{Dir: u.Path, PeersPath: *peersPath, Client: wc, Identity: id,
-					Event: func(kind, msg string) { log.Printf("%s: %s", u.Name, msg) }})
+			Watch: func(ctx context.Context, p hub.Person) {
+				w := outbox.New(outbox.Config{Dir: p.Path, PeersPath: *peersPath, Client: wc, Identity: id,
+					Event: func(kind, msg string) { log.Printf("%s: %s", p.Name, msg) }})
 				if err := w.Run(ctx); err != nil && ctx.Err() == nil {
-					log.Printf("%s: stopped storing files: %v", u.Name, err)
+					log.Printf("%s: stopped storing files: %v", p.Name, err)
 				}
 			}})
 		go cfg.Users.Run(ctx)
@@ -289,15 +291,51 @@ func cmdHubControl(ctx context.Context, args []string) error {
 			fmt.Println("No devices yet.")
 			return nil
 		}
-		fmt.Printf("%-20s %-12s %-17s %s\n", "NAME", "PAIRED", "FROM", "FOLDER")
+		fmt.Printf("%-20s %-16s %-12s %s\n", "DEVICE", "PERSON", "PAIRED", "FROM")
 		for _, u := range st.Users {
 			name := u.Name
 			if u.Remove {
 				name += " (removing)"
 			}
-			fmt.Printf("%-20s %-12s %-17s %s\n", name, time.Unix(u.Added, 0).Format("2006-01-02"), u.Address, u.Path)
+			fmt.Printf("%-20s %-16s %-12s %s\n", name, u.Person, time.Unix(u.Added, 0).Format("2006-01-02"), u.Address)
 		}
 		return nil
+	case cmd == "people" && fs.NArg() == 1:
+		st, err := hub.Load(*statePath)
+		if err != nil {
+			return err
+		}
+		if len(st.People) == 0 {
+			fmt.Println("Nobody yet: a person is added when their first device pairs.")
+			return nil
+		}
+		for _, p := range st.People {
+			var devs []string
+			for _, d := range st.DevicesOf(p.Name) {
+				devs = append(devs, d.Name)
+			}
+			list := strings.Join(devs, ", ")
+			if list == "" {
+				list = "no devices: the files stay on the box, unshared"
+			}
+			fmt.Printf("%-20s %s\n  folder %s\n", p.Name, list, p.Path)
+		}
+		return nil
+	case cmd == "link" && fs.NArg() == 3:
+		dev, person := fs.Arg(1), fs.Arg(2)
+		return set(func(s *hub.HubState) error {
+			p, ok := s.PersonNamed(person)
+			if !ok {
+				return fmt.Errorf("nobody called %q (see yggstore hub people)", person)
+			}
+			for i, u := range s.Users {
+				if strings.EqualFold(u.Name, dev) || u.Device == dev {
+					s.Users[i].Person = p.Name
+					return nil
+				}
+			}
+			return fmt.Errorf("no device %q (see yggstore hub users)", dev)
+		}, fmt.Sprintf("%s will sync %s's folder within a few seconds. The folder it synced before stays on the box.", dev, person))
 	case cmd == "sites" && fs.NArg() == 1:
 		st, err := hub.Load(*statePath)
 		if err != nil {

@@ -223,6 +223,23 @@ yggstore/
 A stub deleted on the device is kept on the box, in the folder's
 `.stversions`, so deleting one by mistake doesn't lose the file.
 
+### People with several devices
+
+The box keeps track of people, not just devices: each person has one
+folder, and every device of theirs syncs it. A device that pairs is a new
+person, named after the device, until it is linked to someone:
+
+```sh
+yggstore hub people                       # who uses the box, and their devices
+yggstore hub link anna-phone anna-laptop  # the phone now syncs anna-laptop's folder
+```
+
+The folder the device synced before stays on the box. Removing a device
+(`yggstore hub remove NAME`) leaves its person's folder with their other
+devices; when the last one goes, the folder stays on the box, unshared.
+Boxes set up before people existed make a person of each device, keeping
+its folder.
+
 ## Websites
 
 A hub also keeps its websites, in one folder separate from the files:

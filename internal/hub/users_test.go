@@ -211,3 +211,109 @@ func TestWebsitesSharedWithEveryDevice(t *testing.T) {
 		t.Fatalf("new device not given the websites: %s", d)
 	}
 }
+
+// folderDevices lists the devices a folder is shared with in the fake.
+func folderDevices(fake *fakeST, id string) []string {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	fo := fake.folders[id]
+	if fo == nil {
+		return nil
+	}
+	var out []string
+	b, _ := json.Marshal(fo["devices"])
+	var devs []struct {
+		DeviceID string `json:"deviceID"`
+	}
+	json.Unmarshal(b, &devs)
+	for _, d := range devs {
+		out = append(out, d.DeviceID)
+	}
+	return out
+}
+
+// A person's devices share one folder; removing a device leaves it with the
+// rest, and removing the last keeps the files on the box, unshared.
+func TestPeopleShareOneFolder(t *testing.T) {
+	u, fake, dir := setupUsers(t, 0)
+	statePath := filepath.Join(dir, "hub.json")
+	ctx := context.Background()
+	fake.pending["LAPTOPP-1"] = syncthing.PendingDevice{Name: "anna-laptop", Address: "192.168.1.5:22000"}
+	fake.pending["PHONEEE-2"] = syncthing.PendingDevice{Name: "anna-phone", Address: "192.168.1.6:22000"}
+	if err := u.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := Load(statePath)
+	if len(st.People) != 2 {
+		t.Fatalf("people %+v", st.People)
+	}
+	laptop, _ := st.PersonNamed("anna-laptop")
+
+	// The phone is Anna's too.
+	Update(ctx, statePath, func(s *HubState) error {
+		for i := range s.Users {
+			if s.Users[i].Name == "anna-phone" {
+				s.Users[i].Person = "anna-laptop"
+			}
+		}
+		return nil
+	})
+	if err := u.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(folderDevices(fake, laptop.Folder), " "); got != "HUBHUBH-AAAAAAA LAPTOPP-1 PHONEEE-2" {
+		t.Fatalf("Anna's folder shared with %s", got)
+	}
+	if fake.folders["yggstore-PHONEEE"] != nil {
+		t.Fatal("the phone's own folder still shared, with no device")
+	}
+
+	// The laptop goes; the phone keeps the folder.
+	Update(ctx, statePath, func(s *HubState) error {
+		for i := range s.Users {
+			if s.Users[i].Name == "anna-laptop" {
+				s.Users[i].Remove = true
+			}
+		}
+		return nil
+	})
+	u.step(ctx)
+	if got := strings.Join(folderDevices(fake, laptop.Folder), " "); got != "HUBHUBH-AAAAAAA PHONEEE-2" {
+		t.Fatalf("after removing the laptop, shared with %s", got)
+	}
+	// The phone goes too: the folder is unshared, its files kept.
+	os.WriteFile(filepath.Join(laptop.Path, "note.txt.ystub"), []byte("{}"), 0o644)
+	Update(ctx, statePath, func(s *HubState) error { s.Users[0].Remove = true; return nil })
+	u.step(ctx)
+	if fake.folders[laptop.Folder] != nil {
+		t.Fatal("folder still shared with no devices")
+	}
+	if _, err := os.Stat(filepath.Join(laptop.Path, "note.txt.ystub")); err != nil {
+		t.Fatal("files went with the last device")
+	}
+	if st, _ := Load(statePath); len(st.People) != 2 {
+		t.Fatalf("people after removing devices: %+v", st.People)
+	}
+}
+
+// Devices paired before people existed become people, keeping their folders.
+func TestOldDevicesBecomePeople(t *testing.T) {
+	u, fake, dir := setupUsers(t, 0)
+	statePath := filepath.Join(dir, "hub.json")
+	ctx := context.Background()
+	Update(ctx, statePath, func(s *HubState) error {
+		s.Users = []User{{Name: "bob-pc", Device: "BOBBBBB-1", Folder: "yggstore-BOBBBBB", Path: filepath.Join(dir, "users", "bob-pc"), Added: 1}}
+		return nil
+	})
+	if err := u.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := Load(statePath)
+	p, ok := st.PersonNamed("bob-pc")
+	if !ok || p.Folder != "yggstore-BOBBBBB" || st.Users[0].Person != "bob-pc" {
+		t.Fatalf("after migrating: %+v %+v", st.People, st.Users)
+	}
+	if got := strings.Join(folderDevices(fake, "yggstore-BOBBBBB"), " "); got != "HUBHUBH-AAAAAAA BOBBBBB-1" {
+		t.Fatalf("shared with %s", got)
+	}
+}
