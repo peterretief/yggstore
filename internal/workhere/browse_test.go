@@ -1,6 +1,8 @@
 package workhere
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -153,5 +155,36 @@ func TestUploadIsCollected(t *testing.T) {
 	}
 	if p := s.inbox(ks.ID); len(p) != 0 {
 		t.Fatalf("still pending after collecting: %v", p)
+	}
+}
+
+// A folder kept whole downloads inside a folder of its own name.
+func TestInFolder(t *testing.T) {
+	var src, dst bytes.Buffer
+	tw := tar.NewWriter(&src)
+	tw.WriteHeader(&tar.Header{Name: "./", Typeflag: tar.TypeDir, Mode: 0o755})
+	tw.WriteHeader(&tar.Header{Name: "docs/", Typeflag: tar.TypeDir, Mode: 0o755})
+	tw.WriteHeader(&tar.Header{Name: "docs/a.txt", Typeflag: tar.TypeReg, Mode: 0o644, Size: 2})
+	tw.Write([]byte("hi"))
+	tw.WriteHeader(&tar.Header{Name: "../b.txt", Typeflag: tar.TypeLink, Linkname: "docs/a.txt"})
+	tw.Close()
+	if err := inFolder(&dst, &src, "Photos"); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	tr := tar.NewReader(&dst)
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			break
+		}
+		n := h.Name
+		if h.Linkname != "" {
+			n += " -> " + h.Linkname
+		}
+		got = append(got, n)
+	}
+	if s := strings.Join(got, ", "); s != "Photos/, Photos/docs/, Photos/docs/a.txt, Photos/b.txt -> Photos/docs/a.txt" {
+		t.Fatal(s)
 	}
 }

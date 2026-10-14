@@ -236,8 +236,54 @@ func sendStored(w http.ResponseWriter, ctx context.Context, c client.Client, m m
 	}
 	dctx, dcancel := context.WithTimeout(ctx, 6*time.Hour)
 	defer dcancel()
-	if err := files.Get(dctx, c, m, w, func(string, ...any) {}); err != nil {
+	if m.Kind != files.KindFolder {
+		if err := files.Get(dctx, c, m, w, func(string, ...any) {}); err != nil {
+			logf("files: downloading %s: %v", name, err)
+		}
+		return
+	}
+	// A folder is stored as a tar of what is in it; it's sent inside a
+	// folder of its own name, so it unpacks into one.
+	pr, pw := io.Pipe()
+	go func() { pw.CloseWithError(files.Get(dctx, c, m, pw, func(string, ...any) {})) }()
+	err := inFolder(w, pr, strings.TrimSuffix(name, ".tar"))
+	pr.CloseWithError(err)
+	if err != nil {
 		logf("files: downloading %s: %v", name, err)
+	}
+}
+
+// inFolder copies a tar into dst with everything in it under top/.
+func inFolder(dst io.Writer, src io.Reader, top string) error {
+	tr, tw := tar.NewReader(src), tar.NewWriter(dst)
+	if err := tw.WriteHeader(&tar.Header{Name: top + "/", Typeflag: tar.TypeDir, Mode: 0o755, ModTime: time.Now()}); err != nil {
+		return err
+	}
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return tw.Close()
+		}
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(path.Clean("/"+h.Name), "/")
+		if rel == "" {
+			continue
+		}
+		h.Name = top + "/" + rel
+		if h.Typeflag == tar.TypeDir {
+			h.Name += "/"
+		}
+		if h.Typeflag == tar.TypeLink {
+			h.Linkname = top + "/" + strings.TrimPrefix(path.Clean("/"+h.Linkname), "/")
+		}
+		if err := tw.WriteHeader(h); err != nil {
+			return err
+		}
+		if _, err := io.Copy(tw, tr); err != nil {
+			return err
+		}
 	}
 }
 
