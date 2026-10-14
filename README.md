@@ -31,6 +31,8 @@ independent. Don't make it the only copy of anything you can't lose.
 - No box? The [gateway](docs/gateway.md) lets people pay a monthly fee and
   use the group's storage from any S3 program (rclone, Cyberduck, Duplicati).
   Members choose whether their box holds customers' data, and earn credit.
+- Lose your computer and keep your files: a [recovery copy](docs/recovery.md)
+  of your stubs is kept in the group.
 - Every version is kept: [history](docs/history.md) lets you restore an
   older version of a file, or a folder as it was on a given day. A new
   version only stores the parts that changed.

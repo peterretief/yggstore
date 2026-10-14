@@ -232,6 +232,11 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <div class="reader" id="mailReader"><div class="empty">Choose a message to read it.</div></div>
   </section>
 
+  <div id="recoveryWrap" hidden>
+  <h2>If you lose this computer</h2>
+  <section class="card" id="recovery"></section>
+  </div>
+
   <h2>Your files</h2>
   <div id="restoreBox" hidden>
     <div class="restoreto"><span class="sub">Restores go to</span> <span class="mono" id="restoreDir"></span> <span class="pill info" id="restoreDefault" hidden>default</span>
@@ -785,6 +790,48 @@ $("restoreRecent").onclick = async ev => {
   }
 };
 
+function renderRecovery(r) {
+  $("recoveryWrap").hidden = !r;
+  if (!r) return;
+  const box = $("recovery");
+  if (box.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return; // being typed in
+  let html;
+  if (!r.on) {
+    html = `<div><span class="pill warn">off</span> Recovery is off. Your files can only be opened with the stubs on this computer: if it is lost, so are they.</div>
+      <div style="margin-top:10px"><button id="recOn">Turn recovery on</button> <span class="sub" id="recMsg"></span></div>`;
+  } else {
+    const last = r.last
+      ? `Last saved ${ago(r.last.at)}: ${r.last.files} files, ${size(r.last.bytes)}.`
+      : "The first copy is being made.";
+    html = `<div><span class="pill ok">on</span> A copy of what you need to carry on without this computer is kept in the group, encrypted:
+        your stubs and their history, your sharing key, contacts and mail. ${last}</div>
+      ${r.problem ? `<div class="err" style="margin-top:6px">${esc(r.problem)}</div>` : ""}
+      <div class="restoreto" style="margin-top:10px"><span class="sub">Send the recovery link to</span>
+        <input type="email" id="recEmail" style="flex:1;min-width:220px" placeholder="an address that isn't on this computer, such as Gmail" value="${esc(r.email || "")}">
+        <button id="recSave">Save</button> <span class="sub" id="recMsg"></span></div>
+      <div class="sub">With the link in that email you can open your files from any browser. Anyone who can read that mailbox can too: if that worries you, turn recovery off.
+        Sending the email is coming soon; the copy is kept from now on.</div>
+      <div style="margin-top:8px"><button id="recOff">Turn recovery off</button></div>`;
+  }
+  if (box.dataset.html === html) return;
+  box.innerHTML = html; box.dataset.html = html;
+  const send = async (on, email) => {
+    try {
+      const res = await post("api/recovery", {body: JSON.stringify({on, email})});
+      if (!res.ok) throw new Error(await res.text());
+      box.dataset.html = ""; refresh();
+    } catch (e) { $("recMsg").textContent = e.message; }
+  };
+  if ($("recOn")) $("recOn").onclick = () => send(true, r.email || "");
+  if ($("recOff")) $("recOff").onclick = () => {
+    if (confirm("Turn recovery off? If this computer is lost, your files can't be opened.")) send(false, r.email || "");
+  };
+  if ($("recSave")) {
+    $("recSave").onclick = () => send(true, $("recEmail").value);
+    $("recEmail").onkeydown = e => { if (e.key === "Enter") send(true, $("recEmail").value); };
+  }
+}
+
 async function refresh() {
   try {
     const r = await fetch("api/state", {cache: "no-store"});
@@ -800,6 +847,7 @@ async function refresh() {
     renderAdd(s);
     renderInvites(s);
     renderRestore(s.restore);
+    renderRecovery(s.recovery);
     renderFolderRestore(s);
     renderFiles(s, s.files.filter(f => !f.test && !f.shared_by), "files", false);
     const rec = s.files.filter(f => !f.test && f.shared_by);

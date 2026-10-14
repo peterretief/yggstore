@@ -32,6 +32,7 @@ import (
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/recovery"
 	"github.com/peterretief/yggstore/internal/server"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
@@ -92,6 +93,9 @@ type Config struct {
 	MePath string
 	// SitesDir keeps the websites published from this machine (site.Publisher).
 	SitesDir string
+	// Home is the yggstore home (~/.yggstore): what of it is the person's
+	// own goes into the recovery copy, which is kept in Home/recovery.
+	Home string
 	// CloudflareToken and TunnelToken are files holding a Cloudflare API
 	// token and the web nodes' tunnel token: with both, a new site in the
 	// outbox's websites/ folder gets its route added. SiteService is where
@@ -169,6 +173,7 @@ type State struct {
 	Events      []Event          `json:"events"`
 	Activity    *outbox.Activity `json:"activity,omitempty"` // upload, read-back or restore in progress
 	Restore     *RestoreState    `json:"restore,omitempty"`  // where restores go, and the latest ones
+	Recovery    *recovery.Status `json:"recovery,omitempty"` // the recovery copy
 	// This node's own peers.json entry, for a new node's first list; empty
 	// unless this node is an admin and so can add nodes.
 	AdminEntry string `json:"admin_entry,omitempty"`
@@ -208,6 +213,7 @@ type Dashboard struct {
 	cfg      Config
 	mu       sync.Mutex
 	websites *websites.Watcher // the outbox's websites/ folder, once started
+	recovery *recovery.Keeper  // the recovery copy, once started
 	box      *mail.Box
 	state    State
 	history  map[string][]float64
@@ -251,6 +257,7 @@ func (d *Dashboard) SetRepair(kick func(), noRoom func() map[string]int, downSin
 func (d *Dashboard) Run(ctx context.Context) {
 	d.event("info", "dashboard started, watching "+d.cfg.StubDir)
 	go d.runWebsites(ctx)
+	go d.runRecovery(ctx)
 	t := time.NewTicker(d.cfg.Interval)
 	defer t.Stop()
 	for {
@@ -284,6 +291,7 @@ func (d *Dashboard) Handler() http.Handler {
 		if d.cfg.Outbox != nil {
 			st.Activity = d.cfg.Outbox.Activity()
 			st.Restore = d.restoreState()
+			st.Recovery = d.recoveryStatus()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -292,6 +300,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/verify", d.handleVerify)
 	mux.HandleFunc("POST /api/restore", d.handleRestore)
 	mux.HandleFunc("POST /api/restore-to", d.handleRestoreTo)
+	mux.HandleFunc("POST /api/recovery", d.handleRecovery)
 	mux.HandleFunc("GET /api/versions", d.handleVersions)
 	mux.HandleFunc("POST /api/restore-folder", d.handleRestoreFolder)
 	mux.HandleFunc("POST /api/open-folder", d.handleOpenFolder)

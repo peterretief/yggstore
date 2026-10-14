@@ -9,21 +9,22 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/client"
+	"github.com/peterretief/yggstore/internal/dashboard"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/repair"
 )
 
 // newRepairer looks after the items under outfiles (and their older
-// versions) and the mailbox's messages, and renews their leases and those
-// of shares received.
-func newRepairer(peersPath string, grace time.Duration, outfiles, history, mailbox string) *repair.Repairer {
+// versions), the mailbox's messages and the recovery copies, and renews
+// their leases and those of shares received.
+func newRepairer(peersPath string, grace time.Duration, outfiles, history, mailbox, recoveryDir string) *repair.Repairer {
 	c := client.New()
 	c.HTTP.Timeout = 2 * time.Minute
 	return &repair.Repairer{Client: c, Grace: grace,
 		State:    filepath.Join(yggstoreHome(), "repair.json"),
 		Peers:    func() ([]peers.Peer, error) { return peers.Load(peersPath) },
-		Stubs:    func() []string { return append(repair.Find(outfiles, history), repair.Find(mailbox)...) },
+		Stubs:    func() []string { return append(repair.Find(outfiles, history), repair.Find(mailbox, recoveryDir)...) },
 		Received: func() []string { return repair.Find(filepath.Join(outfiles, outbox.ReceivedDir)) }}
 }
 
@@ -40,7 +41,7 @@ func cmdRepair(ctx context.Context, args []string) error {
 		*after = time.Nanosecond
 	}
 	history := filepath.Join(*outfiles, ".yggstore", "history")
-	r := newRepairer(*peersPath, *after, *outfiles, history, *mailbox)
+	r := newRepairer(*peersPath, *after, *outfiles, history, *mailbox, dashboard.RecoveryDir(yggstoreHome()))
 	r.Log = func(kind, msg string) { fmt.Fprintln(os.Stderr, msg) }
 	rep, err := r.Pass(ctx)
 	if err != nil {
