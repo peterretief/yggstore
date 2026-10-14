@@ -9,6 +9,11 @@ members' machines. The device doesn't need yggstore, only Syncthing.
 The hub pairs devices by itself. Any device on the local network that adds
 the box is accepted, and you can turn that off at any time.
 
+Once paired, a device keeps syncing when it is away, at a client's office
+or at home: the box uses Syncthing's global discovery and relays to reach
+it. What it syncs is encrypted end to end, so a relay only passes it on.
+New devices still pair only from the local network.
+
 The admin sets each box up before it goes out ([below](#setting-up-a-box-in-the-factory)):
 its name, its group and its websites are on it already. Where it ends up,
 it needs only power and a network cable, and users need only its page.

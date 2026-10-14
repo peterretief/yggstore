@@ -269,13 +269,15 @@ func (u *Users) setErr(err error) {
 	u.err = msg
 }
 
-// setup finds this Syncthing's ID and keeps it to the LAN: no global
-// discovery or relays, so only devices on the local network find the hub.
+// setup finds this Syncthing's ID and lets paired devices reach the hub
+// from anywhere: through global discovery and Syncthing's relays when they
+// are away from the LAN. What they sync is encrypted end to end, so relays
+// only pass it on. New devices still pair only from the LAN (see pair).
 func (u *Users) setup(ctx context.Context) error {
 	id, err := u.cfg.ST.MyID(ctx)
 	if err == nil {
-		err = u.cfg.ST.SetOptions(ctx, map[string]any{"globalAnnounceEnabled": false, "relaysEnabled": false,
-			"natEnabled": false, "localAnnounceEnabled": true})
+		err = u.cfg.ST.SetOptions(ctx, map[string]any{"globalAnnounceEnabled": true, "relaysEnabled": true,
+			"natEnabled": true, "localAnnounceEnabled": true})
 	}
 	if err != nil {
 		u.setErr(fmt.Errorf("Syncthing: %w", err))
@@ -284,7 +286,7 @@ func (u *Users) setup(ctx context.Context) error {
 	u.mu.Lock()
 	u.myID = id
 	u.mu.Unlock()
-	u.cfg.Logf("hub: Syncthing device %s, kept to the local network", id)
+	u.cfg.Logf("hub: Syncthing device %s; paired devices reach it from anywhere, new ones pair from the local network", id)
 	return nil
 }
 

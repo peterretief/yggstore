@@ -95,8 +95,8 @@ func setupUsers(t *testing.T, limit int) (*Users, *fakeST, string) {
 	if err := u.setup(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if fake.options["globalAnnounceEnabled"] != false || fake.options["relaysEnabled"] != false {
-		t.Fatalf("hub left Syncthing open beyond the LAN: %v", fake.options)
+	if fake.options["globalAnnounceEnabled"] != true || fake.options["relaysEnabled"] != true {
+		t.Fatalf("paired devices can't reach the hub from away: %v", fake.options)
 	}
 	return u, fake, dir
 }
