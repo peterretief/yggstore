@@ -235,7 +235,9 @@ function showSync(s) {
   $('syncstate').innerHTML = (s.problem ? pill(false, 'a problem: ' + esc(s.problem))
       : s.paused ? pill(false, 'syncing is paused')
       : s.pairing ? pill(true, 'ready for new devices') : pill(false, 'not taking new devices right now: ask the box\'s owner'))
-    + ' <span class="sub">' + s.users + (s.users == 1 ? ' device' : ' devices') + ' connected</span>';
+    + ' <span class="sub">' + s.users + (s.users == 1 ? ' device' : ' devices') + ' connected</span>'
+    + ((s.teams || []).length ? ' <span class="sub">· team folders: ' + s.teams.map(esc).join(', ') + '</span>' : '')
+    + (s.conflicts ? ' ' + pill(false, s.conflicts + (s.conflicts == 1 ? ' file was' : ' files were') + ' changed on two devices at once: look for "sync-conflict" in its name, keep one, delete the other') : '');
   $('stid').textContent = s.device_id || '(waiting for this box\'s Syncthing)';
   $('sites').innerHTML = (s.sites || []).length ? '<p>Syncthing also offers you this box\'s <b>websites</b> folder, a folder per site: '
     + s.sites.map(x => '<b>' + esc(x.name) + '</b>' + (x.problem ? ' (not published yet)' : '')).join(', ')

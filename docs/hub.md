@@ -240,6 +240,34 @@ devices; when the last one goes, the folder stays on the box, unshared.
 Boxes set up before people existed make a person of each device, keeping
 its folder.
 
+### Team folders
+
+A team folder is for files several people work on. It lives on the box,
+in `~/yggstore-hub/teams/NAME`, laid out like a person's folder (`files/`,
+`restore/`, `delete/` …), and every device of every member syncs it as
+**team NAME**. Unlike a person's folder it stays on the box: when one
+member works somewhere else, the others carry on, and the away member's
+devices keep syncing it from wherever they are.
+
+The box's admin manages teams:
+
+```sh
+yggstore hub team add Projects anna bob   # a team folder for Anna and Bob
+yggstore hub team join Projects carol
+yggstore hub team leave Projects bob
+yggstore hub teams                         # the teams and their members
+yggstore hub team remove Projects          # stop syncing it (its files stay)
+```
+
+If two people change the same file at once, Syncthing keeps both: the
+second is named `plan.sync-conflict-DATE-TIME-DEVICE.docx`. Both are
+stored in the group, so nothing is lost. `yggstore hub conflicts` lists
+them, and the box's page says how many are waiting: open both, keep one,
+and delete the other.
+
+The box keeps a recovery copy of its team folders' stubs in the group
+(see [recovery](recovery.md)), so a lost box loses no team's files.
+
 ## Websites
 
 A hub also keeps its websites, in one folder separate from the files:

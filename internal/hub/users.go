@@ -58,7 +58,37 @@ type HubState struct {
 	Switches
 	Users  []User   `json:"users"` // devices
 	People []Person `json:"people,omitempty"`
+	Teams  []Team   `json:"teams,omitempty"`
 	Sites  []Site   `json:"sites,omitempty"`
+}
+
+// Team is a folder several people work in, on this box: every device of
+// every member syncs it. Unlike a person's folder it never moves to
+// another place, so when one member works elsewhere the others carry on.
+type Team struct {
+	Name    string   `json:"name"`
+	Folder  string   `json:"folder"` // Syncthing folder ID
+	Path    string   `json:"path"`
+	Members []string `json:"members"` // people's names
+	Added   int64    `json:"added"`
+	// Remove is set by "yggstore hub team remove"; the hub then stops
+	// syncing the folder, keeping its files.
+	Remove bool `json:"remove,omitempty"`
+}
+
+// TeamNamed finds a team by name, ignoring case.
+func (s HubState) TeamNamed(name string) (Team, int, bool) {
+	for i, t := range s.Teams {
+		if strings.EqualFold(t.Name, name) {
+			return t, i, true
+		}
+	}
+	return Team{}, -1, false
+}
+
+// TeamFolderID is the Syncthing folder of a team called name.
+func TeamFolderID(name string) string {
+	return "yggstore-team-" + strings.ToLower(unsafeName.ReplaceAllString(name, "-"))
 }
 
 // DevicesOf lists the devices of a person that aren't being removed.
@@ -158,6 +188,8 @@ type Status struct {
 	Paused   bool         `json:"paused"`
 	Users    int          `json:"users"` // devices
 	People   int          `json:"people"`
+	Teams    []string     `json:"teams"`     // team folders' names
+	Conflict int          `json:"conflicts"` // conflict copies waiting for someone to choose
 	Problem  string       `json:"problem,omitempty"`
 	Sites    []SiteStatus `json:"sites"`
 }
@@ -183,6 +215,13 @@ func (u *Users) Status() Status {
 		}
 	}
 	s.People = len(st.People)
+	s.Teams = []string{}
+	for _, t := range st.Teams {
+		if !t.Remove {
+			s.Teams = append(s.Teams, t.Name)
+		}
+	}
+	s.Conflict = len(st.Conflicts())
 	s.Sites = []SiteStatus{}
 	for _, si := range st.Sites {
 		if si.Folder == "" {
@@ -282,6 +321,9 @@ func (u *Users) step(ctx context.Context) error {
 	if err := u.sharePeople(ctx, st, have); err != nil {
 		return err
 	}
+	if err := u.shareTeams(ctx, st, have); err != nil {
+		return err
+	}
 
 	if !st.PairingOff {
 		if err := u.pair(ctx, st); err != nil {
@@ -293,8 +335,109 @@ func (u *Users) step(ctx context.Context) error {
 		if err := u.sharePeople(ctx, st, have); err != nil {
 			return err
 		}
+		if err := u.shareTeams(ctx, st, have); err != nil {
+			return err
+		}
 	}
 	return u.shareWebsites(ctx, st, have)
+}
+
+// shareTeams keeps each team's folder shared with every device of its
+// members, and stored by a watcher. A removed team, or one whose members
+// have no devices, stays on the box, unshared.
+func (u *Users) shareTeams(ctx context.Context, st HubState, have map[string]bool) error {
+	var gone []string
+	for _, t := range st.Teams {
+		var ids []string
+		if !t.Remove {
+			for _, m := range t.Members {
+				for _, d := range st.DevicesOf(m) {
+					if !slices.Contains(ids, d.Device) {
+						ids = append(ids, d.Device)
+					}
+				}
+			}
+		}
+		if len(ids) == 0 {
+			if have[t.Folder] {
+				if err := u.cfg.ST.RemoveFolder(ctx, t.Folder); err != nil && !notFound(err) {
+					return err
+				}
+				delete(have, t.Folder)
+			}
+			u.stopWatch(t.Folder)
+			delete(u.shared, t.Folder)
+			if t.Remove {
+				gone = append(gone, t.Name)
+				u.cfg.Logf("hub: team %s removed; its files stay in %s", t.Name, t.Path)
+			}
+			continue
+		}
+		slices.Sort(ids)
+		ids = append([]string{u.myID}, ids...)
+		want := fmt.Sprint(ids, st.Paused)
+		if !have[t.Folder] || u.shared[t.Folder] != want {
+			if err := os.MkdirAll(t.Path, 0o700); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(t.Path, ".stignore"), []byte(ignore), 0o644); err != nil {
+				return err
+			}
+			host, _ := os.Hostname()
+			if err := u.cfg.ST.AddFolder(ctx, syncthing.Folder{ID: t.Folder, Label: "team " + t.Name + " (" + host + ")", Path: t.Path,
+				Devices: ids, Paused: st.Paused, TrashDays: 0}); err != nil {
+				return err
+			}
+			if !have[t.Folder] {
+				u.cfg.Logf("hub: team %s is shared with %s", t.Name, strings.Join(t.Members, ", "))
+			}
+			have[t.Folder] = true
+			u.shared[t.Folder] = want
+		}
+		u.startWatch(ctx, Person{Name: "team " + t.Name, Folder: t.Folder, Path: t.Path})
+	}
+	if len(gone) > 0 {
+		_, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
+			s.Teams = slices.DeleteFunc(s.Teams, func(t Team) bool { return t.Remove && slices.Contains(gone, t.Name) })
+			return nil
+		})
+		return err
+	}
+	return nil
+}
+
+// Conflict is a file two devices changed at once: Syncthing kept both,
+// naming the second NAME.sync-conflict-DATE-DEVICE.EXT, and both are stored.
+type Conflict struct {
+	Folder string `json:"folder"` // whose: a person's name, or "team NAME"
+	File   string `json:"file"`   // its path in the folder
+}
+
+// Conflicts lists the conflict copies in people's and teams' folders.
+func (s HubState) Conflicts() []Conflict {
+	var out []Conflict
+	look := func(owner, root string) {
+		filepath.WalkDir(root, func(p string, e os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if e.IsDir() && strings.HasPrefix(e.Name(), ".") && p != root {
+				return filepath.SkipDir
+			}
+			if !e.IsDir() && strings.Contains(e.Name(), ".sync-conflict-") {
+				rel, _ := filepath.Rel(root, p)
+				out = append(out, Conflict{Folder: owner, File: filepath.ToSlash(rel)})
+			}
+			return nil
+		})
+	}
+	for _, p := range s.People {
+		look(p.Name, p.Path)
+	}
+	for _, t := range s.Teams {
+		look("team "+t.Name, t.Path)
+	}
+	return out
 }
 
 // migrate makes a person of each device paired before people existed,

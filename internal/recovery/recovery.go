@@ -597,6 +597,16 @@ func OutboxKeep(rel string, dir bool) bool {
 	return false
 }
 
+// FoldersKeep is OutboxKeep for a folder of outboxes, such as a box's
+// teams/: what of each one goes in.
+func FoldersKeep(rel string, dir bool) bool {
+	_, rest, nested := strings.Cut(rel, "/")
+	if !nested {
+		return dir
+	}
+	return OutboxKeep(rest, dir)
+}
+
 // homeKeep is what of ~/.yggstore goes in: the person's own things, not the
 // node's shards, tokens and passwords, nor the recovery folder itself.
 var homeKeep = map[string]bool{

@@ -317,3 +317,55 @@ func TestOldDevicesBecomePeople(t *testing.T) {
 		t.Fatalf("shared with %s", got)
 	}
 }
+
+// A team folder is shared with every device of every member, follows the
+// members as they change, and stays on the box when the team is removed.
+func TestTeamFolders(t *testing.T) {
+	u, fake, dir := setupUsers(t, 0)
+	statePath := filepath.Join(dir, "hub.json")
+	ctx := context.Background()
+	fake.pending["ANNALAP-1"] = syncthing.PendingDevice{Name: "anna", Address: "192.168.1.5:22000"}
+	fake.pending["BOBPCPC-2"] = syncthing.PendingDevice{Name: "bob", Address: "192.168.1.6:22000"}
+	fake.pending["CAROLPC-3"] = syncthing.PendingDevice{Name: "carol", Address: "192.168.1.7:22000"}
+	u.step(ctx)
+	teamPath := filepath.Join(dir, "teams", "Projects")
+	Update(ctx, statePath, func(s *HubState) error {
+		s.Teams = append(s.Teams, Team{Name: "Projects", Folder: TeamFolderID("Projects"), Path: teamPath, Members: []string{"anna", "bob"}})
+		return nil
+	})
+	if err := u.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	id := TeamFolderID("Projects")
+	if got := strings.Join(folderDevices(fake, id), " "); got != "HUBHUBH-AAAAAAA ANNALAP-1 BOBPCPC-2" {
+		t.Fatalf("team shared with %s", got)
+	}
+
+	// Carol joins, Bob leaves.
+	Update(ctx, statePath, func(s *HubState) error { s.Teams[0].Members = []string{"anna", "carol"}; return nil })
+	u.step(ctx)
+	if got := strings.Join(folderDevices(fake, id), " "); got != "HUBHUBH-AAAAAAA ANNALAP-1 CAROLPC-3" {
+		t.Fatalf("after changing members, shared with %s", got)
+	}
+
+	// A conflict copy is listed.
+	os.MkdirAll(filepath.Join(teamPath, "files"), 0o755)
+	os.WriteFile(filepath.Join(teamPath, "files", "plan.sync-conflict-20261014-101010-ANNALAP.docx.ystub"), []byte("{}"), 0o644)
+	st, _ := Load(statePath)
+	if cs := st.Conflicts(); len(cs) != 1 || cs[0].Folder != "team Projects" {
+		t.Fatalf("conflicts %+v", cs)
+	}
+
+	// Removed: unshared, files kept, gone from the list.
+	Update(ctx, statePath, func(s *HubState) error { s.Teams[0].Remove = true; return nil })
+	u.step(ctx)
+	if fake.folders[id] != nil {
+		t.Fatal("removed team still shared")
+	}
+	if _, err := os.Stat(filepath.Join(teamPath, "files")); err != nil {
+		t.Fatal("removing the team lost its files")
+	}
+	if st, _ := Load(statePath); len(st.Teams) != 0 {
+		t.Fatalf("teams %+v", st.Teams)
+	}
+}

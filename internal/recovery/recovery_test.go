@@ -204,3 +204,13 @@ func TestOff(t *testing.T) {
 		t.Fatalf("set: %v", err)
 	}
 }
+
+func TestFoldersKeep(t *testing.T) {
+	for rel, want := range map[string]bool{"Projects": true, "Projects/files": true, "Projects/files/a.docx.ystub": true,
+		"Projects/files/a.docx": false, "Projects/restored/a.docx": false, "Projects/.yggstore/history/x.ystub": true} {
+		dir := !strings.Contains(rel, ".")
+		if FoldersKeep(rel, dir) != want {
+			t.Errorf("FoldersKeep(%q) = %v", rel, !want)
+		}
+	}
+}

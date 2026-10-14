@@ -24,6 +24,7 @@ import (
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/recovery"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/syncthing"
@@ -40,6 +41,11 @@ sync their files with, and a page showing how it is
   yggstore hub users             the devices paired, and whose they are
   yggstore hub people            the people, their devices and folders
   yggstore hub link DEVICE PERSON  make a device sync that person's folder
+  yggstore hub teams             the team folders, and who is in each
+  yggstore hub team add NAME PERSON...    a team folder for these people
+  yggstore hub team join|leave NAME PERSON...
+  yggstore hub team remove NAME  stop syncing a team folder (its files stay)
+  yggstore hub conflicts         files two devices changed at once
   yggstore hub remove NAME       unpair a device (its files stay on the hub)
   yggstore hub sites             the websites kept here, in DIR/websites/
   yggstore hub site publish DOMAIN   publish it now, even if it looks broken
@@ -189,6 +195,17 @@ func cmdHub(ctx context.Context, args []string) error {
 				}
 			}})
 		go cfg.Users.Run(ctx)
+		// The team folders' stubs are the box's to keep: a copy of them is
+		// kept in the group, so losing the box loses no team's files.
+		teams := recovery.New(recovery.Config{Dir: filepath.Join(*dir, "recovery"), Client: wc,
+			Sources: []recovery.Source{{Name: "teams", Path: filepath.Join(*dir, "teams"), Keep: recovery.FoldersKeep}},
+			Online:  func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },
+			Event:   func(kind, msg string) { log.Printf("teams: %s", msg) }})
+		go func() {
+			if err := teams.Run(ctx); err != nil {
+				log.Printf("teams: recovery copy: %v", err)
+			}
+		}()
 		go (&hub.Websites{W: sites, StatePath: *statePath, Logf: log.Printf}).Run(ctx)
 	}
 
@@ -321,6 +338,97 @@ func cmdHubControl(ctx context.Context, args []string) error {
 			fmt.Printf("%-20s %s\n  folder %s\n", p.Name, list, p.Path)
 		}
 		return nil
+	case cmd == "teams" && fs.NArg() == 1:
+		st, err := hub.Load(*statePath)
+		if err != nil {
+			return err
+		}
+		if len(st.Teams) == 0 {
+			fmt.Println("No teams yet: yggstore hub team add NAME PERSON...")
+			return nil
+		}
+		for _, t := range st.Teams {
+			fmt.Printf("%-20s %s\n  folder %s\n", t.Name, strings.Join(t.Members, ", "), t.Path)
+		}
+		return nil
+	case cmd == "conflicts" && fs.NArg() == 1:
+		st, err := hub.Load(*statePath)
+		if err != nil {
+			return err
+		}
+		cs := st.Conflicts()
+		if len(cs) == 0 {
+			fmt.Println("No conflicts.")
+			return nil
+		}
+		fmt.Println("Files two devices changed at once. Both versions are kept: open both, keep one, and delete the other.")
+		for _, c := range cs {
+			fmt.Printf("  %-20s %s\n", c.Folder, c.File)
+		}
+		return nil
+	case cmd == "team" && fs.NArg() >= 3:
+		name, people := fs.Arg(2), fs.Args()[3:]
+		check := func(s *hub.HubState) error {
+			for _, p := range people {
+				if _, ok := s.PersonNamed(p); !ok {
+					return fmt.Errorf("nobody called %q (see yggstore hub people)", p)
+				}
+			}
+			return nil
+		}
+		switch fs.Arg(1) {
+		case "add":
+			if strings.Trim(name, ". ") == "" || strings.ContainsAny(name, "/\\") {
+				return fmt.Errorf("%q can't be a team's name", name)
+			}
+			return set(func(s *hub.HubState) error {
+				if _, _, ok := s.TeamNamed(name); ok {
+					return fmt.Errorf("there is a team %s already", name)
+				}
+				if err := check(s); err != nil {
+					return err
+				}
+				var members []string
+				for _, p := range people {
+					person, _ := s.PersonNamed(p)
+					members = append(members, person.Name)
+				}
+				s.Teams = append(s.Teams, hub.Team{Name: name, Folder: hub.TeamFolderID(name), Path: filepath.Join(*dir, "teams", name),
+					Members: members, Added: time.Now().Unix()})
+				return nil
+			}, fmt.Sprintf("Team %s will be shared with its members' devices within a few seconds.", name))
+		case "join", "leave":
+			join := fs.Arg(1) == "join"
+			return set(func(s *hub.HubState) error {
+				_, i, ok := s.TeamNamed(name)
+				if !ok {
+					return fmt.Errorf("no team %q (see yggstore hub teams)", name)
+				}
+				if err := check(s); err != nil {
+					return err
+				}
+				for _, p := range people {
+					person, _ := s.PersonNamed(p)
+					has := slices.Contains(s.Teams[i].Members, person.Name)
+					switch {
+					case join && !has:
+						s.Teams[i].Members = append(s.Teams[i].Members, person.Name)
+					case !join && has:
+						s.Teams[i].Members = slices.DeleteFunc(s.Teams[i].Members, func(m string) bool { return m == person.Name })
+					}
+				}
+				return nil
+			}, "Done: devices are added or dropped within a few seconds.")
+		case "remove":
+			return set(func(s *hub.HubState) error {
+				_, i, ok := s.TeamNamed(name)
+				if !ok {
+					return fmt.Errorf("no team %q (see yggstore hub teams)", name)
+				}
+				s.Teams[i].Remove = true
+				return nil
+			}, fmt.Sprintf("Team %s will stop syncing within a few seconds; its files stay on the box.", name))
+		}
 	case cmd == "link" && fs.NArg() == 3:
 		dev, person := fs.Arg(1), fs.Arg(2)
 		return set(func(s *hub.HubState) error {
