@@ -12,8 +12,9 @@ other item: encrypted, in pieces across the nodes. It holds:
   invites and devices;
 - the group's list of nodes (`peers.json`).
 
-Restored files, files not stored yet and the node's own shards, tokens and
-passwords stay out. A new copy is made a couple of minutes after something
+It's kept small, at a few hundred KB for most people. Restored files,
+files not stored yet, the stubs' challenges (which only spot-check the
+nodes) and the node's own shards, tokens and passwords stay out. A new copy is made a couple of minutes after something
 changes, the last 5 are kept, and repair looks after them like your
 files. The dashboard's **If you lose this computer** section shows when
 the last one was saved.

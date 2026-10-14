@@ -100,7 +100,7 @@ func TestCopyHoldsWhatIsNeededAndNothingElse(t *testing.T) {
 	x.k.Step(context.Background())
 	dir, got := x.restored(t)
 	want := []string{"home/mail/m1.ystub", "home/sharing.key", "outbox/.yggstore/history/abc/1.ystub",
-		"outbox/files/Photos/.beach.jpg.ystub.challenges.json", "outbox/files/Photos/beach.jpg.ystub", "peers.json"}
+		"outbox/files/Photos/beach.jpg.ystub", "peers.json"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("copy holds\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}

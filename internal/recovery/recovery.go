@@ -535,22 +535,23 @@ func human(n int64) string {
 	return fmt.Sprintf("%d bytes", n)
 }
 
-// OutboxKeep is what of an outbox goes into the copy: stubs, their
-// challenges and sealed shares in files/, whole/ and received/, and the
-// outbox's own records (history, restored stubs). Restored files, files not
-// yet stored, websites/ (stored as site versions) and the drop folders stay
-// out.
+// OutboxKeep is what of an outbox goes into the copy: stubs and sealed
+// shares in files/, whole/ and received/, and the outbox's own records
+// (history, restored stubs). Restored files, files not yet stored,
+// websites/ (stored as site versions) and the drop folders stay out, and so
+// do the stubs' challenges: they are most of an outbox's size, and only
+// spot-check the nodes, which reading a file back does too.
 func OutboxKeep(rel string, dir bool) bool {
 	top, _, _ := strings.Cut(rel, "/")
 	switch top {
 	case ".yggstore":
 		// The activity log changes all the time, and is no use elsewhere.
-		return rel != ".yggstore/activity.log"
+		return rel != ".yggstore/activity.log" && !strings.HasSuffix(rel, files.ChallengesExt)
 	case "files", "whole", "received":
 		if dir {
 			return true
 		}
-		return strings.HasSuffix(rel, files.StubExt) || strings.HasSuffix(rel, files.ChallengesExt) || strings.HasSuffix(rel, ".ysend")
+		return strings.HasSuffix(rel, files.StubExt) || strings.HasSuffix(rel, ".ysend")
 	}
 	return false
 }
