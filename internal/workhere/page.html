@@ -55,7 +55,7 @@ a { color: var(--accent); }
 
   <div class="card" id="browser" hidden>
     <div class="bar"><div class="crumbs" id="crumbs"></div>
-      <div><button class="plain" id="mkdir">New folder</button> <button id="up">Upload files here</button><input type="file" id="pick" multiple hidden></div></div>
+      <div><button class="plain" id="mkdir">New folder</button> <button id="up">Upload files here</button> <button class="plain" id="upDir">Upload a folder</button><input type="file" id="pick" multiple hidden><input type="file" id="pickDir" webkitdirectory multiple hidden></div></div>
     <div class="sub" id="upMsg"></div>
     <div class="sub" id="pendingMsg" hidden>Changes are made in your files by your computer or box as soon as it's on, usually within a minute.</div>
     <div id="list"><span class="sub">Loading…</span></div>
@@ -202,35 +202,74 @@ $("mkdir").onclick = () => {
   const n = prompt("Name of the new folder");
   if (n) change("folder", join(here, n));
 };
+// picked: [{file, rel}], rel being its path in what was picked ("a.txt",
+// or "Trip/day 1/a.txt" for a folder's file).
 async function upload(picked) {
-  for (const [i, f] of picked.entries()) {
-    const there = entries.find(e => e.name === f.name && !e.folder);
+  // Hidden files and folders (.git, .DS_Store) aren't uploaded, as on the computer.
+  picked = picked.filter(p => !p.rel.split("/").some(n => n.startsWith(".")));
+  if (!picked.length) return;
+  const tops = [...new Set(picked.filter(p => p.rel.includes("/")).map(p => p.rel.split("/")[0]))];
+  for (const t of tops) {
+    const there = entries.find(e => e.name === t);
+    if (there && !there.folder) { $("upMsg").textContent = `There's already a file called ${t} here.`; return; }
+    if (there && !confirm(`There's already a folder called ${t} here. Add these files into it? Files with the same names are kept beside the ones there.`)) return;
+  }
+  const failed = [];
+  for (const [i, p] of picked.entries()) {
+    const f = p.file, sub = p.rel.split("/").slice(0, -1).join("/");
     let replace = false;
-    if (there) {
-      if (there.note) { $("upMsg").textContent = f.name + " is still being made; try again in a minute."; return; }
-      if (!confirm(`Replace ${f.name}? The one there now is kept as an older version.`)) continue;
-      replace = true;
+    if (!sub) {
+      const there = entries.find(e => e.name === f.name && !e.folder);
+      if (there) {
+        if (there.note) { failed.push(f.name + " (still being made; try again in a minute)"); continue; }
+        if (!confirm(`Replace ${f.name}? The one there now is kept as an older version.`)) continue;
+        replace = true;
+      }
     }
-    $("upMsg").textContent = `Uploading ${f.name} (${i + 1} of ${picked.length})…`;
+    $("upMsg").textContent = `Uploading ${p.rel} (${i + 1} of ${picked.length})…`;
     try {
       const r = await fetch(location.pathname + "?op=put", {method: "POST", body: f,
-        headers: {...H, "X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(here), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"}});
+        headers: {...H, "X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(join(here, sub)), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"}});
       const out = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(out.error || "Upload failed (" + r.status + ")");
-    } catch (e) { $("upMsg").textContent = f.name + ": " + e.message; return; }
+    } catch (e) { failed.push(p.rel + ": " + e.message); }
   }
-  $("upMsg").textContent = live ? "Uploaded: in your files now, and stored in the group within a minute or so."
+  const done = live ? "Uploaded: in your files now, and stored in the group within a minute or so."
     : "Uploaded. They appear in your files, as stubs, within a few minutes.";
+  $("upMsg").textContent = failed.length ? `${picked.length - failed.length} of ${picked.length} uploaded. Not uploaded: ${failed.join("; ")}` : done;
   list(here);
 }
-$("pick").onchange = () => { const p = [...$("pick").files]; $("pick").value = ""; upload(p); };
+$("pick").onchange = () => { const p = [...$("pick").files].map(f => ({file: f, rel: f.name})); $("pick").value = ""; upload(p); };
+$("upDir").onclick = () => $("pickDir").click();
+$("pickDir").onchange = () => { const p = [...$("pickDir").files].map(f => ({file: f, rel: f.webkitRelativePath || f.name})); $("pickDir").value = ""; upload(p); };
+// walk lists the files in a dropped file or folder.
+async function walk(entry, rel, out) {
+  if (entry.isFile) {
+    out.push({file: await new Promise((ok, bad) => entry.file(ok, bad)), rel});
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    for (;;) { // readEntries gives a folder's entries a batch at a time
+      const batch = await new Promise((ok, bad) => reader.readEntries(ok, bad));
+      if (!batch.length) break;
+      for (const e of batch) await walk(e, rel + "/" + e.name, out);
+    }
+  }
+}
 const card = $("browser");
 card.addEventListener("dragover", ev => { ev.preventDefault(); card.classList.add("drop"); });
 card.addEventListener("dragleave", () => card.classList.remove("drop"));
-card.addEventListener("drop", ev => {
+card.addEventListener("drop", async ev => {
   ev.preventDefault(); card.classList.remove("drop");
-  const p = [...ev.dataTransfer.files].filter(f => f.size || f.type); // folders can't be dropped here
-  if (p.length) upload(p);
+  const dropped = [...ev.dataTransfer.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  let p = [];
+  if (dropped.length) {
+    $("upMsg").textContent = "Reading what was dropped…";
+    try { for (const e of dropped) await walk(e, e.name, p); }
+    catch (e) { $("upMsg").textContent = "That couldn't be read: " + e.message; return; }
+  } else {
+    p = [...ev.dataTransfer.files].map(f => ({file: f, rel: f.name}));
+  }
+  upload(p);
 });
 if (live || (id && link)) list("");
 

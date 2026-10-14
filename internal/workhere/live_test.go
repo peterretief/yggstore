@@ -165,6 +165,31 @@ func TestLive(t *testing.T) {
 			t.Errorf("%s %s %s: %d, want %d", c.op, c.p, c.to, code, c.code)
 		}
 	}
+	// A folder's files make its folders as they come.
+	for _, c := range []struct {
+		dir  string
+		code int
+	}{
+		{"Trip/day 1", 200},
+		{"Trip/day 2/evening", 200},
+		{"Projects/report.txt/inside", 400}, // a file is there
+		{"Trip/.git", 400},
+		{"Your websites/new.org", 400},
+		{"Your websites/example.org/img/small", 200},
+	} {
+		if w := do("POST", "/files?op=put", "photo", map[string]string{"X-Dir": url.PathEscape(c.dir), "X-Name": "a.jpg"}); w.Code != c.code {
+			t.Errorf("upload into %s: %d, want %d", c.dir, w.Code, c.code)
+		}
+	}
+	if got := names("Trip"); got != "day 1/, day 2/" {
+		t.Fatalf("Trip: %s", got)
+	}
+	if b, _ := os.ReadFile(filepath.Join(out, "files", "Trip", "day 2", "evening", "a.jpg")); string(b) != "photo" {
+		t.Fatalf("a folder's file: %q", b)
+	}
+	if exists(filepath.Join(out, "websites", "new.org")) {
+		t.Fatal("a website was made by an upload")
+	}
 	if w := do("POST", "/files?op=put", "x", map[string]string{"X-Dir": url.PathEscape("Kept whole"), "X-Name": "a.txt"}); w.Code != 400 {
 		t.Fatalf("upload into Kept whole: %d", w.Code)
 	}

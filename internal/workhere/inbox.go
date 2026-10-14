@@ -127,6 +127,11 @@ func cleanPath(dir, name string) string {
 	if strings.HasPrefix(p, "Kept whole/") || strings.HasPrefix(p, "Sent to you/") {
 		return ""
 	}
+	for _, part := range strings.Split(p, "/") {
+		if strings.HasPrefix(part, ".") { // hidden: the outbox wouldn't store it
+			return ""
+		}
+	}
 	return p
 }
 

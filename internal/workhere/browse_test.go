@@ -139,16 +139,40 @@ func TestUploadIsCollected(t *testing.T) {
 	if code := up(ks.LinkHalf, "minutes ü.txt"); code != 200 {
 		t.Fatalf("upload: %d", code)
 	}
-	if p := s.inbox(ks.ID); len(p) != 2 {
+	// A folder's file, its folders made when it's collected.
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, PagePath+"?op=put", strings.NewReader("day one"))
+	r.Header.Set("X-Id", ks.ID)
+	r.Header.Set("X-Link", ks.LinkHalf)
+	r.Header.Set("X-Dir", url.PathEscape("Trip/day 1"))
+	r.Header.Set("X-Name", "notes.txt")
+	s.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("upload into new folders: %d %s", w.Code, w.Body)
+	}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodPost, PagePath+"?op=put", strings.NewReader("x"))
+	r.Header.Set("X-Id", ks.ID)
+	r.Header.Set("X-Link", ks.LinkHalf)
+	r.Header.Set("X-Dir", url.PathEscape("Trip/.git"))
+	r.Header.Set("X-Name", "config")
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("upload into a hidden folder: %d", w.Code)
+	}
+	if p := s.inbox(ks.ID); len(p) != 3 {
 		t.Fatalf("pending %v", p)
 	}
 
 	n, err := Collect(ctx, client.New(), []string{strings.TrimPrefix(web.URL, "http://")}, ks, out, nil)
-	if err != nil || n != 2 {
+	if err != nil || n != 3 {
 		t.Fatalf("collected %d: %v", n, err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(out, "files", "Docs", "minutes ü.txt")); string(b) != "minutes of the meeting" {
 		t.Fatalf("collected file: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(out, "files", "Trip", "day 1", "notes.txt")); string(b) != "day one" {
+		t.Fatalf("a folder's file collected: %q", b)
 	}
 	if _, err := os.Stat(filepath.Join(out, "files", "Docs", "escape.txt")); err != nil {
 		t.Fatal("the name with a path wasn't kept in the folder it was uploaded to")

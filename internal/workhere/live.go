@@ -265,8 +265,23 @@ func (l *Live) put(w http.ResponseWriter, r *http.Request) {
 	dir, _ := urlUnescape(r.Header.Get("X-Dir"))
 	rel := cleanPath(cleanShown(dir), name)
 	dest, _, ok := l.at(rel)
-	if rel == "" || !ok || !changeable(rel) || (path.Dir(rel) != "." && !l.isFolder(path.Dir(rel))) {
+	if rel == "" || !ok || !changeable(rel) {
 		jsonError(w, http.StatusBadRequest, "A file can't be put there.")
+		return
+	}
+	// A folder's files come with their folders, made here as needed; but
+	// not in place of a file, nor a new website.
+	for d := path.Dir(rel); d != "."; d = path.Dir(d) {
+		if l.isFolder(d) {
+			break
+		}
+		if l.exists(d) || !changeable(d) {
+			jsonError(w, http.StatusBadRequest, "A file can't be put there.")
+			return
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Written beside it under a name the outbox ignores, then moved in
