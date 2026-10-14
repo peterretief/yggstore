@@ -822,8 +822,12 @@ function renderRecovery(r) {
       <div class="restoreto" style="margin-top:10px"><span class="sub">Send the recovery link to</span>
         <input type="email" id="recEmail" style="flex:1;min-width:220px" placeholder="an address that isn't on this computer, such as Gmail" value="${esc(r.email || "")}">
         <button id="recSave">Save</button> <span class="sub" id="recMsg"></span></div>
-      <div class="sub">With the link in that email you can open your files from any browser. Anyone who can read that mailbox can too: if that worries you, turn recovery off.
-        Sending the email is coming soon; the copy is kept from now on.</div>
+      <div class="restoreto" style="margin-top:6px"><span class="sub">When away, work through the box</span>
+        <select id="recBox"><option value="">${r.box ? esc(r.box) : "choose a box…"}</option></select></div>
+      <div class="sub" style="margin-top:6px">${r.sent ? `The link was emailed to <b>${esc(r.sent)}</b>. <button id="recResend">Send it again</button>`
+        : r.email && !r.box ? "Choose a box, and the link is emailed." : r.email ? "The link is emailed once the first copy is saved." : ""}</div>
+      <div class="sub" style="margin-top:6px">Open the link on any device to work there: your files come to it through the box, and only one device has them at a time.
+        Anyone who can read that mailbox can open them too: if that worries you, turn recovery off.</div>
       <div style="margin-top:8px"><button id="recOff">Turn recovery off</button></div>`;
   }
   if (box.dataset.html === html) return;
@@ -838,6 +842,25 @@ function renderRecovery(r) {
   if ($("recOn")) $("recOn").onclick = () => send(true, r.email || "");
   if ($("recOff")) $("recOff").onclick = () => {
     if (confirm("Turn recovery off? If this computer is lost, your files can't be opened.")) send(false, r.email || "");
+  };
+  if ($("recBox")) {
+    fetch("api/recovery/boxes", {cache: "no-store"}).then(x => x.json()).then(list => {
+      const sel = $("recBox");
+      if (!sel || !list) return;
+      sel.innerHTML = `<option value="">${list.length ? "choose a box…" : "no box found in the group"}</option>` +
+        list.map(b => `<option value="${esc(b.addr)}"${b.addr === r.box ? " selected" : ""}>${esc(b.name)}</option>`).join("");
+      sel.onchange = async () => {
+        try {
+          const res = await post("api/recovery", {body: JSON.stringify({on: true, email: r.email || "", box: sel.value})});
+          if (!res.ok) throw new Error(await res.text());
+          box.dataset.html = ""; refresh();
+        } catch (e) { $("recMsg").textContent = e.message; }
+      };
+    }).catch(() => {});
+  }
+  if ($("recResend")) $("recResend").onclick = async () => {
+    await post("api/recovery", {body: JSON.stringify({on: true, email: r.email || "", resend: true})});
+    box.dataset.html = ""; refresh();
   };
   if ($("recSave")) {
     $("recSave").onclick = () => send(true, $("recEmail").value);

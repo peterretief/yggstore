@@ -18,7 +18,9 @@ import (
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/filelock"
+	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/syncthing"
+	"github.com/peterretief/yggstore/internal/workcopy"
 )
 
 // User is a device paired with the hub: its Syncthing device and the folder
@@ -168,6 +170,14 @@ type UsersConfig struct {
 	Logf          func(format string, args ...any)
 	// Client fetches recovery copies from the group (see WorkHere).
 	Client client.Client
+	// For people working through the box (see place.go): the box's node's
+	// messaging, the group's list and the nodes answering, the web nodes
+	// that keep recovery records, and the box's node address.
+	Bus       func() (workcopy.Bus, error)
+	PeersPath string
+	Online    func(ctx context.Context) ([]peers.Peer, error)
+	WebNodes  func(ctx context.Context) []string
+	SelfAddr  string
 }
 
 type Users struct {
@@ -178,6 +188,7 @@ type Users struct {
 	err      string // the last problem talking to Syncthing
 	watchers map[string]context.CancelFunc
 	shared   map[string]string // per folder: the devices last shared with, and paused
+	places   map[string]*place // people working through the box, by name
 }
 
 func NewUsers(cfg UsersConfig) *Users {
@@ -242,6 +253,15 @@ func (u *Users) Run(ctx context.Context) {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 	setup := false
+	if st, err := Load(u.cfg.StatePath); err == nil {
+		for _, p := range st.People {
+			if p.RecoveryID != "" {
+				if _, err := u.startPlace(ctx, p); err != nil {
+					u.cfg.Logf("hub: %s: %v", p.Name, err)
+				}
+			}
+		}
+	}
 	for {
 		if !setup {
 			setup = u.setup(ctx) == nil

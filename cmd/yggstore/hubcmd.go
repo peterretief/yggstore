@@ -30,6 +30,7 @@ import (
 	"github.com/peterretief/yggstore/internal/syncthing"
 	"github.com/peterretief/yggstore/internal/transport"
 	"github.com/peterretief/yggstore/internal/websites"
+	"github.com/peterretief/yggstore/internal/workcopy"
 )
 
 const hubUsage = `yggstore hub: a box such as a Raspberry Pi that the devices on its LAN
@@ -187,9 +188,20 @@ func cmdHub(ctx context.Context, args []string) error {
 			}})
 		cfg.Users = hub.NewUsers(hub.UsersConfig{ST: syncthing.New(base, key), Dir: filepath.Join(*dir, "users"), StatePath: *statePath,
 			Limit: *limit, Logf: log.Printf, Websites: sites.Dir(), WebsitesReady: sites.Ready, Client: wc,
+			PeersPath: *peersPath, Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },
+			Bus: func() (workcopy.Bus, error) {
+				token, err := msg.ReadToken(*msgToken)
+				if err != nil {
+					return nil, fmt.Errorf("this box's node's messaging token: %w", err)
+				}
+				return msg.Local{Addr: *msgAPI, Token: token, HTTP: &http.Client{Timeout: 10 * time.Second}}, nil
+			},
+			WebNodes: func(ctx context.Context) []string { return webNodes(ctx, wc, *peersPath) },
+			SelfAddr: selfAddr(self),
 			Watch: func(ctx context.Context, p hub.Person) {
 				w := outbox.New(outbox.Config{Dir: p.Path, PeersPath: *peersPath, Client: wc, Identity: id,
 					Event: func(kind, msg string) { log.Printf("%s: %s", p.Name, msg) }})
+				w.SetHold(func() bool { return cfg.Users.Holding(p.Name) })
 				if err := w.Run(ctx); err != nil && ctx.Err() == nil {
 					log.Printf("%s: stopped storing files: %v", p.Name, err)
 				}
@@ -561,4 +573,31 @@ func servedSites(peersPath string) func() map[string]bool {
 		have = got
 		return have
 	}
+}
+
+// selfAddr is the box's node address for its recovery records: only its
+// host matters there.
+func selfAddr(ip string) string {
+	if ip == "" {
+		return ""
+	}
+	return net.JoinHostPort(ip, "7400")
+}
+
+// webNodes are the members that serve the group's websites and answer now.
+func webNodes(ctx context.Context, c client.Client, peersPath string) []string {
+	list, err := onlinePeers(ctx, peersPath)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, p := range list {
+		ictx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		info, err := c.Info(ictx, p.Addr)
+		cancel()
+		if err == nil && len(info.Web) > 0 {
+			out = append(out, p.Addr)
+		}
+	}
+	return out
 }

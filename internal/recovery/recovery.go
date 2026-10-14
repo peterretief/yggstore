@@ -77,6 +77,11 @@ type State struct {
 	GroupHalf string `json:"group_half"`
 	Copies    []Copy `json:"copies,omitempty"` // newest last
 	Problem   string `json:"problem,omitempty"`
+	// Box is the node address of the box the person works through when
+	// away (see package workhere).
+	Box string `json:"box,omitempty"`
+	// Sent is the address the recovery link was last emailed to.
+	Sent string `json:"sent,omitempty"`
 }
 
 // Copy is one stored recovery copy.
@@ -92,6 +97,8 @@ type Copy struct {
 type Status struct {
 	On      bool   `json:"on"`
 	Email   string `json:"email,omitempty"`
+	Box     string `json:"box,omitempty"`
+	Sent    string `json:"sent,omitempty"`
 	Last    *Copy  `json:"last,omitempty"`
 	Copies  int    `json:"copies"`
 	Problem string `json:"problem,omitempty"`
@@ -142,14 +149,37 @@ func (k *Keeper) load() error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	// The key is kept in a file of its own, which never changes, so it
+	// can go into the copy (the next place keeps the same link working)
+	// without each copy changing what the next one holds.
+	var key struct {
+		ID        string `json:"id"`
+		LinkHalf  string `json:"link_half"`
+		GroupHalf string `json:"group_half"`
+	}
+	if b, err := os.ReadFile(k.keyPath()); err == nil {
+		if err := json.Unmarshal(b, &key); err != nil {
+			return fmt.Errorf("%s: %w", k.keyPath(), err)
+		}
+		st.ID, st.LinkHalf, st.GroupHalf = key.ID, key.LinkHalf, key.GroupHalf
+	}
 	if st.ID == "" || st.LinkHalf == "" || st.GroupHalf == "" {
 		st.ID, st.LinkHalf, st.GroupHalf = randomText(16), randomText(32), randomText(32)
+	}
+	if key.ID != st.ID {
+		key.ID, key.LinkHalf, key.GroupHalf = st.ID, st.LinkHalf, st.GroupHalf
+		b, _ := json.MarshalIndent(key, "", "  ")
+		if err := atomicfile.Replace(k.keyPath(), append(b, '\n'), 0o600); err != nil {
+			return err
+		}
 	}
 	k.mu.Lock()
 	k.st = st
 	k.mu.Unlock()
 	return k.save()
 }
+
+func (k *Keeper) keyPath() string { return filepath.Join(k.cfg.Dir, "key.json") }
 
 func (k *Keeper) save() error {
 	k.mu.Lock()
@@ -171,7 +201,7 @@ func randomText(n int) string {
 func (k *Keeper) Status() Status {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	s := Status{On: !k.st.Off, Email: k.st.Email, Copies: len(k.st.Copies), Problem: k.st.Problem}
+	s := Status{On: !k.st.Off, Email: k.st.Email, Box: k.st.Box, Sent: k.st.Sent, Copies: len(k.st.Copies), Problem: k.st.Problem}
 	if n := len(k.st.Copies); n > 0 {
 		c := k.st.Copies[n-1]
 		s.Last = &c
@@ -196,6 +226,38 @@ func (k *Keeper) Set(on bool, email string) error {
 	default:
 	}
 	return nil
+}
+
+// SetBox sets the box the person works through when away.
+func (k *Keeper) SetBox(addr string) error {
+	k.mu.Lock()
+	k.st.Box = addr
+	k.mu.Unlock()
+	return k.save()
+}
+
+// SetSent records that the link was emailed to addr.
+func (k *Keeper) SetSent(addr string) error {
+	k.mu.Lock()
+	k.st.Sent = addr
+	k.mu.Unlock()
+	return k.save()
+}
+
+// Keys are what the recovery link and the web nodes' records are made of.
+type Keys struct {
+	ID, LinkHalf, GroupHalf string
+	Sealed                  []byte // the newest copy's stub, sealed; nil before the first copy
+}
+
+// Keys returns the recovery ID, both halves of the key, and the sealed
+// stub of the newest copy.
+func (k *Keeper) Keys() Keys {
+	k.mu.Lock()
+	ks := Keys{ID: k.st.ID, LinkHalf: k.st.LinkHalf, GroupHalf: k.st.GroupHalf}
+	k.mu.Unlock()
+	ks.Sealed, _ = os.ReadFile(k.SealedPath())
+	return ks
 }
 
 // Run keeps the copy fresh until ctx ends.
@@ -595,7 +657,10 @@ func OutboxKeep(rel string, dir bool) bool {
 	switch top {
 	case ".yggstore":
 		// The activity log changes all the time, and is no use elsewhere.
-		return rel != ".yggstore/activity.log" && !strings.HasSuffix(rel, files.ChallengesExt)
+		// A box keeps a person's own things in .yggstore/home, which goes
+		// in as "home".
+		return rel != ".yggstore/activity.log" && !strings.HasSuffix(rel, files.ChallengesExt) &&
+			rel != ".yggstore/home" && !strings.HasPrefix(rel, ".yggstore/home/")
 	case "files", "whole", "received":
 		if dir {
 			return true
@@ -629,6 +694,11 @@ func HomeKeep(rel string, dir bool) bool {
 	top, _, _ := strings.Cut(rel, "/")
 	if top == "mail" && strings.HasSuffix(rel, ".sealed") {
 		return false
+	}
+	// The recovery key goes too, so the next place keeps the same link
+	// working; the copies' own stubs don't.
+	if top == "recovery" {
+		return rel == "recovery" || rel == "recovery/key.json"
 	}
 	return homeKeep[top]
 }

@@ -212,25 +212,28 @@ const CustomersOwner = "Paying customers"
 type Contact = contacts.Contact
 
 type Dashboard struct {
-	cfg      Config
-	mu       sync.Mutex
-	websites *websites.Watcher // the outbox's websites/ folder, once started
-	recovery *recovery.Keeper  // the recovery copy, once started
-	workcopy *workcopy.Tracker // where the working copy is, once started
-	box      *mail.Box
-	state    State
-	history  map[string][]float64
-	seen     map[string]int64
-	events   []Event
-	wake     chan struct{}
-	pushed   map[string]time.Time // last list push per node, used only by poll
-	took     map[string]string    // list hash@start time each node accepted last, used only by poll
-	logMu    sync.Mutex           // the activity log file
-	namesMu  sync.Mutex           // NamesPath, and the list while names change
-	siteMu   sync.Mutex           // one website publish at a time
-	repair   func()               // asks for a repair pass now (see SetRepair)
-	noRoom   func() map[string]int
-	down     func() map[string]int64
+	cfg          Config
+	mu           sync.Mutex
+	websites     *websites.Watcher // the outbox's websites/ folder, once started
+	recovery     *recovery.Keeper  // the recovery copy, once started
+	workcopy     *workcopy.Tracker // where the working copy is, once started
+	recoveryKick chan struct{}     // asks keepRecords to run now
+	boxList      []BoxChoice       // members running a hub, found at boxesAt
+	boxesAt      time.Time
+	box          *mail.Box
+	state        State
+	history      map[string][]float64
+	seen         map[string]int64
+	events       []Event
+	wake         chan struct{}
+	pushed       map[string]time.Time // last list push per node, used only by poll
+	took         map[string]string    // list hash@start time each node accepted last, used only by poll
+	logMu        sync.Mutex           // the activity log file
+	namesMu      sync.Mutex           // NamesPath, and the list while names change
+	siteMu       sync.Mutex           // one website publish at a time
+	repair       func()               // asks for a repair pass now (see SetRepair)
+	noRoom       func() map[string]int
+	down         func() map[string]int64
 }
 
 func New(cfg Config) *Dashboard {
@@ -305,6 +308,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/restore", d.handleRestore)
 	mux.HandleFunc("POST /api/restore-to", d.handleRestoreTo)
 	mux.HandleFunc("POST /api/recovery", d.handleRecovery)
+	mux.HandleFunc("GET /api/recovery/boxes", d.handleBoxes)
 	mux.HandleFunc("GET /api/versions", d.handleVersions)
 	mux.HandleFunc("POST /api/restore-folder", d.handleRestoreFolder)
 	mux.HandleFunc("POST /api/open-folder", d.handleOpenFolder)

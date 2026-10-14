@@ -116,6 +116,30 @@ func (u *Users) WorkHere(ctx context.Context, req WorkRequest) (WorkResponse, er
 	if err := unpack(filepath.Join(got, "outbox"), filepath.Join(got, "home"), person.Path); err != nil {
 		return WorkResponse{}, fmt.Errorf("unpacking the copy: %w", err)
 	}
+	// The box becomes one of the person's places: the place holding their
+	// working copy hands it over with a final copy, which replaces the one
+	// just unpacked; if it doesn't answer, the latest copy stands.
+	if pl, err := u.startPlace(ctx, person); err != nil {
+		u.cfg.Logf("hub: %s: %v (working without the one-place check)", person.Name, err)
+	} else {
+		if final := u.takeOver(ctx, pl); final != nil && final.FileID != m.FileID {
+			again, err := os.MkdirTemp(u.cfg.Dir, ".work-")
+			if err != nil {
+				return WorkResponse{}, err
+			}
+			defer os.RemoveAll(again)
+			got2, err := files.Restore(ctx, u.cfg.Client, *final, again, nil)
+			if err != nil {
+				return WorkResponse{}, fmt.Errorf("fetching the final copy: %w", err)
+			}
+			if err := unpack(filepath.Join(got2, "outbox"), filepath.Join(got2, "home"), person.Path); err != nil {
+				return WorkResponse{}, fmt.Errorf("unpacking the final copy: %w", err)
+			}
+		}
+		if err := pl.tracker.Claim(ctx); err != nil {
+			return WorkResponse{}, fmt.Errorf("claiming the working copy: %w", err)
+		}
+	}
 
 	if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
 		for i := range s.Users {

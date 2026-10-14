@@ -25,18 +25,40 @@ the last one was saved.
 Recovery is **on by default**. Anyone who would rather not have a copy can
 turn it off there.
 
-## The recovery link (coming next)
+## Working from somewhere else
 
-You give the dashboard an email address that isn't on this computer, such
-as Gmail. It sends you one email with a link: keep it. If the computer is
-lost, click the link and your files open in a browser, where you can carry
-on working or set up a new machine.
+On the dashboard, under **If you lose this computer**, give an email
+address that isn't on this computer (Gmail, say) and choose the **box** you
+work through when away. The dashboard keeps a record on the group's web
+nodes and emails you a link, once: keep that email.
+
+Open the link on any device, at a client's office or after losing your
+computer. The page asks for the device's Syncthing ID, and then:
+
+1. The box asks the place holding your files (your computer, say) to hand
+   them over. It saves a final copy and stops changing them, so nothing
+   you did there is lost. If it doesn't answer within a minute and a half,
+   the box takes over from the latest copy.
+2. The box unpacks the copy into a folder of yours and pairs your device
+   with it, wherever the device is.
+3. The page shows the box's ID to add in Syncthing. Accept the folder it
+   offers, and you work as on a box: stubs in `files/`, copy one into
+   `restore/` to get the file back.
+
+Only one place changes your files at a time. Your computer shows **Your
+files are being worked on at BOX/you** and stores, restores and deletes
+nothing until they move back; its node carries on for the group as usual.
+The box keeps making recovery copies while it has them, so you can move
+on again. If the folder is open on another device, the page says so, and
+**Move them here** takes it from that device first.
+
+## How the link is kept safe
 
 The key to the copy is in two halves. One is in the link, after the `#`,
 which a browser never sends to a website; the group's web nodes hold the
-other. The page needs both, so a web node can't open anyone's copy, and
-the files are decrypted in your browser.
+other. Either half alone opens nothing.
 
-Anyone who can read that mailbox can open your files, as with the "forgot
+Anyone who can read the email can open your files, as with the "forgot
 password" emails other services send. If that worries you, turn recovery
-off.
+off. More is planned: an optional code from an authenticator app, and an
+admin who knows you resetting it if you lose your phone.
