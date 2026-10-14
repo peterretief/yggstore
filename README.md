@@ -389,8 +389,6 @@ one machine and disk: this tests behaviour, not real redundancy.
   run repair or renew leases for its people yet.
 - Once your files are worked on at a box, moving them back to your
   computer isn't built yet, and mail still arrives at your computer.
-- Uploads through the work-from-anywhere link are limited to 100 MB a file
-  (Cloudflare); over Yggdrasil there's no limit.
 - Challenges are run by hand, are not signed and produce no receipts.
 - Plain HTTP; confidentiality in transit comes from Yggdrasil's end-to-end
   encryption, and shards are ciphertext anyway.

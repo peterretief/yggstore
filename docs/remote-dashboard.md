@@ -121,10 +121,12 @@ your [work from anywhere](recovery.md#your-files-in-the-browser) link, but
 served by your computer and working on your folder directly:
 
 - browse, and click a file to download it;
-- upload files, or drag them onto the page, of any size;
-- new folders, and **⋯** to rename, move or delete.
+- upload files or whole folders, or drag them onto the page, of any size;
+- new folders, and **⋯** to rename, move or delete;
+- **Your websites**: change a site's files, which is published as when you
+  change them on the computer (a new site is still made on the computer).
 
-Changes are made at once, with no waiting on the web nodes and no 100 MB
-limit. A file just uploaded shows *storing…* until it's stored in the
-group, a minute or so, and is then a stub like any other. While your files
-are being worked on at another place, the page only shows them.
+Changes are made at once, with no waiting on the web nodes. A file just
+uploaded shows *storing…* until it's stored in the group, a minute or so,
+and is then a stub like any other. While your files are being worked on at
+another place, the page only shows them.

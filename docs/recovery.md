@@ -46,11 +46,14 @@ The page shows your files as they were in your latest recovery copy, with
 nothing to install:
 
 - **Browse** your folders, and **click a file to download it**. A folder
-  you kept whole comes as a `.tar`. Files are fetched from the group as you
-  download them, at any size.
-- **Upload files here** (or drag them onto the page) puts files in the
-  folder you're looking at, up to 100 MB each. Uploading over a file with
-  the same name asks first; the one there is kept as an older version.
+  you kept whole comes as a `.tar` that unpacks into a folder of its name.
+  Files are fetched from the group as you download them, at any size.
+- **Upload files here** or **Upload a folder** (or drag files and folders
+  onto the page) puts them in the folder you're looking at, with any
+  folders in them. Files of any size: one bigger than 32 MB goes in
+  pieces, each stored in the group as it arrives and tried again if it
+  fails, and they're joined into the file at the end. Uploading over a file
+  with the same name asks first; the one there is kept as an older version.
 - **New folder**, and **⋯** on any file or folder to **rename** it,
   **move** it to another folder or **delete** it. Deleting asks first: it
   removes the file and its older versions from the group for good.
@@ -113,6 +116,6 @@ admin who knows you resetting it if you lose your phone.
   computer takes them back only when the box hands them over.
 - Your mail keeps arriving at your computer's node while you work
   elsewhere.
-- Uploads through the link page are limited to 100 MB a file (Cloudflare's
-  limit); sending them in pieces would lift it.
+- An upload in pieces that's interrupted (the page closed, the network
+  gone) starts again from the beginning.
 - The page's files are decrypted on the web node, not in your browser.

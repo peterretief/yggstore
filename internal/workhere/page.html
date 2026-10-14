@@ -202,6 +202,41 @@ $("mkdir").onclick = () => {
   const n = prompt("Name of the new folder");
   if (n) change("folder", join(here, n));
 };
+// send makes one request, and gives what came back.
+async function send(op, body, headers) {
+  const r = await fetch(location.pathname + "?op=" + op, {method: "POST", body, headers});
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(out.error || "Upload failed (" + r.status + ")"); e.status = r.status; throw e; }
+  return out;
+}
+// A file bigger than one request may carry goes in parts, each stored in
+// the group as it arrives; then they're joined into the file. A part that
+// fails is tried again a few times, and if it can't go, what went is deleted.
+const PART = 32 << 20;
+async function inParts(f, dir, replace, headers, progress) {
+  const upload = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
+  const parts = [], n = Math.ceil(f.size / PART);
+  const body = () => JSON.stringify({id, link, upload, parts, dir, name: f.name, replace});
+  try {
+    for (let i = 0; i < n; i++) {
+      progress(Math.floor(i * 100 / n));
+      for (let tries = 1; ; tries++) {
+        try {
+          parts.push((await send("put", f.slice(i * PART, (i + 1) * PART), {...headers, "X-Upload": upload})).part);
+          break;
+        } catch (e) {
+          if (tries >= 4 || (e.status >= 400 && e.status < 500)) throw e;
+          await new Promise(ok => setTimeout(ok, tries * 5000));
+        }
+      }
+    }
+    progress(100);
+    await send("parts", body(), {...H, "Content-Type": "application/json"});
+  } catch (e) {
+    if (parts.length) send("parts-drop", body(), {...H, "Content-Type": "application/json"}).catch(() => {});
+    throw e;
+  }
+}
 // picked: [{file, rel}], rel being its path in what was picked ("a.txt",
 // or "Trip/day 1/a.txt" for a folder's file).
 async function upload(picked) {
@@ -226,12 +261,13 @@ async function upload(picked) {
         replace = true;
       }
     }
-    $("upMsg").textContent = `Uploading ${p.rel} (${i + 1} of ${picked.length})…`;
+    const of = picked.length > 1 ? ` (${i + 1} of ${picked.length})` : "";
+    $("upMsg").textContent = `Uploading ${p.rel}${of}…`;
+    const dir = join(here, sub);
+    const headers = {...H, "X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(dir), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"};
     try {
-      const r = await fetch(location.pathname + "?op=put", {method: "POST", body: f,
-        headers: {...H, "X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(join(here, sub)), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"}});
-      const out = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(out.error || "Upload failed (" + r.status + ")");
+      if (!live && f.size > PART) await inParts(f, dir, replace, headers, pct => $("upMsg").textContent = `Uploading ${p.rel}${of}: ${pct}%`);
+      else await send("put", f, headers);
     } catch (e) { failed.push(p.rel + ": " + e.message); }
   }
   const done = live ? "Uploaded: in your files now, and stored in the group within a minute or so."

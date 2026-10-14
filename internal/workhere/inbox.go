@@ -36,8 +36,9 @@ import (
 // changes in its folder; then it has the web node mark each done (and
 // delete an uploaded file's first copy).
 
-// MaxUpload is the largest file the link page takes (Cloudflare's free
-// plan stops bigger requests anyway).
+// MaxUpload is the most one request to the link page may carry
+// (Cloudflare's free plan stops bigger ones anyway); bigger files come in
+// parts.
 const MaxUpload = 100 << 20
 
 // Waiting is an uploaded file or a change in a person's inbox.
@@ -136,6 +137,7 @@ func cleanPath(dir, name string) string {
 }
 
 // upload stores a file from the page and puts it in the person's inbox.
+// A file bigger than one request may carry comes in parts (see parts.go).
 func (s *Store) upload(w http.ResponseWriter, r *http.Request) {
 	id, link := r.Header.Get("X-Id"), r.Header.Get("X-Link")
 	name, err := url.PathUnescape(r.Header.Get("X-Name")) // headers can't hold every character
@@ -148,42 +150,78 @@ func (s *Store) upload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "That file name can't be used here.")
 		return
 	}
-	rec, err := s.get(id)
-	if err != nil {
-		jsonError(w, http.StatusNotFound, errNoRecord.Error())
-		return
-	}
-	key, err := recovery.Key(link, rec.GroupHalf)
-	if err != nil {
-		jsonError(w, http.StatusBadRequest, errBadLink.Error())
-		return
-	}
-	if _, err := recovery.Open(key, rec.Sealed); err != nil {
-		jsonError(w, http.StatusForbidden, errWrongLink.Error())
-		return
-	}
-	if s.Online == nil {
-		jsonError(w, http.StatusServiceUnavailable, "This web node can't store files.")
+	rec, key, ok := s.uploader(w, id, link)
+	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 	defer cancel()
+	opts := files.PutOptions{}
+	upload := r.Header.Get("X-Upload")
+	if upload != "" {
+		if !validUpload.MatchString(upload) {
+			jsonError(w, http.StatusBadRequest, "bad upload")
+			return
+		}
+		opts.Key = partKey(key, upload)
+	}
+	m, ok := s.store(ctx, w, http.MaxBytesReader(w, r.Body, MaxUpload), path.Base(dest), opts)
+	if !ok {
+		return
+	}
+	if upload != "" {
+		s.sendPart(w, key, m)
+		return
+	}
+	s.queueUpload(w, rec, key, m, dest, r.Header.Get("X-Replace") == "1")
+}
+
+// uploader opens a person's record with their link for an upload.
+func (s *Store) uploader(w http.ResponseWriter, id, link string) (Record, []byte, bool) {
+	rec, err := s.get(id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, errNoRecord.Error())
+		return rec, nil, false
+	}
+	key, err := recovery.Key(link, rec.GroupHalf)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, errBadLink.Error())
+		return rec, nil, false
+	}
+	if _, err := recovery.Open(key, rec.Sealed); err != nil {
+		jsonError(w, http.StatusForbidden, errWrongLink.Error())
+		return rec, nil, false
+	}
+	if s.Online == nil {
+		jsonError(w, http.StatusServiceUnavailable, "This web node can't store files.")
+		return rec, nil, false
+	}
+	return rec, key, true
+}
+
+// store stores what the page sent in the group.
+func (s *Store) store(ctx context.Context, w http.ResponseWriter, body io.Reader, name string, opts files.PutOptions) (manifest.Manifest, bool) {
 	online, err := s.Online(ctx)
 	if err != nil || len(online) == 0 {
 		jsonError(w, http.StatusServiceUnavailable, "The group's nodes don't answer right now. Try again in a few minutes.")
-		return
+		return manifest.Manifest{}, false
 	}
-	body := http.MaxBytesReader(w, r.Body, MaxUpload)
-	m, _, _, err := files.PutReader(ctx, s.shards(), body, path.Base(dest), online, files.PutOptions{})
+	m, _, _, err := files.PutReader(ctx, s.shards(), body, name, online, opts)
 	if err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			jsonError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("Files up to %d MB can be uploaded here; sync bigger ones through Syncthing.", MaxUpload>>20))
-			return
+			jsonError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("Up to %d MB can be sent at once here.", MaxUpload>>20))
+			return m, false
 		}
 		jsonError(w, http.StatusBadGateway, "Storing it failed: "+err.Error())
-		return
+		return m, false
 	}
+	return m, true
+}
+
+// queueUpload puts a stored file in the person's inbox for their working
+// copy to take.
+func (s *Store) queueUpload(w http.ResponseWriter, rec Record, key []byte, m manifest.Manifest, dest string, replace bool) {
 	stub, _ := manifest.Marshal(m)
 	sealed, err := recovery.Seal(key, stub)
 	if err != nil {
@@ -191,9 +229,9 @@ func (s *Store) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum := sha256.Sum256(stub)
-	wt := Waiting{ID: newEntryID(), Path: dest, Replace: r.Header.Get("X-Replace") == "1", Sealed: sealed,
+	wt := Waiting{ID: newEntryID(), Path: dest, Replace: replace, Sealed: sealed,
 		Sum: hex.EncodeToString(sum[:]), At: time.Now().Unix()}
-	if err := s.enqueue(id, wt); err != nil {
+	if err := s.enqueue(rec.ID, wt); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

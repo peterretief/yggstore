@@ -232,6 +232,8 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.browse(w, r, op)
 		case "put":
 			s.upload(w, r)
+		case "parts", "parts-drop":
+			s.parts(w, r, op == "parts-drop")
 		case "change":
 			s.change(w, r)
 		default:
