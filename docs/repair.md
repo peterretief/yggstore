@@ -38,8 +38,12 @@ shares you sent earlier, whose stubs still name it, keep working.
 If more than half of the machines don't answer, repair does nothing: it is
 then more likely this machine's own network that is down.
 
-It looks after your own items (outfiles, their older versions and your
-mail). Items shared with you are the sender's to repair.
+It looks after your own items: outfiles and their older versions, your
+mail, your recovery copies, and every version of the websites you publish
+(a web node fetches a site from its stub when it first serves it, so the
+stub has to point at shards that are there). Items shared with you are the
+sender's to repair. A box does the same for its people and teams (see
+[the hub](hub.md)).
 
 ## Taking a node down
 

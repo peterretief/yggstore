@@ -16,15 +16,18 @@ import (
 )
 
 // newRepairer looks after the items under outfiles (and their older
-// versions), the mailbox's messages and the recovery copies, and renews
-// their leases and those of shares received.
+// versions), the mailbox's messages, the recovery copies and the versions
+// of the websites published from here (a box's hub publishes into the same
+// folder), and renews their leases and those of shares received.
 func newRepairer(peersPath string, grace time.Duration, outfiles, history, mailbox, recoveryDir string) *repair.Repairer {
 	c := client.New()
 	c.HTTP.Timeout = 2 * time.Minute
 	return &repair.Repairer{Client: c, Grace: grace,
-		State:    filepath.Join(yggstoreHome(), "repair.json"),
-		Peers:    func() ([]peers.Peer, error) { return peers.Load(peersPath) },
-		Stubs:    func() []string { return append(repair.Find(outfiles, history), repair.Find(mailbox, recoveryDir)...) },
+		State: filepath.Join(yggstoreHome(), "repair.json"),
+		Peers: func() ([]peers.Peer, error) { return peers.Load(peersPath) },
+		Stubs: func() []string {
+			return append(repair.Find(outfiles, history), repair.Find(mailbox, recoveryDir, filepath.Join(yggstoreHome(), "sites"))...)
+		},
 		Received: func() []string { return repair.Find(filepath.Join(outfiles, outbox.ReceivedDir)) }}
 }
 
