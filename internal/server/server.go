@@ -87,6 +87,11 @@ type Options struct {
 	MailOut interface {
 		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
 	}
+	// Work, if set, keeps members' recovery records (/v1/work/ID; see
+	// package workhere).
+	Work interface {
+		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
+	}
 }
 
 func Handler(store localstore.Store, opts Options) http.Handler {
@@ -178,6 +183,9 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			}
 		}
 		if opts.MailOut != nil && opts.MailOut.Serve(w, r, caller) {
+			return
+		}
+		if opts.Work != nil && opts.Work.Serve(w, r, caller) {
 			return
 		}
 		switch {

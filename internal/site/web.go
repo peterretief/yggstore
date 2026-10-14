@@ -36,6 +36,9 @@ type Web struct {
 	Client client.Client
 	Log    func(string, ...any)
 	// Mail, if set, takes the mail Worker's posts (see package mail).
+	// Work, if set, is the page a person's recovery link opens, on any
+	// site served here (WorkPath; see package workhere).
+	Work http.Handler
 	Mail http.Handler
 	// Deliver, if set, takes sites' contact forms: it stores a sealed
 	// message for a member's node to collect (mail.Node.Take).
@@ -345,6 +348,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		w.Mail.ServeHTTP(rw, r)
 		return
 	}
+	if w.Work != nil && r.URL.Path == WorkPath {
+		w.Work.ServeHTTP(rw, r)
+		return
+	}
 	w.mu.Lock()
 	name := host
 	root, ok := w.roots[name]
@@ -371,6 +378,9 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	rw.Header().Set("Cache-Control", "public, max-age=300")
 	serveStatic(rw, r, root)
 }
+
+// WorkPath is where a recovery link opens (package workhere's PagePath).
+const WorkPath = "/_yggstore/work"
 
 // serveStatic serves a site's folder.
 func serveStatic(rw http.ResponseWriter, r *http.Request, root string) {

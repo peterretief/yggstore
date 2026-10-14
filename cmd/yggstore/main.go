@@ -36,6 +36,7 @@ import (
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/transport"
+	"github.com/peterretief/yggstore/internal/workhere"
 	"github.com/peterretief/yggstore/internal/yggnet"
 )
 
@@ -361,8 +362,10 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 
 	var webStatus func() json.RawMessage
+	var work *workhere.Store
 	if *webAddr != "" {
-		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf}
+		work = &workhere.Store{Dir: filepath.Join(*dataDir, "work"), Client: &http.Client{Timeout: 5 * time.Minute}, Log: log.Printf}
+		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work}
 		if mailNode.Token != "" {
 			web.Mail = mailNode
 		}
@@ -409,7 +412,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
-		MailOut: mailOutHandler(relay),
+		MailOut: mailOutHandler(relay), Work: workOpt(work),
 		Join: func(caller string, req invite.Request) (invite.Response, error) {
 			own := ""
 			if id, err := share.Load(*keyPath); err == nil {
@@ -876,4 +879,15 @@ func mailOutHandler(r *mail.Relay) interface {
 		return nil
 	}
 	return r
+}
+
+// workOpt is the node's recovery records, if it is a web node: a nil
+// *workhere.Store would be a non-nil interface.
+func workOpt(w *workhere.Store) interface {
+	Serve(http.ResponseWriter, *http.Request, string) bool
+} {
+	if w == nil {
+		return nil
+	}
+	return w
 }

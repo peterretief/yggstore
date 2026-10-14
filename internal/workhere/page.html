@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Open your files</title>
+<style>
+:root { --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --sub: #5b6475; --line: #dde1e8; --accent: #2f6fde; --ok: #1f8a4c; --bad: #c0392b; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171d; --panel: #1c2028; --text: #e6e9ef; --sub: #9aa3b2; --line: #2c323d; --accent: #6b9bff; --ok: #4cc27f; --bad: #ff6b5b; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+.sub { color: var(--sub); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 18px; }
+.card h2 { font-size: 17px; margin: 0 0 8px; }
+input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text);
+  font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; }
+button { margin-top: 10px; padding: 10px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+button.plain { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.err { color: var(--bad); margin-top: 10px; }
+.ok { color: var(--ok); font-weight: 600; }
+ol { padding-left: 20px; margin: 6px 0 0; }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Open your files</h1>
+  <div class="sub">Your files come to this device through Syncthing, from your group's box. Only one device has them at a time.</div>
+
+  <div class="card" id="bad" hidden><h2>This link isn't complete</h2>
+    <div class="sub">Open it again from your recovery email, all of it: the part after the # is what opens your files.</div></div>
+
+  <div id="steps">
+  <div class="card"><h2>1. Install Syncthing</h2>
+    <div class="sub">If this device doesn't have it yet:
+      <a href="https://syncthing.net/downloads/" rel="noreferrer">Windows, Mac and Linux</a> ·
+      <a href="https://play.google.com/store/apps/details?id=com.github.catfriend1.syncthingandroid" rel="noreferrer">Android (Syncthing-Fork)</a> ·
+      <a href="https://apps.apple.com/app/mobius-sync/id1539203216" rel="noreferrer">iPhone (Möbius Sync)</a></div></div>
+
+  <div class="card"><h2>2. Your device's ID</h2>
+    <div class="sub">In Syncthing: <b>Actions › Show ID</b> (on a phone, the menu › <b>Show device ID</b>). Copy it and paste it here.</div>
+    <input id="device" placeholder="XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX" autocomplete="off" spellcheck="false">
+    <button id="go">Open my files here</button>
+    <div class="err" id="err"></div>
+    <div id="inuse" hidden>
+      <p>Your files are open on <b id="where"></b>. Only one device has them at a time: moving them here stops them syncing there first.</p>
+      <button id="move">Move them here</button>
+    </div>
+  </div>
+  </div>
+
+  <div class="card" id="done" hidden><h2 class="ok">Your files are ready on the box</h2>
+    <ol>
+      <li>In Syncthing, choose <b>Add Remote Device</b> and paste the box's ID:
+        <div class="mono" id="boxid" style="margin:6px 0"></div><button class="plain" id="copy">Copy the box's ID</button></li>
+      <li>Within a minute the box offers a folder called <b id="folder"></b>: accept it, and choose where to keep it.</li>
+      <li>Your files are there as small stubs. Copy a stub into <b>restore/</b> to get the file back in <b>restored/</b>;
+        put new files into <b>files/</b> to store them.</li>
+    </ol>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const frag = location.hash.slice(1);
+const dot = frag.indexOf(".");
+const id = dot > 0 ? frag.slice(0, dot) : "", link = dot > 0 ? frag.slice(dot + 1) : "";
+if (!id || !link) { $("bad").hidden = false; $("steps").hidden = true; }
+
+async function open(move) {
+  $("err").textContent = ""; $("go").disabled = $("move").disabled = true;
+  $("go").textContent = "Opening… this can take a minute";
+  try {
+    const r = await fetch(location.pathname, {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({id, link, device: $("device").value.trim(), move})});
+    const out = await r.json().catch(() => ({}));
+    if (r.status === 409 && out.in_use) {
+      $("where").textContent = out.in_use.join(", "); $("inuse").hidden = false;
+      return;
+    }
+    if (!r.ok) throw new Error(out.error || "Something went wrong (" + r.status + ")");
+    $("boxid").textContent = out.box_id; $("folder").textContent = out.folder;
+    $("steps").hidden = true; $("done").hidden = false;
+  } catch (e) {
+    $("err").textContent = e.message;
+  } finally {
+    $("go").disabled = $("move").disabled = false; $("go").textContent = "Open my files here";
+  }
+}
+$("go").onclick = () => open(false);
+$("move").onclick = () => open(true);
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("boxid").textContent); $("copy").textContent = "Copied"; }
+  catch { $("copy").textContent = "Select it above and copy it"; }
+};
+</script>
+</body>
+</html>
