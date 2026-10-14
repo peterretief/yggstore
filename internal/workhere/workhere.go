@@ -64,8 +64,12 @@ type Store struct {
 	Shards client.Client
 	// Online lists the nodes that answer, for storing uploads.
 	Online func(context.Context) ([]peers.Peer, error)
+	// Others lists the group's other web nodes (addresses), whose
+	// waiting changes the page shows too.
+	Others func(context.Context) []string
 
-	cache viewCache
+	cache  viewCache
+	others otherCache
 }
 
 func (s *Store) path(id string) string { return filepath.Join(s.Dir, id+".json") }
@@ -228,6 +232,8 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.browse(w, r, op)
 		case "put":
 			s.upload(w, r)
+		case "change":
+			s.change(w, r)
 		default:
 			s.open(w, r)
 		}

@@ -381,10 +381,10 @@ func (d *Dashboard) handleBoxes(w http.ResponseWriter, r *http.Request) {
 	writeJSONResp(w, d.boxes(ctx))
 }
 
-// collectUploads fetches files uploaded on the link page into the outbox,
-// every minute, while this place holds the working copy.
+// collectUploads makes what was uploaded and changed on the link page in
+// the outbox, every 20 seconds, while this place holds the working copy.
 func (d *Dashboard) collectUploads(ctx context.Context, k *recovery.Keeper) {
-	t := time.NewTicker(time.Minute)
+	t := time.NewTicker(collectEvery)
 	defer t.Stop()
 	for {
 		select {
@@ -401,9 +401,12 @@ func (d *Dashboard) collectUploads(ctx context.Context, k *recovery.Keeper) {
 		}
 		c := d.cfg.Client
 		c.HTTP = &http.Client{Timeout: 10 * time.Minute}
-		if _, err := workhere.Collect(ctx, c, nodes, k.Keys(), filepath.Join(d.cfg.Outbox.Dir(), "files"),
+		if _, err := workhere.Collect(ctx, c, nodes, k.Keys(), d.cfg.Outbox.Dir(),
 			func(f string, a ...any) { d.event("ok", fmt.Sprintf(f, a...)) }); err != nil {
-			d.event("warn", "collecting a file uploaded on the web: "+err.Error())
+			d.event("warn", "making a change from the web: "+err.Error()+" (trying again shortly)")
 		}
 	}
 }
+
+// collectEvery is how often the link page's uploads and changes are made.
+const collectEvery = 20 * time.Second

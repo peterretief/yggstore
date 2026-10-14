@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net/http"
 	"path"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +33,7 @@ type view struct {
 	fileID string
 	at     time.Time // when the copy was saved, as near as is known
 	stubs  map[string][]byte
+	dirs   []string // folders of files/, as shown, so empty ones show too
 	used   time.Time
 }
 
@@ -48,15 +48,16 @@ type Entry struct {
 	Folder bool   `json:"folder,omitempty"` // a folder of the tree
 	Whole  bool   `json:"whole,omitempty"`  // a folder stored as one item, downloaded as .tar
 	Size   int64  `json:"size,omitempty"`
-	// Arriving: uploaded, and not in the working copy yet.
-	Arriving bool `json:"arriving,omitempty"`
+	// Note says why it isn't as in the copy yet: arriving, moving and such.
+	Note string `json:"note,omitempty"`
 }
 
 // Listing is a folder of the copy.
 type Listing struct {
-	Path    string  `json:"path"`
-	Entries []Entry `json:"entries"`
-	Saved   int64   `json:"saved,omitempty"` // when the copy was saved (unix seconds)
+	Path    string   `json:"path"`
+	Entries []Entry  `json:"entries"`
+	Saved   int64    `json:"saved,omitempty"` // when the copy was saved (unix seconds)
+	Folders []string `json:"folders"`         // every folder things can be moved to
 }
 
 // view opens a person's latest copy with their link, reading it from the
@@ -106,6 +107,10 @@ func (s *Store) view(ctx context.Context, id, link string) (*view, error) {
 			return nil, err
 		}
 		name := path.Clean(h.Name)
+		if d, ok := strings.CutPrefix(name, "outbox/files/"); ok && h.Typeflag == tar.TypeDir && !strings.HasPrefix(path.Base(d), ".") {
+			v.dirs = append(v.dirs, d)
+			continue
+		}
 		if h.Typeflag != tar.TypeReg || !strings.HasPrefix(name, "outbox/") || !strings.HasSuffix(name, files.StubExt) {
 			continue
 		}
@@ -144,54 +149,6 @@ func (s *Store) shards() client.Client {
 	return client.New()
 }
 
-// list is a folder of the copy. The top shows files/ as it is, with whole/
-// and received/ as folders beside its own.
-func (v *view) list(dir string) (Listing, error) {
-	dir = strings.Trim(path.Clean("/"+dir), "/")
-	out := Listing{Path: dir, Entries: []Entry{}, Saved: v.at.Unix()}
-	seen := map[string]bool{}
-	for rel, b := range v.stubs {
-		shown := showPath(rel)
-		var under string
-		switch {
-		case dir == "":
-			under = shown
-		case strings.HasPrefix(shown, dir+"/"):
-			under = strings.TrimPrefix(shown, dir+"/")
-		default:
-			continue
-		}
-		first, rest, nested := strings.Cut(under, "/")
-		if nested {
-			if !seen[first+"/"] {
-				seen[first+"/"] = true
-				out.Entries = append(out.Entries, Entry{Name: first, Folder: true})
-			}
-			continue
-		}
-		_ = rest
-		e := Entry{Name: strings.TrimSuffix(first, files.StubExt)}
-		if m, err := manifest.Unmarshal(b); err == nil {
-			e.Size, e.Whole = int64(m.PlaintextSize), m.Kind == files.KindFolder
-			if e.Whole {
-				e.Size = m.ContentBytes
-			}
-		}
-		out.Entries = append(out.Entries, e)
-	}
-	if dir != "" && len(out.Entries) == 0 {
-		return out, errors.New("no such folder in your files")
-	}
-	sort.Slice(out.Entries, func(i, j int) bool {
-		a, b := out.Entries[i], out.Entries[j]
-		if a.Folder != b.Folder {
-			return a.Folder
-		}
-		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
-	})
-	return out, nil
-}
-
 // showPath is where a stub appears in the browser: files/ is the top, and
 // whole/ and received/ are folders in it.
 func showPath(rel string) string {
@@ -205,17 +162,6 @@ func showPath(rel string) string {
 		return "Sent to you/" + r
 	}
 	return rel
-}
-
-// stub finds the stub shown at p.
-func (v *view) stub(p string) ([]byte, bool) {
-	p = strings.Trim(path.Clean("/"+p), "/")
-	for rel, b := range v.stubs {
-		if strings.TrimSuffix(showPath(rel), files.StubExt) == p {
-			return b, true
-		}
-	}
-	return nil, false
 }
 
 // browse answers the page's listing (JSON) and download (form) requests.
@@ -238,50 +184,31 @@ func (s *Store) browse(w http.ResponseWriter, r *http.Request, op string) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	v, err := s.view(ctx, id, link)
+	t, err := s.current(ctx, id, link)
 	if err != nil {
-		code := http.StatusBadGateway
-		switch err {
-		case errNoRecord:
-			code = http.StatusNotFound
-		case errBadLink:
-			code = http.StatusBadRequest
-		case errWrongLink:
-			code = http.StatusForbidden
-		}
-		if op == "list" {
-			jsonError(w, code, err.Error())
-		} else {
-			http.Error(w, err.Error(), code)
-		}
+		viewError(w, err, op == "list")
 		return
 	}
 	if op == "list" {
-		l, err := v.list(p)
-		if rec, gerr := s.get(id); gerr == nil {
-			if key, kerr := recovery.Key(link, rec.GroupHalf); kerr == nil {
-				for _, up := range s.pending(id, key) {
-					if dir := path.Dir(up); dir == l.Path || (dir == "." && l.Path == "") {
-						l.Entries = append(l.Entries, Entry{Name: path.Base(up), Arriving: true})
-						err = nil
-					}
-				}
-			}
-		}
-		if err != nil {
-			jsonError(w, http.StatusNotFound, err.Error())
+		l, ok := t.listing(p)
+		if !ok {
+			jsonError(w, http.StatusNotFound, "That folder isn't in your files (any more).")
 			return
+		}
+		if v, err := s.view(ctx, id, link); err == nil {
+			l.Saved = v.at.Unix()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		json.NewEncoder(w).Encode(l)
 		return
 	}
-	b, ok := v.stub(p)
-	if !ok {
-		http.Error(w, "no such file in your files", http.StatusNotFound)
+	it := t[cleanShown(p)]
+	if it == nil || it.stub == nil {
+		http.Error(w, "That file isn't in your files, or can't be downloaded yet.", http.StatusNotFound)
 		return
 	}
+	b := it.stub
 	m, err := manifest.Unmarshal(b)
 	if err != nil {
 		http.Error(w, "this file's stub is damaged", http.StatusInternalServerError)
@@ -306,6 +233,24 @@ func (s *Store) browse(w http.ResponseWriter, r *http.Request, op string) {
 	defer dcancel()
 	if err := files.Get(dctx, s.shards(), m, w, func(string, ...any) {}); err != nil {
 		s.logf("files: downloading %s: %v", name, err)
+	}
+}
+
+// viewError answers a failure to open a person's files.
+func viewError(w http.ResponseWriter, err error, asJSON bool) {
+	code := http.StatusBadGateway
+	switch err {
+	case errNoRecord:
+		code = http.StatusNotFound
+	case errBadLink:
+		code = http.StatusBadRequest
+	case errWrongLink:
+		code = http.StatusForbidden
+	}
+	if asJSON {
+		jsonError(w, code, err.Error())
+	} else {
+		http.Error(w, err.Error(), code)
 	}
 }
 

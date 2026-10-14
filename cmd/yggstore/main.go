@@ -365,7 +365,8 @@ func cmdServe(ctx context.Context, args []string) error {
 	var work *workhere.Store
 	if *webAddr != "" {
 		work = &workhere.Store{Dir: filepath.Join(*dataDir, "work"), Client: &http.Client{Timeout: 5 * time.Minute}, Log: log.Printf,
-			Shards: client.New(), Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) }}
+			Shards: client.New(), Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },
+			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }}
 		if relay != nil {
 			// Boxes have no address to send from: the group sends their
 			// people's links, from yggstore@ its domain.

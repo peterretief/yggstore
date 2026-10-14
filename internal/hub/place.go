@@ -242,10 +242,11 @@ func (u *Users) Anywhere(ctx context.Context, device, email string) (string, err
 	return "Done: your link is on its way to " + email + ". Keep that email: open the link on any device to work there.", nil
 }
 
-// collectUploads fetches files the person uploaded on their link page into
-// their folder, every minute, while the box holds their working copy.
+// collectUploads makes what the person uploaded and changed on their link
+// page in their folder, every 20 seconds, while the box holds their
+// working copy.
 func (u *Users) collectUploads(ctx context.Context, p Person, pl *place) {
-	t := time.NewTicker(time.Minute)
+	t := time.NewTicker(20 * time.Second)
 	defer t.Stop()
 	for {
 		select {
@@ -258,9 +259,9 @@ func (u *Users) collectUploads(ctx context.Context, p Person, pl *place) {
 		}
 		c := u.cfg.Client
 		c.HTTP = &http.Client{Timeout: 10 * time.Minute}
-		if _, err := workhere.Collect(ctx, c, u.cfg.WebNodes(ctx), pl.keeper.Keys(), filepath.Join(p.Path, "files"),
+		if _, err := workhere.Collect(ctx, c, u.cfg.WebNodes(ctx), pl.keeper.Keys(), p.Path,
 			func(f string, a ...any) { u.cfg.Logf("%s: "+f, append([]any{p.Name}, a...)...) }); err != nil {
-			u.cfg.Logf("%s: collecting a file uploaded on the web: %v", p.Name, err)
+			u.cfg.Logf("%s: making a change from the web: %v (trying again shortly)", p.Name, err)
 		}
 	}
 }

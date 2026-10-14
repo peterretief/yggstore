@@ -137,12 +137,11 @@ func TestUploadIsCollected(t *testing.T) {
 	if code := up(ks.LinkHalf, "minutes ü.txt"); code != 200 {
 		t.Fatalf("upload: %d", code)
 	}
-	key, _ := recovery.Key(ks.LinkHalf, ks.GroupHalf)
-	if p := s.pending(ks.ID, key); len(p) != 2 {
+	if p := s.inbox(ks.ID); len(p) != 2 {
 		t.Fatalf("pending %v", p)
 	}
 
-	n, err := Collect(ctx, client.New(), []string{strings.TrimPrefix(web.URL, "http://")}, ks, filepath.Join(out, "files"), nil)
+	n, err := Collect(ctx, client.New(), []string{strings.TrimPrefix(web.URL, "http://")}, ks, out, nil)
 	if err != nil || n != 2 {
 		t.Fatalf("collected %d: %v", n, err)
 	}
@@ -152,7 +151,7 @@ func TestUploadIsCollected(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, "files", "Docs", "escape.txt")); err != nil {
 		t.Fatal("the name with a path wasn't kept in the folder it was uploaded to")
 	}
-	if p := s.pending(ks.ID, key); len(p) != 0 {
+	if p := s.inbox(ks.ID); len(p) != 0 {
 		t.Fatalf("still pending after collecting: %v", p)
 	}
 }

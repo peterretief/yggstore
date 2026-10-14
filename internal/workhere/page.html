@@ -33,7 +33,13 @@ button.plain { background: transparent; color: var(--accent); border: 1px solid 
 .row button { margin: 0; padding: 6px 12px; font-size: 14px; }
 .row.folder .name, .row .name.get { cursor: pointer; color: var(--accent); font-weight: 600; }
 .row .name.get:hover, .row.folder .name:hover { text-decoration: underline; }
-.row.arriving .name { color: var(--sub); }
+.row.pending .name { color: var(--sub); }
+.row .more { background: transparent; color: var(--sub); border: 1px solid var(--line); padding: 4px 10px; }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 4px 12px 28px; }
+.acts button { margin: 0; padding: 6px 12px; font-size: 14px; }
+.acts button.danger { background: var(--bad); }
+.acts select, .acts input { width: auto; flex: 1; min-width: 140px; padding: 6px 8px; font: 14px system-ui, sans-serif; }
+#browser.drop { outline: 2px dashed var(--accent); outline-offset: 4px; }
 .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .bar button { margin: 0; }
 details summary { cursor: pointer; font-weight: 600; }
@@ -49,8 +55,9 @@ a { color: var(--accent); }
 
   <div class="card" id="browser" hidden>
     <div class="bar"><div class="crumbs" id="crumbs"></div>
-      <div><button id="up">Upload files here</button><input type="file" id="pick" multiple hidden></div></div>
+      <div><button class="plain" id="mkdir">New folder</button> <button id="up">Upload files here</button><input type="file" id="pick" multiple hidden></div></div>
     <div class="sub" id="upMsg"></div>
+    <div class="sub" id="pendingMsg" hidden>Changes are made in your files by your computer or box as soon as it's on, usually within a minute.</div>
     <div id="list"><span class="sub">Loading…</span></div>
     <div class="err" id="listErr"></div>
   </div>
@@ -101,7 +108,7 @@ if (!id || !link) { $("bad").hidden = false; $("stepsWrap").hidden = true; }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const size = n => n >= 1 << 30 ? (n / (1 << 30)).toFixed(1) + " GB" : n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB"
   : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " bytes";
-let here = "";
+let here = "", entries = [], folders = [""], refresh;
 async function list(dir) {
   $("listErr").textContent = "";
   try {
@@ -115,17 +122,61 @@ async function list(dir) {
     $("crumbs").innerHTML = `<button data-dir="">Your files</button>` + parts.map((p, i) =>
       `› <button data-dir="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`).join("");
     const at = n => esc((here ? here + "/" : "") + n);
+    entries = out.entries; folders = out.folders || [""];
+    const more = e => e.note ? "" : `<button class="more" data-more="${at(e.name)}" data-folder="${e.folder ? 1 : ""}" title="Rename, move or delete">⋯</button>`;
     $("list").innerHTML = out.entries.length ? out.entries.map(e => e.folder
-      ? `<div class="row folder"><span class="name" data-dir="${at(e.name)}">📁 ${esc(e.name)}</span></div>`
-      : e.arriving
-      ? `<div class="row arriving"><span class="name">⏳ ${esc(e.name)}</span><span class="size">arriving in your files…</span></div>`
+      ? `<div class="row folder${e.note ? " pending" : ""}"><span class="name" data-dir="${at(e.name)}">📁 ${esc(e.name)}</span>
+          ${e.note ? `<span class="size">${esc(e.note)}</span>` : ""}${more(e)}</div>`
+      : e.note
+      ? `<div class="row pending"><span class="name">⏳ ${esc(e.name)}</span><span class="size">${esc(e.note)}</span></div>`
       : `<div class="row"><span class="name get" data-get="${at(e.name)}" title="Download">${e.whole ? "🗂" : "📄"} ${esc(e.name)}</span>
-          <span class="size">${size(e.size || 0)}${e.whole ? " · .tar" : ""}</span></div>`).join("")
+          <span class="size">${size(e.size || 0)}${e.whole ? " · .tar" : ""}</span>${more(e)}</div>`).join("")
       : `<span class="sub">Nothing here yet.</span>`;
+    const waiting = out.entries.some(e => e.note);
+    $("pendingMsg").hidden = !waiting;
+    clearTimeout(refresh);
+    if (waiting) refresh = setTimeout(() => { if (!document.querySelector(".acts")) list(here); }, 15000);
     $("browser").hidden = false;
   } catch (e) { $("listErr").textContent = e.message; $("browser").hidden = false; $("list").innerHTML = ""; }
 }
+async function change(op, path, to) {
+  try {
+    const r = await fetch(location.pathname + "?op=change", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({id, link, op, path, to})});
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(out.error || "That didn't work (" + r.status + ")");
+    $("upMsg").textContent = "";
+  } catch (e) { $("upMsg").textContent = e.message; }
+  list(here);
+}
+const base = p => p.slice(p.lastIndexOf("/") + 1);
+const join = (dir, name) => dir ? dir + "/" + name : name;
+function actions(row, p, folder) {
+  document.querySelectorAll(".acts").forEach(a => a.remove());
+  const a = document.createElement("div");
+  a.className = "acts";
+  const name = base(p), parent = p.slice(0, p.length - name.length).replace(/\/$/, "");
+  const opts = folders.filter(f => f !== parent && f !== p && !f.startsWith(p + "/"))
+    .map(f => `<option value="${esc(f)}">${f ? "📁 " + esc(f) : "Your files (top)"}</option>`).join("");
+  a.innerHTML = `<button class="plain" data-act="rename">Rename</button>` +
+    (opts ? `<select>${opts}</select><button class="plain" data-act="move">Move there</button>` : "") +
+    `<button class="danger" data-act="delete">Delete</button><button class="plain" data-act="close">Cancel</button>`;
+  a.onclick = ev => {
+    const act = ev.target.dataset.act;
+    if (act === "close") a.remove();
+    if (act === "rename") {
+      const n = prompt("New name for " + name, name);
+      if (n && n !== name) change("move", p, join(parent, n));
+    }
+    if (act === "move") change("move", p, join(a.querySelector("select").value, name));
+    if (act === "delete" && confirm(`Delete ${name}${folder ? " and everything in it" : ""}? It is deleted from the group for good, with its older versions.`))
+      change("delete", p);
+  };
+  row.after(a);
+}
 document.addEventListener("click", ev => {
+  const m = ev.target.closest("[data-more]");
+  if (m) { actions(m.closest(".row"), m.dataset.more, !!m.dataset.folder); return; }
   const d = ev.target.closest("[data-dir]");
   if (d) { list(d.dataset.dir); return; }
   const g = ev.target.closest("[data-get]");
@@ -136,22 +187,39 @@ document.addEventListener("click", ev => {
   }
 });
 $("up").onclick = () => $("pick").click();
-$("pick").onchange = async () => {
-  const picked = [...$("pick").files];
-  $("pick").value = "";
+$("mkdir").onclick = () => {
+  const n = prompt("Name of the new folder");
+  if (n) change("folder", join(here, n));
+};
+async function upload(picked) {
   for (const [i, f] of picked.entries()) {
+    const there = entries.find(e => e.name === f.name && !e.folder);
+    let replace = false;
+    if (there) {
+      if (there.note) { $("upMsg").textContent = f.name + " is still being made; try again in a minute."; return; }
+      if (!confirm(`Replace ${f.name}? The one there now is kept as an older version.`)) continue;
+      replace = true;
+    }
     $("upMsg").textContent = `Uploading ${f.name} (${i + 1} of ${picked.length})…`;
     try {
       const r = await fetch(location.pathname + "?op=put", {method: "POST", body: f,
-        headers: {"X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(here), "X-Name": encodeURIComponent(f.name)}});
+        headers: {"X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(here), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"}});
       const out = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(out.error || "Upload failed (" + r.status + ")");
     } catch (e) { $("upMsg").textContent = f.name + ": " + e.message; return; }
   }
-  $("upMsg").textContent = picked.length + (picked.length == 1 ? " file" : " files") +
-    " stored. They appear in your files, as stubs, within a few minutes.";
+  $("upMsg").textContent = "Uploaded. They appear in your files, as stubs, within a few minutes.";
   list(here);
-};
+}
+$("pick").onchange = () => { const p = [...$("pick").files]; $("pick").value = ""; upload(p); };
+const card = $("browser");
+card.addEventListener("dragover", ev => { ev.preventDefault(); card.classList.add("drop"); });
+card.addEventListener("dragleave", () => card.classList.remove("drop"));
+card.addEventListener("drop", ev => {
+  ev.preventDefault(); card.classList.remove("drop");
+  const p = [...ev.dataTransfer.files].filter(f => f.size || f.type); // folders can't be dropped here
+  if (p.length) upload(p);
+});
 if (id && link) list("");
 
 async function open(move) {
