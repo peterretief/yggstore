@@ -16,6 +16,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/files"
+	"github.com/peterretief/yggstore/internal/share"
 )
 
 // Live is the files page served by the place holding a person's files
@@ -71,10 +72,54 @@ var errElsewhere = errors.New("Your files are being worked on at another place r
 
 func (l *Live) holding() bool { return l.Holding == nil || l.Holding() }
 
+// Websites is where the page shows the person's websites, which only this
+// page has: a change to one is published as on the computer.
+const Websites = "Your websites"
+
+// tops are the folders the page shows at the top beside the person's files.
+var tops = []struct{ dir, shown string }{{"whole", "Kept whole"}, {"received", "Sent to you"}, {"websites", Websites}}
+
 // at is where a path the page shows is in the folder, and its stub.
 func (l *Live) at(shown string) (real string, stub string, ok bool) {
+	if p := cleanShown(shown); p == Websites || strings.HasPrefix(p, Websites+"/") {
+		if strings.HasPrefix(path.Base(p), ".") {
+			return "", "", false
+		}
+		real = filepath.Join(l.Outbox, "websites", filepath.FromSlash(strings.TrimPrefix(strings.TrimPrefix(p, Websites), "/")))
+		return real, real + files.StubExt, true
+	}
+	for _, t := range tops {
+		if cleanShown(shown) == t.shown {
+			real = filepath.Join(l.Outbox, t.dir)
+			return real, real + files.StubExt, true
+		}
+	}
 	real, ok = realPath(l.Outbox, shown)
 	return real, real + files.StubExt, ok
+}
+
+// website is whether p is in one of the person's websites (not a site's
+// own folder, which is made and named on the computer).
+func website(p string) bool {
+	r, ok := strings.CutPrefix(p, Websites+"/")
+	return ok && strings.Contains(r, "/")
+}
+
+// changeable is whether the page may make, move or delete p here.
+func changeable(p string) bool {
+	return website(p) || (editable(p) && p != Websites && !strings.HasPrefix(p, Websites+"/"))
+}
+
+// sameSite is whether a move stays where it may: in the person's files, or
+// in the one website.
+func sameSite(a, b string) bool {
+	site := func(p string) string {
+		if !website(p) {
+			return ""
+		}
+		return strings.SplitN(p, "/", 3)[1]
+	}
+	return site(a) == site(b)
 }
 
 func (l *Live) exists(shown string) bool {
@@ -94,7 +139,7 @@ func (l *Live) isFolder(shown string) bool {
 // hidden is what the page doesn't show: the outbox's own files and files
 // being written.
 func hidden(name string) bool {
-	return strings.HasPrefix(name, ".") || strings.HasSuffix(name, files.ChallengesExt) || isPartial(name)
+	return strings.HasPrefix(name, ".") || strings.HasSuffix(name, files.ChallengesExt) || strings.HasSuffix(name, share.Ext) || isPartial(name)
 }
 
 func isPartial(name string) bool {
@@ -112,9 +157,13 @@ func (l *Live) list(dir string) (Listing, error) {
 	var real string
 	if dir == "" {
 		real = filepath.Join(l.Outbox, "files")
-		for top, shown := range map[string]string{"whole": "Kept whole", "received": "Sent to you"} {
-			if ents, _ := os.ReadDir(filepath.Join(l.Outbox, top)); len(ents) > 0 {
-				out.Entries = append(out.Entries, Entry{Name: shown, Folder: true})
+		for _, t := range tops {
+			ents, _ := os.ReadDir(filepath.Join(l.Outbox, t.dir))
+			for _, e := range ents {
+				if !hidden(e.Name()) {
+					out.Entries = append(out.Entries, Entry{Name: t.shown, Folder: true})
+					break
+				}
 			}
 		}
 	} else {
@@ -123,6 +172,7 @@ func (l *Live) list(dir string) (Listing, error) {
 			return out, errors.New("That folder isn't in your files (any more).")
 		}
 	}
+	plain := dir == Websites || strings.HasPrefix(dir, Websites+"/") // a site's files are kept as they are
 	ents, err := os.ReadDir(real)
 	if err != nil && dir != "" {
 		return out, err
@@ -152,6 +202,9 @@ func (l *Live) list(dir string) (Listing, error) {
 		}
 		info, _ := e.Info()
 		en := Entry{Name: name, Note: "storing…"}
+		if plain {
+			en.Note = ""
+		}
 		if info != nil {
 			en.Size = info.Size()
 		}
@@ -210,12 +263,12 @@ func (l *Live) put(w http.ResponseWriter, r *http.Request) {
 	}
 	name, _ := urlUnescape(r.Header.Get("X-Name"))
 	dir, _ := urlUnescape(r.Header.Get("X-Dir"))
-	rel := cleanPath(dir, name)
-	if rel == "" || (path.Dir(rel) != "." && !l.isFolder(path.Dir(rel))) {
-		jsonError(w, http.StatusBadRequest, "That file name can't be used here.")
+	rel := cleanPath(cleanShown(dir), name)
+	dest, _, ok := l.at(rel)
+	if rel == "" || !ok || !changeable(rel) || (path.Dir(rel) != "." && !l.isFolder(path.Dir(rel))) {
+		jsonError(w, http.StatusBadRequest, "A file can't be put there.")
 		return
 	}
-	dest := filepath.Join(l.Outbox, "files", filepath.FromSlash(rel))
 	// Written beside it under a name the outbox ignores, then moved in
 	// whole, so it isn't stored half written.
 	tmp := filepath.Join(filepath.Dir(dest), ".uploading-"+newEntryID())
@@ -263,14 +316,16 @@ func (l *Live) change(w http.ResponseWriter, r *http.Request) {
 	case !ok:
 		msg = "That isn't in your files."
 	case ch.Op == OpDelete:
-		if !l.exists(ch.Path) {
+		if !changeable(ch.Path) {
+			msg = "That can't be deleted here."
+		} else if !l.exists(ch.Path) {
 			msg = "That isn't in your files (any more)."
 		} else if err := deleteAt(l.Outbox, from, newEntryID()); err != nil {
 			msg = "Deleting it failed: " + err.Error()
 		}
 	case ch.Op == OpFolder:
 		switch {
-		case !editable(ch.Path) || cleanPath(path.Dir(ch.Path), path.Base(ch.Path)) != ch.Path:
+		case !changeable(ch.Path) || cleanPath(path.Dir(ch.Path), path.Base(ch.Path)) != ch.Path:
 			msg = "A folder can't be made with that name here."
 		case l.exists(ch.Path):
 			msg = "There's already something called " + path.Base(ch.Path) + " here."
@@ -284,10 +339,12 @@ func (l *Live) change(w http.ResponseWriter, r *http.Request) {
 	case ch.Op == OpMove:
 		to, _, _ := l.at(ch.To)
 		switch {
-		case !l.exists(ch.Path) || !editable(ch.Path):
+		case !l.exists(ch.Path) || !changeable(ch.Path):
 			msg = "That can't be moved: it isn't in your own files (any more)."
-		case !editable(ch.To) || cleanPath(path.Dir(ch.To), path.Base(ch.To)) != ch.To:
+		case !changeable(ch.To) || cleanPath(path.Dir(ch.To), path.Base(ch.To)) != ch.To:
 			msg = "That name can't be used here."
+		case !sameSite(ch.Path, ch.To):
+			msg = "Things can't be moved between your files and a website, or between websites."
 		case ch.To == ch.Path || strings.HasPrefix(ch.To, ch.Path+"/"):
 			msg = "A folder can't be moved into itself."
 		case l.exists(ch.To):

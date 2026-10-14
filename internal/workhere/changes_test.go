@@ -120,6 +120,7 @@ func TestChangesAreMade(t *testing.T) {
 		{Op: OpMove, Path: "Docs/older.txt", To: "Projects/report.txt"},
 		{Op: OpMove, Path: "Docs/older.txt", To: "Nowhere/older.txt"},
 		{Op: OpFolder, Path: ".hidden"},
+		{Op: OpDelete, Path: "Kept whole"},
 	} {
 		if code, _ := change(ks.LinkHalf, c); code != http.StatusBadRequest {
 			t.Errorf("%+v taken: %d", c, code)
@@ -186,5 +187,22 @@ func TestChangesAreMade(t *testing.T) {
 	// Nothing is made twice.
 	if n, err := Collect(ctx, client.New(), []string{webAddr}, ks, out, nil); n != 0 || err != nil {
 		t.Fatalf("made %d again: %v", n, err)
+	}
+}
+
+// The folders shown beside a person's files are never changed themselves,
+// whatever a queue holds.
+func TestTopFoldersStay(t *testing.T) {
+	out := t.TempDir()
+	os.MkdirAll(filepath.Join(out, "whole"), 0o755)
+	os.WriteFile(filepath.Join(out, "whole", "Photos.ystub"), []byte("{}"), 0o644)
+	for _, p := range []string{"Kept whole", "/Kept whole/", "Sent to you"} {
+		plain, _ := json.Marshal(Change{Op: OpDelete, Path: p})
+		if did, err := apply(context.Background(), client.New(), Waiting{Op: OpDelete}, plain, out); did != "" || err != nil {
+			t.Fatalf("delete %q: %q %v", p, did, err)
+		}
+	}
+	if !exists(filepath.Join(out, "whole", "Photos.ystub")) {
+		t.Fatal("Kept whole was emptied")
 	}
 }

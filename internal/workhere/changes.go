@@ -281,7 +281,7 @@ func (s *Store) change(w http.ResponseWriter, r *http.Request) {
 	bad := func(msg string) { jsonError(w, http.StatusBadRequest, msg) }
 	switch ch.Op {
 	case OpDelete:
-		if ch.Path == "" || !t.has(ch.Path) {
+		if ch.Path == "" || topFolder(ch.Path) || !t.has(ch.Path) {
 			bad("That isn't in your files (any more).")
 			return
 		}

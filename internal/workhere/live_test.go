@@ -121,6 +121,54 @@ func TestLive(t *testing.T) {
 	if !exists(filepath.Join(out, "files", "Projects", ".report.txt.ystub.challenges.json")) {
 		t.Fatal("the challenges file didn't move with its stub")
 	}
+
+	// Kept whole and the websites open, a stray .ysend isn't shown, and a
+	// website's files can be changed, but not the site itself.
+	os.MkdirAll(filepath.Join(out, "whole"), 0o755)
+	files.WriteJSON(filepath.Join(out, "whole", "Photos.ystub"), m)
+	os.WriteFile(filepath.Join(out, "whole", "old.ysend"), []byte("x"), 0o644)
+	os.MkdirAll(filepath.Join(out, "websites", "example.org"), 0o755)
+	os.WriteFile(filepath.Join(out, "websites", "example.org", "index.html"), []byte("<h1>hi</h1>"), 0o644)
+	if got := names(""); got != "Docs/, Kept whole/, Projects/, Your websites/" {
+		t.Fatalf("top with the others: %s", got)
+	}
+	if got := names("Kept whole"); got != "Photos" {
+		t.Fatalf("Kept whole: %s", got)
+	}
+	if got := names("Your websites/example.org"); got != "index.html" {
+		t.Fatalf("a website: %s", got)
+	}
+	if w := do("GET", "/files?op=get&path="+url.QueryEscape("Your websites/example.org/index.html"), "", nil); w.Body.String() != "<h1>hi</h1>" {
+		t.Fatalf("a website's file: %q", w.Body)
+	}
+	if w := do("POST", "/files?op=put", "body{}", map[string]string{"X-Dir": url.PathEscape("Your websites/example.org"), "X-Name": "style.css", "X-Replace": "1"}); w.Code != 200 {
+		t.Fatalf("upload to a website: %d %s", w.Code, w.Body)
+	}
+	if b, _ := os.ReadFile(filepath.Join(out, "websites", "example.org", "style.css")); string(b) != "body{}" {
+		t.Fatalf("the website's new file: %q", b)
+	}
+	for _, c := range []struct {
+		op, p, to string
+		code      int
+	}{
+		{OpFolder, "Your websites/example.org/about", "", 200},
+		{OpMove, "Your websites/example.org/style.css", "Your websites/example.org/about/style.css", 200},
+		{OpMove, "Your websites/example.org/index.html", "Projects/index.html", 400},
+		{OpMove, "Projects/report.txt", "Your websites/example.org/report.txt", 400},
+		{OpDelete, "Your websites/example.org", "", 400},
+		{OpDelete, "Your websites", "", 400},
+		{OpDelete, "Kept whole", "", 400},
+		{OpFolder, "Your websites/new.org", "", 400},
+		{OpDelete, "Your websites/example.org/about/style.css", "", 200},
+	} {
+		if code := change(c.op, c.p, c.to); code != c.code {
+			t.Errorf("%s %s %s: %d, want %d", c.op, c.p, c.to, code, c.code)
+		}
+	}
+	if w := do("POST", "/files?op=put", "x", map[string]string{"X-Dir": url.PathEscape("Kept whole"), "X-Name": "a.txt"}); w.Code != 400 {
+		t.Fatalf("upload into Kept whole: %d", w.Code)
+	}
+
 	holding = false
 	if code := change(OpDelete, "Projects", ""); code != http.StatusConflict {
 		t.Fatalf("a change while another place has the files: %d", code)

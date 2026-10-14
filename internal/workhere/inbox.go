@@ -354,8 +354,8 @@ func apply(ctx context.Context, c client.Client, wt Waiting, plain []byte, outbo
 		return "", nil // damaged: skipped
 	}
 	from, ok := realPath(outbox, ch.Path)
-	if !ok {
-		return "", nil
+	if !ok || topFolder(ch.Path) {
+		return "", nil // the folders the page shows at the top aren't changed
 	}
 	switch ch.Op {
 	case OpDelete:
@@ -370,6 +370,13 @@ func apply(ctx context.Context, c client.Client, wt Waiting, plain []byte, outbo
 		return "moved " + ch.Path + " to " + ch.To, moveTo(from, to)
 	}
 	return "", nil
+}
+
+// topFolder is whether p is one of the folders the page shows beside the
+// person's own files.
+func topFolder(p string) bool {
+	p = cleanShown(p)
+	return p == "Kept whole" || p == "Sent to you"
 }
 
 // realPath is where a path the page shows is in the outbox.

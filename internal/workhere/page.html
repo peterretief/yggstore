@@ -131,7 +131,9 @@ async function list(dir) {
       `› <button data-dir="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`).join("");
     const at = n => esc((here ? here + "/" : "") + n);
     entries = out.entries; folders = out.folders || [""];
-    const more = e => e.note || (!here && e.folder && (e.name === "Kept whole" || e.name === "Sent to you")) ? "" : `<button class="more" data-more="${at(e.name)}" data-folder="${e.folder ? 1 : ""}" title="Rename, move or delete">⋯</button>`;
+    const fixed = e => (!here && e.folder && ["Kept whole", "Sent to you", "Your websites"].includes(e.name))
+      || here === "Your websites" || /^(Kept whole|Sent to you)(\/|$)/.test(here);
+    const more = e => e.note || fixed(e) ? "" : `<button class="more" data-more="${at(e.name)}" data-folder="${e.folder ? 1 : ""}" title="Rename, move or delete">⋯</button>`;
     $("list").innerHTML = out.entries.length ? out.entries.map(e => e.folder
       ? `<div class="row folder${e.note ? " pending" : ""}"><span class="name" data-dir="${at(e.name)}">📁 ${esc(e.name)}</span>
           ${e.note ? `<span class="size">${esc(e.note)}</span>` : ""}${more(e)}</div>`
