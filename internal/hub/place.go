@@ -2,9 +2,12 @@ package hub
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	netmail "net/mail"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/manifest"
@@ -156,4 +159,83 @@ func (u *Users) online(ctx context.Context) ([]peers.Peer, error) {
 		return nil, fmt.Errorf("the box doesn't know the group's nodes")
 	}
 	return u.cfg.Online(ctx)
+}
+
+// Anywhere turns on working from anywhere for the person a paired device
+// belongs to: the box makes them a sharing key if they have none, keeps
+// recovery copies of their folder, keeps their record on the web nodes,
+// and has a web node email them their link. It is asked from the box's
+// page, on the local network.
+func (u *Users) Anywhere(ctx context.Context, device, email string) (string, error) {
+	device = strings.ToUpper(strings.TrimSpace(device))
+	email = strings.TrimSpace(email)
+	if _, err := netmail.ParseAddress(email); err != nil || !strings.Contains(email, "@") {
+		return "", fmt.Errorf("%q isn't an email address", email)
+	}
+	st, err := Load(u.cfg.StatePath)
+	if err != nil {
+		return "", err
+	}
+	var person Person
+	found := false
+	for _, d := range st.Users {
+		if d.Device == device && !d.Remove {
+			person, found = st.PersonNamedOK(d.Person)
+		}
+	}
+	if !found {
+		return "", errors.New("that device isn't paired with this box: add the box in Syncthing first (above), then try again")
+	}
+	if _, err := share.LoadOrCreate(filepath.Join(homeOf(person), "sharing.key")); err != nil {
+		return "", fmt.Errorf("making %s a sharing key: %w", person.Name, err)
+	}
+	pl, err := u.startPlace(ctx, person)
+	if err != nil {
+		return "", err
+	}
+	pl.tracker.Step(ctx) // claims the working copy if nobody holds it yet
+	if !pl.tracker.Holding() {
+		return "", fmt.Errorf("%s's files are being worked on at %s: open your link there, or move them here with it", person.Name, pl.tracker.State().Holder)
+	}
+	if _, err := pl.keeper.SaveNow(ctx); err != nil {
+		return "", fmt.Errorf("saving a copy of your folder: %w", err)
+	}
+	u.keepRecord(ctx, person, pl.keeper)
+	ks := pl.keeper.Keys()
+	host := ""
+	if u.cfg.LinkHost != nil {
+		host = u.cfg.LinkHost(ctx)
+	}
+	if host == "" {
+		return "", errors.New("the group serves no website to put the link on")
+	}
+	link := "https://" + host + workhere.PagePath + "#" + ks.ID + "." + ks.LinkHalf
+	var sendErr error
+	sent := false
+	if u.cfg.MailNodes != nil {
+		for _, n := range u.cfg.MailNodes(ctx) {
+			if sendErr = workhere.SendEmail(ctx, u.cfg.Client.HTTP, n, ks.ID, workhere.EmailRequest{To: email, Link: link}); sendErr == nil {
+				sent = true
+				break
+			}
+		}
+	}
+	if !sent {
+		if sendErr == nil {
+			sendErr = errors.New("no web node sends email")
+		}
+		return "", fmt.Errorf("the link couldn't be emailed: %w", sendErr)
+	}
+	if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
+		for i := range s.People {
+			if s.People[i].Name == person.Name {
+				s.People[i].RecoveryID, s.People[i].Email = ks.ID, email
+			}
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	u.cfg.Logf("hub: %s can work from anywhere now; their link went to %s", person.Name, email)
+	return "Done: your link is on its way to " + email + ". Keep that email: open the link on any device to work there.", nil
 }

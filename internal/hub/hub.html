@@ -149,6 +149,22 @@ systemctl --user enable --now syncthing</pre></li>
     </div>
   </div>
 
+  <div class="card step" style="margin-top:12px">
+    <div class="num">4</div>
+    <div>
+      <h3>Work from anywhere</h3>
+      <p>If you want to work remotely, or can't get to this device, you can carry on from any other one. Once your device is connected,
+        the box emails you a link: open it on the device you want to work on, and your files come to it.</p>
+      <label for="awDevice">Your device's ID (in Syncthing: <b class="ui">Actions</b> › <b class="ui">Show ID</b>)</label>
+      <input id="awDevice" placeholder="XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX" autocomplete="off" spellcheck="false">
+      <label for="awEmail" style="display:block;margin-top:8px">Email the link to</label>
+      <input id="awEmail" type="email" placeholder="an address you can read anywhere, such as Gmail" autocomplete="email">
+      <button id="awGo">Email me my link</button>
+      <p class="note" id="awMsg"></p>
+      <p class="note">Only one device has your files at a time: opening the link somewhere else moves them there. Anyone who can read that email can open your files too, so keep it safe.</p>
+    </div>
+  </div>
+
   <h2>This box</h2>
   <div class="card" id="node"><span class="sub">Checking…</span></div>
 
@@ -255,6 +271,19 @@ document.addEventListener('click', async ev => {
 });
 
 const cmd = () => "curl -fsSL '" + location.origin + "/install.sh' | sh -s -- '" + $('invite').value.trim() + "'";
+$('awGo').onclick = async () => {
+  const b = $('awGo');
+  b.disabled = true; $('awMsg').textContent = 'Setting it up… this can take a minute.';
+  try {
+    const r = await fetch('api/anywhere', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({device: $('awDevice').value, email: $('awEmail').value})});
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(out.error || 'Something went wrong (' + r.status + ')');
+    $('awMsg').textContent = out.message;
+  } catch (e) { $('awMsg').textContent = e.message; }
+  b.disabled = false;
+};
+
 $('invite').addEventListener('input', () => {
   const v = $('invite').value.trim();
   const ok = /^yggjoin1:[A-Za-z0-9_-]+$/.test(v.replace(/\s+/g, ''));

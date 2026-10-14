@@ -303,20 +303,8 @@ func (d *Dashboard) sendLink(ctx context.Context, k *recovery.Keeper) error {
 	if from == "" {
 		return errors.New("you have no email address on the group to send it from (yggstore mail address you@example.org)")
 	}
-	text := `This is your yggstore link for working from anywhere. Keep this email.
-
-When you want to work remotely, or can't get to your computer, open the link
-on the device you want to work on. It asks for that device's Syncthing ID,
-and your files then come to it through your group's box:
-
-` + link + `
-
-Only one device has your files at a time: opening the link elsewhere moves
-them there. Anyone who can read this email can open your files, so keep it
-somewhere safe. If that worries you, turn "Work from anywhere" off on your
-dashboard.
-`
-	raw, rcpts, err := mail.Draft{From: from, Name: d.me(), To: st.Email, Subject: "Your link for working from anywhere", Text: text}.Compose()
+	text := workhere.LinkText(link)
+	raw, rcpts, err := mail.Draft{From: from, Name: d.me(), To: st.Email, Subject: workhere.LinkSubject, Text: text}.Compose()
 	if err != nil {
 		return err
 	}

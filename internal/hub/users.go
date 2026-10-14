@@ -46,9 +46,10 @@ type Person struct {
 	Folder string `json:"folder"` // Syncthing folder ID
 	Path   string `json:"path"`
 	Added  int64  `json:"added"`
-	// RecoveryID is the person's recovery ID, for someone who came through
-	// their recovery link (see WorkHere).
+	// RecoveryID is the person's recovery ID, once they can work from
+	// anywhere (see WorkHere and Anywhere), and Email where their link went.
 	RecoveryID string `json:"recovery_id,omitempty"`
+	Email      string `json:"email,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.
@@ -106,6 +107,16 @@ func (s HubState) DevicesOf(person string) []User {
 		}
 	}
 	return out
+}
+
+// PersonNamedOK finds a person by their exact name.
+func (s HubState) PersonNamedOK(name string) (Person, bool) {
+	for _, p := range s.People {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return Person{}, false
 }
 
 // PersonNamed finds a person by name, ignoring case.
@@ -178,6 +189,10 @@ type UsersConfig struct {
 	Online    func(ctx context.Context) ([]peers.Peer, error)
 	WebNodes  func(ctx context.Context) []string
 	SelfAddr  string
+	// MailNodes are the web nodes that send the group's email, and
+	// LinkHost a site the group serves, for people's links (see Anywhere).
+	MailNodes func(ctx context.Context) []string
+	LinkHost  func(ctx context.Context) string
 }
 
 type Users struct {

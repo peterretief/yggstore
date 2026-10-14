@@ -245,6 +245,22 @@ devices; when the last one goes, the folder stays on the box, unshared.
 Boxes set up before people existed make a person of each device, keeping
 its folder.
 
+### Work from anywhere
+
+People who use a box have no dashboard of their own, so they turn this on
+from the box's page (step 4 there). They paste their device's Syncthing
+ID, which tells the box who they are, and an email address they can read
+anywhere. The box then makes them a sharing key if they have none, starts
+keeping recovery copies of their folder, keeps their record on the group's
+web nodes, and has a web node send them their link from `yggstore@` the
+group's domain.
+
+Opening the link on another device, at a client's office, say, pairs that
+device with their folder from wherever it is (see
+[working from anywhere](recovery.md)). Only one device has the folder at a
+time: the page says which one has it, and **Move them here** takes it from
+that one.
+
 ### Team folders
 
 A team folder is for files several people work on. It lives on the box,

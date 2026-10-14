@@ -55,6 +55,9 @@ type Store struct {
 	// BoxURL is where a box's hub answers, from its node address (tests
 	// change it); by default the same host on HubPort.
 	BoxURL func(node string) string
+	// Email, if set, sends a message from the group (this node holds the
+	// mail relay): the link, for people whose box asks.
+	Email func(ctx context.Context, to, subject, text string) error
 }
 
 func (s *Store) path(id string) string { return filepath.Join(s.Dir, id+".json") }
@@ -78,6 +81,10 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 	if !ok {
 		return false
 	}
+	if id, ok := strings.CutSuffix(id, "/email"); ok {
+		s.email(w, r, id)
+		return true
+	}
 	if r.Method != http.MethodPut {
 		http.Error(w, "PUT a record", http.StatusMethodNotAllowed)
 		return true
@@ -99,6 +106,89 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return true
+}
+
+// EmailRequest asks a web node with the mail relay to email a person
+// their link: a box sends it, since a box has no address to send from.
+type EmailRequest struct {
+	To   string `json:"to"`
+	Link string `json:"link"` // the whole link, with the key's half after the #
+}
+
+// email sends a person their link. The link must open their record, so
+// only someone holding it can have it sent anywhere.
+func (s *Store) email(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPost || s.Email == nil {
+		http.Error(w, "this node sends no email", http.StatusNotFound)
+		return
+	}
+	var req EmailRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	rec, err := s.get(id)
+	if err != nil {
+		http.Error(w, "no record "+id+" here yet", http.StatusNotFound)
+		return
+	}
+	_, frag, _ := strings.Cut(req.Link, "#")
+	fid, half, _ := strings.Cut(frag, ".")
+	key, err := recovery.Key(half, rec.GroupHalf)
+	if fid != id || err != nil || !strings.Contains(req.Link, PagePath+"#") {
+		http.Error(w, "that isn't this record's link", http.StatusBadRequest)
+		return
+	}
+	if _, err := recovery.Open(key, rec.Sealed); err != nil {
+		http.Error(w, "that link doesn't open this record", http.StatusForbidden)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	if err := s.Email(ctx, req.To, LinkSubject, LinkText(req.Link)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.logf("work here: emailed %s their link", rec.Name)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// LinkSubject and LinkText are the email that carries a person's link.
+const LinkSubject = "Your link for working from anywhere"
+
+func LinkText(link string) string {
+	return `This is your yggstore link for working from anywhere. Keep this email.
+
+When you want to work remotely, or can't get to your computer, open the link
+on the device you want to work on. It asks for that device's Syncthing ID,
+and your files then come to it through your group's box:
+
+` + link + `
+
+Only one device has your files at a time: opening the link elsewhere moves
+them there. Anyone who can read this email can open your files, so keep it
+somewhere safe. If that worries you, turn "Work from anywhere" off.
+`
+}
+
+// SendEmail asks a web node to email a person their link.
+func SendEmail(ctx context.Context, c *http.Client, node, id string, req EmailRequest) error {
+	b, _ := json.Marshal(req)
+	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+node+"/v1/work/"+id+"/email", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	hr.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(hr)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	return nil
 }
 
 //go:embed page.html

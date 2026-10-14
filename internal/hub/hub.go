@@ -16,6 +16,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -180,6 +181,7 @@ func (h *Hub) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /install.sh", h.handleInstall)
 	mux.HandleFunc("POST /api/join", h.handleJoin)
+	mux.HandleFunc("POST /api/anywhere", h.handleAnywhere)
 	mux.HandleFunc("GET /bin/{platform}", func(w http.ResponseWriter, r *http.Request) {
 		path, ok := h.cfg.Bins[r.PathValue("platform")]
 		if !ok {
@@ -312,3 +314,29 @@ else
 fi
 case ":$PATH:" in *":$bin:"*) ;; *) echo; echo "Add $bin to your PATH to run yggstore by name." ;; esac
 `
+
+// handleAnywhere turns on working from anywhere for the person whose
+// device is named, from the box's page.
+func (h *Hub) handleAnywhere(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if h.cfg.Users == nil {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "this box doesn't sync devices"})
+		return
+	}
+	var req struct{ Device, Email string }
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "bad request"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
+	defer cancel()
+	msg, err := h.cfg.Users.Anywhere(ctx, req.Device, req.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"message": msg})
+}

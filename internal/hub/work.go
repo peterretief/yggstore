@@ -84,6 +84,12 @@ func (u *Users) WorkHere(ctx context.Context, req WorkRequest) (WorkResponse, er
 		}
 	}
 
+	// Already working through this box: their folder here is newer than
+	// any copy, so only the device changes.
+	if found && u.holdsHere(ctx, person) {
+		return u.pairDevice(ctx, person, req.Device)
+	}
+
 	// Unpack the copy before anything changes, so a copy that can't be
 	// read changes nothing.
 	tmp, err := os.MkdirTemp(u.cfg.Dir, ".work-")
@@ -141,25 +147,43 @@ func (u *Users) WorkHere(ctx context.Context, req WorkRequest) (WorkResponse, er
 		}
 	}
 
+	return u.pairDevice(ctx, person, req.Device)
+}
+
+// holdsHere is whether the box already holds the person's working copy.
+func (u *Users) holdsHere(ctx context.Context, p Person) bool {
+	u.mu.Lock()
+	pl := u.places[p.Name]
+	u.mu.Unlock()
+	if pl == nil {
+		return false
+	}
+	pl.tracker.Step(ctx)
+	return pl.tracker.State().Mine
+}
+
+// pairDevice makes device the one syncing the person's folder: any others
+// stop syncing it first.
+func (u *Users) pairDevice(ctx context.Context, person Person, device string) (WorkResponse, error) {
 	if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
 		for i := range s.Users {
-			if s.Users[i].Person == person.Name && s.Users[i].Device != req.Device {
+			if s.Users[i].Person == person.Name && s.Users[i].Device != device {
 				s.Users[i].Remove = true // Move: the old devices stop syncing first
 			}
 		}
 		for i := range s.Users {
-			if s.Users[i].Device == req.Device {
+			if s.Users[i].Device == device {
 				s.Users[i].Person, s.Users[i].Remove = person.Name, false
 				return nil
 			}
 		}
-		s.Users = append(s.Users, User{Name: person.Name + "-" + strings.ToLower(req.Device[:7]), Device: req.Device,
-			Folder: person.Folder, Path: person.Path, Added: time.Now().Unix(), Address: "the recovery link", Person: person.Name})
+		s.Users = append(s.Users, User{Name: person.Name + "-" + strings.ToLower(device[:7]), Device: device,
+			Folder: person.Folder, Path: person.Path, Added: time.Now().Unix(), Address: "the link", Person: person.Name})
 		return nil
 	}); err != nil {
 		return WorkResponse{}, err
 	}
-	u.cfg.Logf("hub: %s works here now, from device %s; their latest copy is in %s", person.Name, short7(req.Device), person.Path)
+	u.cfg.Logf("hub: %s works from device %s now; their folder is %s", person.Name, short7(device), person.Path)
 	host, _ := os.Hostname()
 	u.mu.Lock()
 	id := u.myID

@@ -365,6 +365,17 @@ func cmdServe(ctx context.Context, args []string) error {
 	var work *workhere.Store
 	if *webAddr != "" {
 		work = &workhere.Store{Dir: filepath.Join(*dataDir, "work"), Client: &http.Client{Timeout: 5 * time.Minute}, Log: log.Printf}
+		if relay != nil {
+			// Boxes have no address to send from: the group sends their
+			// people's links, from yggstore@ its domain.
+			work.Email = func(ctx context.Context, to, subject, text string) error {
+				domain := peers.GroupDomain(live.List())
+				if domain == "" {
+					return errors.New("the group has no domain to send from (\"domain\" on the admin's entry)")
+				}
+				return relay.SendOwn(ctx, mail.Draft{From: "yggstore@" + domain, Name: "yggstore", To: to, Subject: subject, Text: text})
+			}
+		}
 		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work}
 		if mailNode.Token != "" {
 			web.Mail = mailNode

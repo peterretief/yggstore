@@ -394,6 +394,27 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, caller string) b
 	return true
 }
 
+// SendOwn sends a message the relay's own node writes (a link for working
+// from anywhere, say), within the same hourly limit as members' mail.
+func (r *Relay) SendOwn(ctx context.Context, d Draft) error {
+	raw, rcpts, err := d.Compose()
+	if err != nil {
+		return err
+	}
+	if !r.allow("this node") {
+		return fmt.Errorf("at most %d messages an hour", MaxPerHour)
+	}
+	deliver := r.Deliver
+	if deliver == nil {
+		deliver = r.deliver
+	}
+	if err := deliver(ctx, d.From, rcpts, raw); err != nil {
+		return err
+	}
+	r.logf("mail: sent from %s to %d recipient(s) (%d bytes)", d.From, len(rcpts), len(raw))
+	return nil
+}
+
 // deliver sends one message over SMTP, always encrypted.
 func (r *Relay) deliver(ctx context.Context, from string, to []string, msg []byte) error {
 	host, port, _ := net.SplitHostPort(r.SMTP)

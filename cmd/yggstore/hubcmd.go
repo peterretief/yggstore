@@ -196,8 +196,10 @@ func cmdHub(ctx context.Context, args []string) error {
 				}
 				return msg.Local{Addr: *msgAPI, Token: token, HTTP: &http.Client{Timeout: 10 * time.Second}}, nil
 			},
-			WebNodes: func(ctx context.Context) []string { return webNodes(ctx, wc, *peersPath) },
-			SelfAddr: selfAddr(self),
+			WebNodes:  func(ctx context.Context) []string { return webNodes(ctx, wc, *peersPath) },
+			MailNodes: func(ctx context.Context) []string { return mailNodes(ctx, wc, *peersPath) },
+			LinkHost:  func(ctx context.Context) string { return linkHost(ctx, wc, *peersPath) },
+			SelfAddr:  selfAddr(self),
 			Watch: func(ctx context.Context, p hub.Person) {
 				w := outbox.New(outbox.Config{Dir: p.Path, PeersPath: *peersPath, Client: wc, Identity: id,
 					Event: func(kind, msg string) { log.Printf("%s: %s", p.Name, msg) }})
@@ -600,4 +602,44 @@ func webNodes(ctx context.Context, c client.Client, peersPath string) []string {
 		}
 	}
 	return out
+}
+
+// mailNodes are the web nodes that send the group's email.
+func mailNodes(ctx context.Context, c client.Client, peersPath string) []string {
+	var out []string
+	for _, n := range webNodes(ctx, c, peersPath) {
+		ictx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		info, err := c.Info(ictx, n)
+		cancel()
+		if err == nil && info.MailOut {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// linkHost is a site the group serves, for people's links: the admin's
+// first name if it has one, else any site being served.
+func linkHost(ctx context.Context, c client.Client, peersPath string) string {
+	if list, err := peers.Load(peersPath); err == nil {
+		for _, p := range list {
+			if p.Admin && len(p.Names) > 0 {
+				return p.Names[0]
+			}
+		}
+	}
+	for _, n := range webNodes(ctx, c, peersPath) {
+		ictx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		info, err := c.Info(ictx, n)
+		cancel()
+		var st site.NodeStatus
+		if err == nil && json.Unmarshal(info.Web, &st) == nil {
+			for _, s := range st.Sites {
+				if s.Serving != "" {
+					return s.Site
+				}
+			}
+		}
+	}
+	return ""
 }
