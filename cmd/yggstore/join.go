@@ -136,8 +136,10 @@ func cmdJoin(ctx context.Context, args []string) error {
 		"-sharing-key", keyPath, "-contacts", contactsPath, "-me", *me, "-remote"}
 	if dashListen != defaultDashListen {
 		// A second node's dashboard: the first one keeps the usual port and
-		// the mail bridge.
+		// the mail bridge. The first node also keeps the machine's local
+		// messaging API, which both dashboards use.
 		dash = append(dash, "-listen", dashListen, "-imap", "", "-smtp", "")
+		node = append(node, "-msg-api", "")
 	}
 
 	fmt.Printf("\nYou're in: this node is %q (%s), giving %g GB.\n", resp.Node, addr, *quotaGB)
