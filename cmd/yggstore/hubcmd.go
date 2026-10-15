@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/client"
+	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/hub"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
@@ -43,6 +44,13 @@ sync their files with, and a page showing how it is
   yggstore hub users             the devices paired, and whose they are
   yggstore hub people            the people, their devices and folders
   yggstore hub link DEVICE PERSON  make a device sync that person's folder
+  yggstore hub person add NAME   add someone, and print their invite link
+  yggstore hub person invite NAME    a new invite link (works once, for a week)
+  yggstore hub person limit NAME GB DEVICES   how much they may store, and how many devices (0: no limit)
+  yggstore hub person suspend|resume|remove NAME   shut them out for now, let them back, or for good
+  yggstore hub devices           the devices that open each person's files in the browser
+  yggstore hub devices add PERSON ADDRESS [NAME]   let a device (its Yggdrasil address) open them
+  yggstore hub devices remove ADDRESS|NAME
   yggstore hub teams             the team folders, and who is in each
   yggstore hub team add NAME PERSON...    a team folder for these people
   yggstore hub team join|leave NAME PERSON...
@@ -210,6 +218,7 @@ func cmdHub(ctx context.Context, args []string) error {
 				}
 			}})
 		go cfg.Users.Run(ctx)
+		cfg.Files = cfg.Users.FilesHandler(self)
 		cfg.Work = cfg.Users.WorkHandler(func(ip string) bool {
 			list, err := peers.Load(*peersPath)
 			return err == nil && peers.AllowedIPs(list)[ip]
@@ -372,10 +381,27 @@ func cmdHubControl(ctx context.Context, args []string) error {
 				devs = append(devs, d.Name)
 			}
 			list := strings.Join(devs, ", ")
-			if list == "" {
+			if list == "" && len(p.FilesDevices) > 0 {
+				list = "opens their files in the browser"
+			} else if list == "" {
 				list = "no devices: the files stay on the box, unshared"
 			}
-			fmt.Printf("%-20s %s\n  folder %s\n", p.Name, list, p.Path)
+			b, n := hub.Usage(p)
+			use := fmt.Sprintf("stores %s in %d files", hub.Size(b), n)
+			if p.Quota > 0 {
+				use += " of " + hub.Size(p.Quota)
+			}
+			if p.MaxDevices > 0 {
+				use += fmt.Sprintf(", %d of %d devices", len(p.FilesDevices), p.MaxDevices)
+			} else if len(p.FilesDevices) > 0 {
+				use += fmt.Sprintf(", %d in the browser", len(p.FilesDevices))
+			}
+			if p.Removed {
+				use += " (removed)"
+			} else if p.Suspended {
+				use += " (suspended)"
+			}
+			fmt.Printf("%-20s %s\n  %s\n  folder %s\n", p.Name, list, use, p.Path)
 		}
 		return nil
 	case cmd == "teams" && fs.NArg() == 1:
@@ -527,6 +553,112 @@ func cmdHubControl(ctx context.Context, args []string) error {
 			return fmt.Errorf("a website stays while its folder is in %s; yggstore site remove %s takes it off the web",
 				filepath.Join(*dir, "websites"), name)
 		}
+	case cmd == "person" && fs.NArg() >= 3:
+		name := fs.Arg(2)
+		switch fs.Arg(1) {
+		case "add", "invite":
+			var token string
+			if _, err := hub.Update(ctx, *statePath, func(s *hub.HubState) error {
+				if fs.Arg(1) == "add" {
+					p, err := s.AddPerson(name, filepath.Join(*dir, "users"))
+					if err != nil {
+						return err
+					}
+					name = p.Name
+				}
+				var err error
+				token, err = s.Invite(name, time.Now())
+				return err
+			}); err != nil {
+				return err
+			}
+			addr := "THIS-BOX'S-YGGDRASIL-ADDRESS"
+			if t, err := transport.ByName("ygg"); err == nil {
+				if ip, err := t.LocalIP(); err == nil {
+					addr = ip.String()
+				}
+			}
+			fmt.Printf("Send %s this link. It works once, for a week, on a device with Yggdrasil:\n  http://[%s]:7490%s?t=%s\n", name, addr, hub.JoinPath, token)
+			return nil
+		case "suspend", "resume":
+			on := fs.Arg(1) == "suspend"
+			return set(func(s *hub.HubState) error { return s.Suspend(name, on) },
+				map[bool]string{true: name + " is shut out for now; their files stay.", false: name + " may use the box again."}[on])
+		case "remove":
+			return set(func(s *hub.HubState) error { return s.RemovePerson(name) },
+				name+" is removed: their devices are shut out, and their files stay on the box.")
+		case "limit":
+			if fs.NArg() != 5 {
+				break
+			}
+			gb, err1 := strconv.ParseFloat(fs.Arg(3), 64)
+			n, err2 := strconv.Atoi(fs.Arg(4))
+			if err1 != nil || err2 != nil || gb < 0 || n < 0 {
+				return errors.New("usage: yggstore hub person limit NAME GB DEVICES (0 for no limit)")
+			}
+			return set(func(s *hub.HubState) error { return s.Limit(name, int64(gb*(1<<30)), n) },
+				fmt.Sprintf("%s may store %s and let in %s.", name, map[bool]string{true: "as much as they like", false: hub.Size(int64(gb * (1 << 30)))}[gb == 0],
+					map[bool]string{true: "any number of devices", false: fmt.Sprint(n, " devices")}[n == 0]))
+		}
+	case cmd == "devices" && fs.NArg() == 1:
+		st, err := hub.Load(*statePath)
+		if err != nil {
+			return err
+		}
+		listed := false
+		for _, p := range st.People {
+			for _, d := range p.FilesDevices {
+				if !listed {
+					fmt.Printf("%-16s %-20s %-12s %s\n", "PERSON", "DEVICE", "ADDED", "YGGDRASIL ADDRESS")
+					listed = true
+				}
+				fmt.Printf("%-16s %-20s %-12s %s\n", p.Name, d.Name, d.Added.Format("2006-01-02"), d.Addr)
+			}
+		}
+		if !listed {
+			fmt.Println("No device opens anyone's files in the browser yet.")
+		}
+		st.PruneAsks(time.Now())
+		if len(st.Asks) > 0 {
+			fmt.Println("\nAsking to be let in (yggstore hub devices add PERSON ADDRESS):")
+			for _, a := range st.Asks {
+				who := ""
+				if a.Who != "" {
+					who = "for " + a.Who
+				}
+				fmt.Printf("  %-20s %-18s %-16s %s\n", a.Name, who, time.Unix(a.At, 0).Format("2 Jan 15:04"), a.Addr)
+			}
+		}
+		return nil
+	case cmd == "devices" && fs.Arg(1) == "add" && (fs.NArg() == 4 || fs.NArg() == 5):
+		var d devices.Device
+		var whose string
+		if _, err := hub.Update(ctx, *statePath, func(s *hub.HubState) error {
+			p, ok := s.PersonNamed(fs.Arg(2))
+			if !ok {
+				return fmt.Errorf("nobody called %q (see yggstore hub people)", fs.Arg(2))
+			}
+			whose = p.Name
+			var err error
+			d, err = s.LetIn(p.Name, fs.Arg(3), fs.Arg(4))
+			return err
+		}); err != nil {
+			return err
+		}
+		fmt.Printf("%s (%s) opens %s's files now, at the box's Yggdrasil address, port 7490, /files.\n", d.Name, d.Addr, whose)
+		return nil
+	case cmd == "devices" && fs.Arg(1) == "remove" && fs.NArg() == 3:
+		var whose string
+		var d devices.Device
+		if _, err := hub.Update(ctx, *statePath, func(s *hub.HubState) error {
+			var err error
+			whose, d, err = s.LetOut("", fs.Arg(2))
+			return err
+		}); err != nil {
+			return err
+		}
+		fmt.Printf("%s (%s) can't open %s's files any more.\n", d.Name, d.Addr, whose)
+		return nil
 	case cmd == "remove" && fs.NArg() == 2:
 		return set(func(s *hub.HubState) error {
 			for i, u := range s.Users {

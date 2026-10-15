@@ -648,6 +648,8 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	listen := fs.String("listen", "127.0.0.1:7480", "address for the dashboard page")
 	remote := fs.Bool("remote", false, "also open the dashboard to your own devices over Yggdrasil (see yggstore devices), and send the LAN there")
 	sitePort := fs.Int("site-port", 8480, "show this box's own website on its Yggdrasil address at this port (0 for none)")
+	hubStatePath := fs.String("hub-state", hubState(), "on a box: its hub's state file, to manage the people on it")
+	hubPeople := fs.String("hub-dir", hubDir(), "on a box: where the hub keeps people's folders (DIR/users)")
 	devicesPath := fs.String("devices", filepath.Join(yggstoreHome(), "devices.json"), "with -remote: the devices allowed in")
 	tname := fs.String("transport", "ygg", "ygg or loopback (only used to show this node's ID)")
 	interval := fs.Duration("interval", 3*time.Second, "how often to poll peers and files")
@@ -689,7 +691,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	}
 	c := client.New()
 	c.HTTP.Timeout = 10 * time.Second
-	cfg := dashboard.Config{PeersPath: *peersPath, StubDir: absStubs, SelfID: selfID, Interval: *interval, Client: c,
+	cfg := dashboard.Config{HubState: *hubStatePath, HubPeople: filepath.Join(*hubPeople, "users"), PeersPath: *peersPath, StubDir: absStubs, SelfID: selfID, Interval: *interval, Client: c,
 		TestPeersPath: *testPeers, Identity: id, ContactsPath: *contactsPath, Name: *me, Listen: *listen,
 		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken,
 		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"),

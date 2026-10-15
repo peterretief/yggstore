@@ -111,6 +111,9 @@ if (live) {
   $("stepsWrap").hidden = true;
   $("saved").textContent = "Straight from your computer, over your secure Yggdrasil connection.";
   $("pendingMsg").textContent = "Files marked storing… are being stored in the group, which takes a minute or so; then they can be downloaded.";
+  const devs = document.documentElement.dataset.devices;
+  if (devs) $("saved").textContent = "Straight from the box, over your secure Yggdrasil connection.";
+  if (devs) { const a = document.createElement("a"); a.href = devs; a.textContent = "Your devices"; $("saved").append(" ", a); }
 } else if (!id || !link) { $("bad").hidden = false; $("stepsWrap").hidden = true; }
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));

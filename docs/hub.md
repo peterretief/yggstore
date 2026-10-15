@@ -273,6 +273,64 @@ is, at a client's office, say. Only one device has the folder at a time:
 the page says which one has it, and **Move them here** takes it from that
 one.
 
+### Your files in the browser
+
+Each person on the box can also open their files in a browser, from their
+laptop or phone, without Syncthing. It's the dashboard's
+[files page](remote-dashboard.md#your-files): browse, download, upload
+files and folders of any size, new folders, rename, move and delete. It
+works on their folder on the box directly. One box serves everyone, and
+each person sees only their own folder.
+
+It goes over Yggdrasil, at the box's Yggdrasil address on the hub's port,
+such as `http://[200:1f12::cfd6]:7490/files`. The box's page shows the
+address (step 5 there). A Yggdrasil address can only be used by the device
+holding its private key, so the address says which device is asking, and
+the box opens the folder of the person it belongs to. Opened over the LAN,
+the page sends the browser on to that address and serves nothing itself.
+
+While a person's files are being worked on at another place (see
+[work from anywhere](#work-from-anywhere)), the page only shows them.
+
+### Looking after the people on the box
+
+The box's admin adds people, and looks after them, from **People on this
+box** on the box's own dashboard (port 7480). That dashboard opens only on
+the admin's own devices, from anywhere (see
+[your devices](remote-dashboard.md)), so nobody else on the LAN or on
+Yggdrasil can change who uses the box.
+
+- **Add someone:** type their name. The box makes them an empty folder and
+  an **invite link**, such as
+  `http://[200:1f12::cfd6]:7490/files/join?t=…`, for you to send them. It
+  works once, for a week, on a device with Yggdrasil. Opening it asks them
+  to name the device and press **Let this device in**. After that first
+  device, they let in their others themselves, under **Your devices** on
+  their files page. **New invite link** replaces a lost or expired one.
+- **Keep tabs:** for each person, how much they store and in how many
+  files, their devices and when each was last on, and any Syncthing
+  devices they also have.
+- **Limits:** how much they may store (GB) and how many devices they may
+  let in. An upload that doesn't fit is refused, and they're told why.
+- **Suspend** shuts them out for now: their page says it's closed, their
+  devices can't get in, and their folder stops syncing and storing. Their
+  files stay. **Let back in** undoes it.
+- **Remove** shuts them out for good: their browser and Syncthing devices
+  and their invite go. Their files stay on the box, and adding them again
+  under the same name brings them back.
+
+The same from the box's command line:
+
+```sh
+yggstore hub person add anna              # prints her invite link
+yggstore hub person invite anna           # a new one
+yggstore hub person limit anna 20 3       # 20 GB, 3 devices (0: no limit)
+yggstore hub person suspend anna          # or resume, or remove
+yggstore hub people                       # what each stores, and their limits
+yggstore hub devices                      # whose devices open which files, and who is asking
+yggstore hub devices remove "anna's phone"
+```
+
 ### Team folders
 
 A team folder is for files several people work on. It lives on the box,

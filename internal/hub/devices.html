@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Your devices</title>
+<style>
+:root { --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --sub: #5b6475; --line: #dde1e8; --accent: #2f6fde; --bad: #c0392b; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171d; --panel: #1c2028; --text: #e6e9ef; --sub: #9aa3b2; --line: #2c323d; --accent: #6b9bff; --bad: #ff6b5b; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+.sub { color: var(--sub); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 18px; }
+.card h2 { font-size: 17px; margin: 0 0 8px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 9px 4px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--sub); }
+button { padding: 6px 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+button.plain { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+.err { color: var(--bad); margin-top: 10px; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your devices</h1>
+  <div class="sub" id="who">The laptops and phones that open your files on this box, over Yggdrasil. <a href="/files">Back to your files</a></div>
+  <div class="card"><h2>Let in</h2><div id="devs"><span class="sub">Loading…</span></div></div>
+  <div class="card"><h2>Asking to be let in</h2>
+    <div class="sub">Allow only a device you know is yours: it will open your files. A device asks by opening this box's files page.</div>
+    <div id="asks"></div></div>
+  <div class="err" id="err"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+async function act(op, addr) {
+  $("err").textContent = "";
+  const r = await fetch("?op=" + op, {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"}, body: JSON.stringify({addr})});
+  if (!r.ok) $("err").textContent = (await r.text()).trim();
+  load();
+}
+async function load() {
+  let st;
+  try { st = await (await fetch("?op=list", {cache: "no-store"})).json(); }
+  catch (e) { $("err").textContent = "The box isn't answering."; return; }
+  $("devs").innerHTML = st.devices.map(d => `<div class="row"><span class="name">${esc(d.name)}${d.addr === st.you ? " <span class=sub>(this one)</span>" : ""}<br><span class="mono">${esc(d.addr)}</span></span>`
+    + (d.addr === st.you ? "" : `<button class="plain" data-op="remove" data-addr="${esc(d.addr)}">Remove</button>`) + `</div>`).join("");
+  $("asks").innerHTML = st.asks.length ? st.asks.map(a => `<div class="row"><span class="name">${esc(a.name)}${a.who ? " <span class=sub>for " + esc(a.who) + "</span>" : ""}`
+    + ` <span class="sub">${new Date(a.at * 1000).toLocaleString()}</span><br><span class="mono">${esc(a.addr)}</span></span>`
+    + `<button data-op="allow" data-addr="${esc(a.addr)}">Allow</button> <button class="plain" data-op="dismiss" data-addr="${esc(a.addr)}">Dismiss</button></div>`).join("")
+    : `<p class="sub">Nobody is asking.</p>`;
+}
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("button[data-op]");
+  if (b) act(b.dataset.op, b.dataset.addr);
+});
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>

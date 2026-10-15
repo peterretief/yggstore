@@ -165,6 +165,17 @@ systemctl --user enable --now syncthing</pre></li>
     </div>
   </div>
 
+  <div class="card step" style="margin-top:12px" id="filesCard" hidden>
+    <div class="num">5</div>
+    <div>
+      <h3>Your files in the browser</h3>
+      <p>Open your files from your laptop or phone, without Syncthing: browse, download, upload, rename and delete. It goes over
+        <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noopener">Yggdrasil</a>, which must be installed on the device. Open:</p>
+      <div class="copyrow"><pre id="filesURL"></pre><button data-copy="filesURL">Copy</button></div>
+      <p class="note">Each person sees only their own files. Your first device gets in with the invite link the box's owner sends you; after that you let in your other devices yourself, under <b>Your devices</b>.</p>
+    </div>
+  </div>
+
   <h2>This box</h2>
   <div class="card" id="node"><span class="sub">Checking…</span></div>
 
@@ -219,6 +230,8 @@ async function refresh() {
   document.querySelectorAll('.boxname2').forEach(e => e.textContent = host);
   $('staddr').textContent = (st.lan || []).map(ip => 'tcp://' + (ip.includes(':') ? '[' + ip + ']' : ip) + ':22000').concat(['dynamic']).join(', ');
   showSync(st.sync);
+  $('filesCard').hidden = !st.files_at;
+  if (st.files_at) $('filesURL').textContent = 'http://[' + st.files_at + ']' + (location.port ? ':' + location.port : '') + '/files';
   const n = st.node;
   let html;
   if (st.problem) {

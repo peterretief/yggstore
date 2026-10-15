@@ -66,6 +66,9 @@ type Config struct {
 	// Work, if set, answers the group's web nodes over Yggdrasil when
 	// someone opens their recovery link (POST /v1/work; see WorkHere).
 	Work http.Handler
+	// Files, if set, serves each person's files page at /files, over
+	// Yggdrasil to their own devices (see files.go).
+	Files http.Handler
 }
 
 type Hub struct {
@@ -100,8 +103,9 @@ type State struct {
 	Nodes    int        `json:"nodes"`
 	Bins     []string   `json:"bins"` // platforms the hub has builds for
 	Checked  int64      `json:"checked"`
-	Sync     *Status    `json:"sync,omitempty"` // pairing through Syncthing
-	LAN      []string   `json:"lan"`            // this box's addresses on the LAN
+	Sync     *Status    `json:"sync,omitempty"`     // pairing through Syncthing
+	LAN      []string   `json:"lan"`                // this box's addresses on the LAN
+	FilesAt  string     `json:"files_at,omitempty"` // the Yggdrasil address people open their files at
 }
 
 // check asks every node in the group whether it is up, at most every few
@@ -114,6 +118,9 @@ func (h *Hub) check(ctx context.Context) State {
 	}
 	st := State{Version: h.cfg.Version, Bins: []string{}, LAN: LANAddrs()}
 	st.Hostname, _ = os.Hostname()
+	if h.cfg.Files != nil {
+		st.FilesAt = h.cfg.SelfAddr
+	}
 	for p := range h.cfg.Bins {
 		st.Bins = append(st.Bins, p)
 	}
@@ -195,6 +202,10 @@ func (h *Hub) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/work" && h.cfg.Work != nil {
 			h.cfg.Work.ServeHTTP(w, r) // checks the caller is a member itself
+			return
+		}
+		if (r.URL.Path == FilesPath || strings.HasPrefix(r.URL.Path, FilesPath+"/")) && h.cfg.Files != nil {
+			h.cfg.Files.ServeHTTP(w, r) // checks whose device asks itself
 			return
 		}
 		lan.ServeHTTP(w, r)

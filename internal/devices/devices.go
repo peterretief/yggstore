@@ -22,6 +22,9 @@ type Device struct {
 	Addr  string    `json:"addr"`
 	Name  string    `json:"name,omitempty"`
 	Added time.Time `json:"added"`
+	// LastSeen is when it last opened the page, where that is kept (a box
+	// keeps it for its people's devices).
+	LastSeen time.Time `json:"last_seen,omitzero"`
 }
 
 // Load reads the list at path; a missing file is an empty list.

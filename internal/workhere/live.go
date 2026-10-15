@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"html"
 	"io"
 	"mime"
 	"net/http"
@@ -33,6 +34,12 @@ type Live struct {
 	// Header, if set, is a header the page must send with its requests
 	// (the dashboard asks for X-Yggstore: 1).
 	Header string
+	// Devices, if set, is where the person manages the devices that open
+	// the page (on a box, where it isn't on a dashboard); the page links it.
+	Devices string
+	// Room, if set, says whether a file of this size (-1 if unknown) may be
+	// put in the folder (a box's people may have a quota).
+	Room func(size int64) error
 }
 
 var liveMark = []byte(`<html lang="en" data-live="1">`)
@@ -43,7 +50,11 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case op == "" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Write(bytes.Replace(page, []byte(`<html lang="en">`), liveMark, 1))
+		mark := liveMark
+		if l.Devices != "" {
+			mark = []byte(`<html lang="en" data-live="1" data-devices="` + html.EscapeString(l.Devices) + `">`)
+		}
+		w.Write(bytes.Replace(page, []byte(`<html lang="en">`), mark, 1))
 	case op == "get" && r.Method == http.MethodGet:
 		l.get(w, r, r.URL.Query().Get("path"))
 	case r.Method != http.MethodPost:
@@ -277,6 +288,12 @@ func (l *Live) put(w http.ResponseWriter, r *http.Request) {
 		}
 		if l.exists(d) || !changeable(d) {
 			jsonError(w, http.StatusBadRequest, "A file can't be put there.")
+			return
+		}
+	}
+	if l.Room != nil {
+		if err := l.Room(r.ContentLength); err != nil {
+			jsonError(w, http.StatusRequestEntityTooLarge, err.Error())
 			return
 		}
 	}

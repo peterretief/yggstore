@@ -17,6 +17,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/client"
+	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/filelock"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/syncthing"
@@ -50,6 +51,17 @@ type Person struct {
 	// anywhere (see WorkHere and Anywhere), and Email where their link went.
 	RecoveryID string `json:"recovery_id,omitempty"`
 	Email      string `json:"email,omitempty"`
+	// FilesDevices are the laptops and phones that open the person's files
+	// page on the box over Yggdrasil (see files.go).
+	FilesDevices []devices.Device `json:"files_devices,omitempty"`
+	// What the box's admin set (see people.go): how much they may store
+	// (bytes) and how many devices they may let in, 0 for no limit;
+	// Suspended shuts them out for now, and Removed for good, their files
+	// staying on the box.
+	Quota      int64 `json:"quota,omitempty"`
+	MaxDevices int   `json:"max_devices,omitempty"`
+	Suspended  bool  `json:"suspended,omitempty"`
+	Removed    bool  `json:"removed,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.
@@ -67,6 +79,10 @@ type HubState struct {
 	People []Person `json:"people,omitempty"`
 	Teams  []Team   `json:"teams,omitempty"`
 	Sites  []Site   `json:"sites,omitempty"`
+	// Asks are devices asking to open someone's files page.
+	Asks []DeviceAsk `json:"asks,omitempty"`
+	// Invites are the admin's links that let a person's first device in.
+	Invites []Invite `json:"invites,omitempty"`
 }
 
 // Team is a folder several people work in, on this box: every device of
@@ -512,35 +528,47 @@ func (u *Users) migrate(ctx context.Context) (HubState, error) {
 func (u *Users) sharePeople(ctx context.Context, st HubState, have map[string]bool) error {
 	for _, p := range st.People {
 		devs := st.DevicesOf(p.Name)
-		if len(devs) == 0 {
+		if len(devs) == 0 || p.Removed {
 			if have[p.Folder] {
 				if err := u.cfg.ST.RemoveFolder(ctx, p.Folder); err != nil && !notFound(err) {
 					return err
 				}
 				delete(have, p.Folder)
 			}
-			u.stopWatch(p.Folder)
 			delete(u.shared, p.Folder)
+			// Someone who only opens their files in the browser still has
+			// them stored.
+			if len(p.FilesDevices) > 0 && p.Active() {
+				u.startWatch(ctx, p)
+			} else {
+				u.stopWatch(p.Folder)
+			}
 			continue
+		}
+		if p.Suspended {
+			u.stopWatch(p.Folder)
 		}
 		ids := []string{u.myID}
 		for _, d := range devs {
 			ids = append(ids, d.Device)
 		}
-		want := fmt.Sprint(ids, st.Paused)
+		paused := st.Paused || p.Suspended
+		want := fmt.Sprint(ids, paused)
 		if !have[p.Folder] || u.shared[p.Folder] != want {
 			for _, d := range devs {
 				if err := u.cfg.ST.AddDevice(ctx, d.Device, d.Name); err != nil {
 					return err
 				}
 			}
-			if err := u.share(ctx, p, ids, st.Paused); err != nil {
+			if err := u.share(ctx, p, ids, paused); err != nil {
 				return err
 			}
 			have[p.Folder] = true
 			u.shared[p.Folder] = want
 		}
-		u.startWatch(ctx, p)
+		if !p.Suspended {
+			u.startWatch(ctx, p)
+		}
 	}
 	return nil
 }

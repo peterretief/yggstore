@@ -192,6 +192,11 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   <section class="card" id="mybox"><div class="sub">Loading…</div></section>
   <section class="job" id="job" hidden></section>
 
+  <div id="peopleWrap" hidden>
+  <h2>People on this box</h2>
+  <section class="card" id="people"><div class="sub">Loading…</div></section>
+  </div>
+
   <div id="groupView">
   <h2>The group</h2>
   <section class="tiles" id="tiles"></section>
@@ -1341,6 +1346,76 @@ $("devices").addEventListener("click", async ev => {
 });
 refreshDevices();
 setInterval(refreshDevices, 5000);
+
+// People on this box: the admin adds people, sends each an invite link to
+// open their files from anywhere, sees what they store, and limits,
+// suspends or removes them.
+let peopleKey = "", peopleLink = null;
+async function refreshPeople() {
+  if (document.activeElement && document.activeElement.closest && document.activeElement.closest("#people input")) return;
+  let st;
+  try { st = await (await fetch("api/box/people", {cache: "no-store"})).json(); } catch { return; }
+  $("peopleWrap").hidden = !st.on;
+  if (!st.on) return;
+  const key = JSON.stringify(st) + JSON.stringify(peopleLink);
+  if (key === peopleKey) return;
+  peopleKey = key;
+  const when = t => t ? new Date(t).toLocaleString() : "never";
+  const rows = st.people.map(p => {
+    const last = p.devices.reduce((a, v) => v.last_seen && v.last_seen > a ? v.last_seen : a, "");
+    const state = p.removed ? `<span class="pill bad">removed</span>` : p.suspended ? `<span class="pill warn">suspended</span>`
+      : p.devices.length || p.syncthing ? `<span class="pill ok">on</span>` : p.invite_until ? `<span class="pill info">invited</span>` : `<span class="pill info">no devices</span>`;
+    const over = p.quota && p.bytes > p.quota;
+    const devs = p.devices.map(v => `<div class="sub">${esc(v.name || "a device")} · last on ${esc(when(v.last_seen))}
+      <span class="mono">${esc(v.addr)}</span> <button class="del" data-pact="device-remove" data-name="${esc(p.name)}" data-addr="${esc(v.addr)}">Remove</button></div>`).join("");
+    const acts = p.removed ? `<button data-pact="add" data-name="${esc(p.name)}">Bring back</button>`
+      : `<button data-pact="invite" data-name="${esc(p.name)}">${p.invite_until ? "New invite link" : "Invite link"}</button>
+        <button data-pact="${p.suspended ? "resume" : "suspend"}" data-name="${esc(p.name)}">${p.suspended ? "Let back in" : "Suspend"}</button>
+        <button class="del" data-pact="remove" data-name="${esc(p.name)}">Remove</button>`;
+    const link = peopleLink && peopleLink.name === p.name ? `<div style="margin-top:6px">Send ${esc(p.name)} this link. It works once, for a week, on a device with
+      <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noreferrer">Yggdrasil</a>:
+      <div class="mono" style="user-select:all;margin-top:4px">${esc(peopleLink.link)}</div></div>` : "";
+    return `<tr><td><b>${esc(p.name)}</b> ${state}${p.invite_until && !p.removed ? `<div class="sub">invite works until ${esc(new Date(p.invite_until * 1000).toLocaleDateString())}</div>` : ""}
+        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${link}</td>
+      <td class="num">${size(p.bytes)}${p.quota ? ` of ${size(p.quota)}` : ""}${over ? ` <span class="pill bad">over</span>` : ""}<div class="sub">${p.files} files</div></td>
+      <td class="sub">${p.devices.length ? "last on " + esc(when(last)) : ""}</td>
+      <td class="actions">${acts}${p.removed ? "" : `<details style="margin-top:6px"><summary class="sub">Limits</summary>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center">
+        <label class="sub">GB <input type="number" min="0" step="1" style="width:6em" data-quota="${esc(p.name)}" value="${p.quota ? Math.round(p.quota / (1 << 30)) : ""}" placeholder="no limit"></label>
+        <label class="sub">devices <input type="number" min="0" step="1" style="width:5em" data-maxdev="${esc(p.name)}" value="${p.max_devices || ""}" placeholder="any"></label>
+        <button data-pact="limit" data-name="${esc(p.name)}">Save</button></div></details>`}</td></tr>`;
+  }).join("");
+  $("people").innerHTML = `<div class="sub">People on this box open their own files from anywhere, in the browser, over Yggdrasil
+      (<span class="mono">${esc(st.files_at)}</span>). Each sees only their own. Add someone and send them their invite link; after their first device,
+      they let in their others themselves, within the limits you set.</div>
+    ${rows ? `<table style="margin-top:10px"><thead><tr><th>Person</th><th>Stores</th><th>Seen</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="sub" style="margin-top:10px">Nobody yet.</div>`}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><input id="personName" placeholder="name, e.g. anna" style="flex:1;min-width:160px">
+      <button data-pact="add" id="personAdd">Add someone</button></div>
+    <div id="peopleMsg" class="err"></div>`;
+}
+$("people").addEventListener("click", async ev => {
+  const b = ev.target.closest("button[data-pact]");
+  if (!b) return;
+  const act = b.dataset.pact, name = b.id === "personAdd" ? $("personName").value.trim() : b.dataset.name;
+  const body = {name};
+  if (act === "remove" && !confirm(`Remove ${name}? Their devices are shut out; their files stay on the box.`)) return;
+  if (act === "suspend" && !confirm(`Suspend ${name}? They can't open their files until you let them back in.`)) return;
+  if (act === "device-remove") body.addr = b.dataset.addr;
+  if (act === "limit") {
+    const q = document.querySelector(`[data-quota="${CSS.escape(name)}"]`).value, m = document.querySelector(`[data-maxdev="${CSS.escape(name)}"]`).value;
+    body.quota = q ? Math.round(+q * (1 << 30)) : 0;
+    body.max_devices = m ? +m : 0;
+  }
+  const r = await post("api/box/people/" + act, {body: JSON.stringify(body)});
+  if (!r.ok) { $("peopleMsg").textContent = (await r.text()).trim(); return; }
+  const out = await r.json().catch(() => ({}));
+  peopleLink = out.link ? {name: name, link: out.link} : peopleLink;
+  if (document.activeElement) document.activeElement.blur();
+  peopleKey = ""; refreshPeople();
+});
+refreshPeople();
+setInterval(refreshPeople, 15000);
 
 // Your website: publish a folder or zip as the site of one of this box's
 // names, or edit the version being served file by file.

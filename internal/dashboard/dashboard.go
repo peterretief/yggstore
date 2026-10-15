@@ -104,6 +104,10 @@ type Config struct {
 	CloudflareToken, TunnelToken, SiteService string
 	// Version is this yggstore's, shown under My box.
 	Version string
+	// HubState, on a box, is its hub's state file, and HubPeople where the
+	// hub keeps people's folders: the dashboard manages the box's people
+	// (see people.go).
+	HubState, HubPeople string
 	// LogPath keeps the activity log on disk (default: in the outbox's
 	// .yggstore folder), so it survives restarts and can be looked at later.
 	LogPath string
@@ -235,6 +239,7 @@ type Dashboard struct {
 	noRoom       func() map[string]int
 	down         func() map[string]int64
 	asks         []deviceAsk // devices asking to be let in
+	usage        usageCache  // what the box's people store
 }
 
 func New(cfg Config) *Dashboard {
@@ -342,6 +347,8 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sites/{action}", d.handleSiteAction)
 	mux.HandleFunc("GET /api/devices", d.handleDevices)
 	mux.HandleFunc("POST /api/devices/{action}", d.handleDeviceAction)
+	mux.HandleFunc("GET /api/box/people", d.handlePeople)
+	mux.HandleFunc("POST /api/box/people/{action}", d.handlePeopleAction)
 	mux.Handle(FilesPage, d.filesPage())
 	return d.guard(mux)
 }
