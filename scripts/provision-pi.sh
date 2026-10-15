@@ -71,7 +71,8 @@ case $arch in
 aarch64) GOENV=(GOARCH=arm64) ;;
 armv6l) GOENV=(GOARCH=arm GOARM=6) ;;
 armv7l) GOENV=(GOARCH=arm GOARM=7) ;;
-*) die "the Pi runs $arch; flash Raspberry Pi OS Lite" ;;
+x86_64) GOENV=(GOARCH=amd64) ;; # a small PC, such as a thin client, on Debian or Ubuntu
+*) die "the machine runs $arch; flash Raspberry Pi OS Lite, or use a 64-bit PC" ;;
 esac
 ip=$(ask "hostname -I | awk '{print \$1}'")
 [ -n "$ip" ] || die "the Pi has no network address"
