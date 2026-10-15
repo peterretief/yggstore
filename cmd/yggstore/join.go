@@ -40,11 +40,19 @@ func cmdJoin(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Joining %s, invited by %s.\n", inv.Group, inv.From)
-
-	if err := os.MkdirAll(*dir, 0o700); err != nil {
+	// Everything that would stop the join is checked before the group is
+	// asked, so a refused join leaves the machine, and the group, as they were.
+	nodeUnit, dashUnit, dashListen := nodeServices(*dir, *name, *port)
+	if err := alreadyJoined(*dir); err != nil {
 		return err
 	}
+	if *service {
+		if err := unitsFree(nodeUnit, dashUnit); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("Joining %s, invited by %s.\n", inv.Group, inv.From)
+
 	t, err := transport.ByName("ygg")
 	if err != nil {
 		return err
@@ -58,6 +66,9 @@ func cmdJoin(ctx context.Context, args []string) error {
 		if yggPeers == "" {
 			yggPeers = defaultYggPeers
 		}
+		if err := os.MkdirAll(*dir, 0o700); err != nil {
+			return err
+		}
 		yggKey := filepath.Join(*dir, "ygg.key")
 		node, err := startBuiltin(yggKey, yggPeers, "", true, *port)
 		if err != nil {
@@ -69,6 +80,17 @@ func cmdJoin(ctx context.Context, args []string) error {
 		fmt.Println("This machine has no Yggdrasil running, so the node will use its own, built in.")
 	}
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
+	if builtin == nil {
+		// A node of another group may already answer on this port.
+		l, err := net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("something on this machine already uses port %d (another yggstore node?); join with another -port, and its own -dir", *port)
+		}
+		l.Close()
+	}
+	if err := os.MkdirAll(*dir, 0o700); err != nil {
+		return err
+	}
 	keyPath := filepath.Join(*dir, "sharing.key")
 	id, err := share.LoadOrCreate(keyPath)
 	if err != nil {
@@ -80,7 +102,8 @@ func cmdJoin(ctx context.Context, args []string) error {
 	defer cancel()
 	resp, err := c.Join(jctx, inv.Admin.Addr, invite.Request{Token: inv.Token, Node: *name, Person: *me, Addr: addr, SharingCode: id.Code()})
 	if err != nil {
-		if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "400") {
+		// A refusal starts with its HTTP status; "400" alone also matches port 7400.
+		if msg := err.Error(); strings.HasPrefix(msg, "403 ") || strings.HasPrefix(msg, "400 ") {
 			return fmt.Errorf("the group did not accept this machine: %v", err)
 		}
 		if builtin != nil {
@@ -111,21 +134,29 @@ func cmdJoin(ctx context.Context, args []string) error {
 	}
 	dash := []string{exe, "dashboard", "-peers", peersPath, "-outfiles", *outfiles,
 		"-sharing-key", keyPath, "-contacts", contactsPath, "-me", *me, "-remote"}
+	if dashListen != defaultDashListen {
+		// A second node's dashboard: the first one keeps the usual port and
+		// the mail bridge.
+		dash = append(dash, "-listen", dashListen, "-imap", "", "-smtp", "")
+	}
 
 	fmt.Printf("\nYou're in: this node is %q (%s), giving %g GB.\n", resp.Node, addr, *quotaGB)
 	fmt.Printf("The group has %d nodes; %s is in your contacts.\n", len(resp.Peers), inv.From)
 	if *service {
-		if err := installServices(inv.Group, node, dash); err != nil {
+		if err := installUnits(map[string]string{
+			nodeUnit: unit("yggstore node ("+inv.Group+")", node),
+			dashUnit: unit("yggstore dashboard on http://"+dashListen, dash),
+		}); err != nil {
 			return fmt.Errorf("joined, but the services could not be set up: %w\nStart them by hand:\n  %s\n  %s",
 				err, shellJoin(node), shellJoin(dash))
 		}
-		fmt.Printf("The node and your dashboard are running: open http://127.0.0.1:7480\n")
+		fmt.Printf("The node and your dashboard are running: open http://%s\n", dashListen)
 		fmt.Printf("To open it from your other devices, see yggstore devices.\n")
 		fmt.Printf("Drop files into %s to store them.\n", *outfiles)
 		return nil
 	}
 	fmt.Printf("\nStart your node (keep it running so the group can use your space):\n  %s\n", shellJoin(node))
-	fmt.Printf("Start your dashboard, then open http://127.0.0.1:7480:\n  %s\n", shellJoin(dash))
+	fmt.Printf("Start your dashboard, then open http://%s:\n  %s\n", dashListen, shellJoin(dash))
 	fmt.Printf("Or run join again with -service to have both started for you.\n")
 	return nil
 }
@@ -141,13 +172,73 @@ func yggHelp(inv invite.Invite) string {
 	return b.String()
 }
 
-// installServices writes systemd units for the node and dashboard and
-// starts them.
-func installServices(group string, node, dash []string) error {
-	return installUnits(map[string]string{
-		"yggstore-node.service":      unit("yggstore node ("+group+")", node),
-		"yggstore-dashboard.service": unit("yggstore dashboard on http://127.0.0.1:7480", dash),
-	})
+const defaultDashListen = "127.0.0.1:7480"
+
+// alreadyJoined refuses a second group in one folder: joining would
+// overwrite the first group's member list, leaving that group without
+// telling it. A machine is in one group; a second is a second node, with
+// its own folder and port.
+func alreadyJoined(dir string) error {
+	list, err := peers.Load(filepath.Join(dir, "peers.json"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("%s has a member list that can't be read (%v); move it away to join a group here", filepath.Join(dir, "peers.json"), err)
+	}
+	admin := "its admin"
+	for _, p := range list {
+		if p.Admin {
+			admin = p.Name
+			break
+		}
+	}
+	return fmt.Errorf("this machine is already in a group (%d nodes, admin %s), kept in %s.\n"+
+		"To join another group as well, run it as a second node with its own folder and port, e.g.\n"+
+		"  yggstore join -dir %s-2 -port 7401 [-name NODE] INVITE", len(list), admin, dir, filepath.Clean(dir))
+}
+
+// nodeServices names the units and the dashboard address for a node kept in
+// dir: the usual ones for the first node, and ones of its own, after its
+// name and port, for a second.
+func nodeServices(dir, name string, port int) (node, dash, dashListen string) {
+	if filepath.Clean(dir) == filepath.Clean(yggstoreHome()) && port == 7400 {
+		return "yggstore-node.service", "yggstore-dashboard.service", defaultDashListen
+	}
+	safe := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, name)
+	dashPort := 7480 + port - 7400
+	switch {
+	case port <= 7400:
+		dashPort = 7481
+	case dashPort > 65535:
+		dashPort = port - 1
+	}
+	return "yggstore-node-" + safe + ".service", "yggstore-dashboard-" + safe + ".service",
+		net.JoinHostPort("127.0.0.1", strconv.Itoa(dashPort))
+}
+
+// unitsFree checks that none of the named units exists yet.
+func unitsFree(names ...string) error {
+	for _, n := range names {
+		path := filepath.Join(unitDir(), n)
+		if _, err := os.Stat(path); err == nil {
+			return fmt.Errorf("%s already exists, so a node is set up here already; join with its own -dir, -port and -name, or without -service", path)
+		}
+	}
+	return nil
+}
+
+// unitDir is where installUnits writes units.
+func unitDir() string {
+	if asRoot() {
+		return "/etc/systemd/system"
+	}
+	return filepath.Join(homeDir(), ".config", "systemd", "user")
 }
 
 // asRoot is whether services are the machine's own (run as root, from
@@ -172,10 +263,7 @@ func installUnits(units map[string]string) error {
 	if _, err := exec.LookPath("systemctl"); err != nil {
 		return errors.New("systemctl not found")
 	}
-	unitDir := filepath.Join(homeDir(), ".config", "systemd", "user")
-	if asRoot() {
-		unitDir = "/etc/systemd/system"
-	}
+	unitDir := unitDir()
 	if err := os.MkdirAll(unitDir, 0o755); err != nil {
 		return err
 	}

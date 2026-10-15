@@ -212,6 +212,21 @@ only keeps a hash of it. A node on a machine that is already a member is
 tagged with that machine automatically; otherwise tag it with `"host"` by
 hand if you know two nodes share a box.
 
+A machine is in one group. `join` refuses a folder that already holds a
+group's member list, a port another node answers on, and, with `-service`,
+units already there, all before it asks the group, so a refused join
+changes nothing. To be in a second group too, run a second node with its
+own folder and port:
+
+```sh
+yggstore join -service -dir ~/.yggstore-2 -port 7401 -name laptop-b yggjoin1:…
+```
+
+Its services are named after it (`yggstore-node-laptop-b`), and its
+dashboard answers on 7481 instead of 7480, without the mail bridge. It
+still shares `~/.yggstore`'s names, sites and recovery files with the
+first dashboard.
+
 The join endpoint is the only call a non-member can make, and it does
 nothing without a valid invite (rate-limited to 6 tries a minute).
 
