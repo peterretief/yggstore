@@ -36,6 +36,9 @@ func TestLiveFollowsPushesAndHandEdits(t *testing.T) {
 	if !l.Allowed("200::3") || l.Hash() != Hash(added) {
 		t.Fatal("pushed list not in use")
 	}
+	if got, err := Load(base); err != nil || Hash(got) != Hash(added) {
+		t.Fatalf("the list the node started with did not follow the push: %v", err)
+	}
 
 	// A restart picks the pushed list, since it is newer.
 	if l2, _ := NewLive(base, pushed, "200::9"); !l2.Allowed("200::3") {
@@ -118,5 +121,27 @@ func TestRefreshSameTick(t *testing.T) {
 	l.Refresh()
 	if !l.IsAdmin("127.0.0.1") {
 		t.Fatal("the second write in the same tick was missed")
+	}
+}
+
+func TestReplaceWithReadOnlyBase(t *testing.T) {
+	etc, data := t.TempDir(), t.TempDir()
+	base, pushed := filepath.Join(etc, "peers.json"), filepath.Join(data, "peers.pushed.json")
+	admin := Peer{Name: "desktop", Addr: "[200::1]:7400", Admin: true}
+	if err := Write(base, []Peer{admin}); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(etc, 0o555)
+	defer os.Chmod(etc, 0o755)
+	l, err := NewLive(base, pushed, "200::9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := []Peer{admin, {Name: "new", Addr: "[200::3]:7400"}}
+	if err := l.Replace("200::1", added); err != nil {
+		t.Fatalf("a base the node can't write stopped the push: %v", err)
+	}
+	if !l.Allowed("200::3") {
+		t.Fatal("pushed list not in use")
 	}
 }

@@ -163,6 +163,10 @@ func (l *Live) Replace(caller string, list []Peer) error {
 	if err := Write(l.pushed, list); err != nil {
 		return fmt.Errorf("save pushed list: %w", err)
 	}
+	// The list the node was started with follows too, so the file on disk
+	// says what the node uses. A node may not be allowed to write it (it is
+	// often in /etc); the pushed copy is in use either way.
+	Write(l.base, list)
 	l.set(list, [2]stamp{stampOf(l.base), stampOf(l.pushed)})
 	return nil
 }
