@@ -678,8 +678,21 @@ func cmdDashboard(ctx context.Context, args []string) error {
 
 	selfID := ""
 	if t, err := transport.ByName(*tname); err == nil {
-		if ip, err := t.LocalIP(); err == nil {
-			selfID = ip.String()
+		// At boot the dashboard can start before Yggdrasil's tun device has
+		// its address; with -remote, wait a while for it rather than staying
+		// on 127.0.0.1 until the next restart.
+		wait := time.Duration(0)
+		if *remote {
+			wait = time.Minute
+		}
+		for deadline := time.Now().Add(wait); ; time.Sleep(2 * time.Second) {
+			if ip, err := t.LocalIP(); err == nil {
+				selfID = ip.String()
+				break
+			}
+			if time.Now().After(deadline) {
+				break
+			}
 		}
 	}
 	if *outfiles != "" {
