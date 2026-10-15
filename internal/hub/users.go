@@ -62,6 +62,11 @@ type Person struct {
 	MaxDevices int   `json:"max_devices,omitempty"`
 	Suspended  bool  `json:"suspended,omitempty"`
 	Removed    bool  `json:"removed,omitempty"`
+	// Code is the person's own sharing code: the mail to a name the group
+	// gives them, and their site's contact form, are sealed for it (see
+	// personsite.go). Forward is where they asked for that mail to go too.
+	Code    string   `json:"code,omitempty"`
+	Forward *Forward `json:"forward,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.
@@ -209,6 +214,9 @@ type UsersConfig struct {
 	// LinkHost a site the group serves, for people's links (see Anywhere).
 	MailNodes func(ctx context.Context) []string
 	LinkHost  func(ctx context.Context) string
+	// People runs people's own websites and mail (see personsite.go); nil
+	// for none.
+	People *PeopleSites
 }
 
 type Users struct {

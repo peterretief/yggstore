@@ -13,8 +13,12 @@ func TestNodeFromArgs(t *testing.T) {
 
 	// Relative paths, member list only: that's the one used.
 	n, ok := nodeFromArgs([]string{"/usr/bin/yggstore", "serve", "-peers", "peers.json", "-data=shards", "-name", "pi"}, dir, "/home/x")
-	if !ok || n.Peers != filepath.Join(dir, "peers.json") || n.MsgToken != "/home/x/.yggstore/msg.token" {
+	if !ok || n.Peers != filepath.Join(dir, "peers.json") || n.MsgToken != "/home/x/.yggstore/msg.token" || n.Mailbox != "/home/x/.yggstore/mail" {
 		t.Fatalf("got %+v, %v", n, ok)
+	}
+	// A second node on the machine has no messaging: not the box's node.
+	if _, ok := nodeFromArgs([]string{"yggstore", "serve", "-peers", "peers.json", "-port", "7401", "-msg-api", ""}, dir, "/home/x"); ok {
+		t.Fatal("a node without messaging taken for the box's")
 	}
 	// A list the admin pushed is newer, so it wins.
 	os.WriteFile(filepath.Join(dir, "shards", "peers.pushed.json"), []byte("[]"), 0o644)

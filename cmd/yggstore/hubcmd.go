@@ -123,7 +123,9 @@ func cmdHub(ctx context.Context, args []string) error {
 	// it exists.
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	nodeMail := ""
 	if node, ok := hub.FindLocalNode(); ok {
+		nodeMail = node.Mailbox
 		if !given["peers"] {
 			*peersPath = node.Peers
 		}
@@ -195,7 +197,24 @@ func cmdHub(ctx context.Context, args []string) error {
 				}
 				return added, err
 			}})
-		cfg.Users = hub.NewUsers(hub.UsersConfig{ST: syncthing.New(base, key), Dir: filepath.Join(*dir, "users"), StatePath: *statePath,
+		localMsgs := func() (msg.Local, error) {
+			token, err := msg.ReadToken(*msgToken)
+			if err != nil {
+				return msg.Local{}, fmt.Errorf("this box's node's messaging token: %w", err)
+			}
+			return msg.Local{Addr: *msgAPI, Token: token, HTTP: &http.Client{Timeout: 10 * time.Second}}, nil
+		}
+		// People with a name of their own: their sites and mail.
+		people := hub.NewPeopleSites(hub.PeopleSitesConfig{StatePath: *statePath, PeersPath: *peersPath, Self: self,
+			NodeMail: nodeMail, Dir: filepath.Join(*dir, "people"), Client: wc, MaxBytes: *siteMax << 20, Logf: log.Printf,
+			Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },
+			Announcer: func() (site.Announcer, error) {
+				l, err := localMsgs()
+				return localAnnouncer{l}, err
+			},
+			Messages: func() (hub.Messenger, error) { return localMsgs() }})
+		go people.Run(ctx)
+		cfg.Users = hub.NewUsers(hub.UsersConfig{People: people, ST: syncthing.New(base, key), Dir: filepath.Join(*dir, "users"), StatePath: *statePath,
 			Limit: *limit, Logf: log.Printf, Websites: sites.Dir(), WebsitesReady: sites.Ready, Client: wc,
 			PeersPath: *peersPath, Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },
 			Bus: func() (workcopy.Bus, error) {
@@ -244,6 +263,7 @@ func cmdHub(ctx context.Context, args []string) error {
 			Peers: func() ([]peers.Peer, error) { return peers.Load(*peersPath) },
 			Stubs: func() []string {
 				mine, _ := cfg.Users.Stubs()
+				mine = append(mine, people.Stubs()...)
 				return append(mine, repair.Find(filepath.Join(*dir, "recovery"))...)
 			},
 			Received: func() []string { _, renew := cfg.Users.Stubs(); return renew },

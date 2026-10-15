@@ -234,18 +234,3 @@ func TestPublishWebsite(t *testing.T) {
 		t.Fatalf("with the form off, index.html is %q", got)
 	}
 }
-
-func TestContactLink(t *testing.T) {
-	page := "<html><body>\n<h1>Hi</h1>\n</BODY></html>"
-	with := withContactLink(page)
-	if !strings.HasSuffix(with, contactLinkHTML+"</BODY></html>") {
-		t.Fatalf("added: %q", with)
-	}
-	if got := withoutContactLink(with); got != page {
-		t.Fatalf("removed: %q", got)
-	}
-	own := `<a href="/_yggstore/contact">Write to me</a>`
-	if withContactLink(own) != own {
-		t.Fatal("a page that links to the form already got a second link")
-	}
-}

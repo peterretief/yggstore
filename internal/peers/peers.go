@@ -30,7 +30,10 @@ import (
 // a node reaches the group from wherever it is plugged in. Domain, on an
 // admin's entry, is the group's domain; Names are the names under it the
 // admin gave the node's owner (see names.go), and Code the owner's sharing
-// code, which their mail is sealed for. A leaving peer is about to go down
+// code, which their mail is sealed for. PeopleNames are names given to
+// people who use a box without a node of their own (see names.go): the
+// box's node keeps their site and mail, sealed for each person's own code.
+// A leaving peer is about to go down
 // (see package repair): nothing new is stored on it, and its shards are
 // moved off while it still answers.
 type Peer struct {
@@ -46,9 +49,10 @@ type Peer struct {
 	YggListen []string `json:"ygg_listen,omitempty"`
 	YggPeers  []string `json:"ygg_peers,omitempty"`
 
-	Domain string   `json:"domain,omitempty"`
-	Names  []string `json:"names,omitempty"`
-	Code   string   `json:"code,omitempty"`
+	Domain      string       `json:"domain,omitempty"`
+	Names       []string     `json:"names,omitempty"`
+	Code        string       `json:"code,omitempty"`
+	PeopleNames []PersonName `json:"people_names,omitempty"`
 }
 
 // Operator is the person the peer's space and uploads count towards.

@@ -11,6 +11,18 @@ import (
 // such as anna.example.org is both a mailbox (anna@example.org) and a
 // website (anna.example.org), and belongs to the node whose entry lists it.
 // Only an admin's push changes the list, so only the admin gives names.
+//
+// A box's node can also hold names for the people who use the box without
+// a node of their own (PeopleNames): the node serves their site and takes
+// their mail, but both are sealed for the person's own sharing code, so
+// only they read it.
+
+// PersonName is a name given to one person on a box.
+type PersonName struct {
+	Name   string `json:"name"`   // anna.example.org
+	Person string `json:"person"` // as the box calls them
+	Code   string `json:"code"`   // their sharing code
+}
 
 var (
 	label     = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
@@ -62,6 +74,24 @@ func validNames(p Peer, owners map[string]bool) error {
 	if len(p.Names) > 0 && !strings.HasPrefix(p.Code, "ys1") {
 		return errors.New(`a node with names needs its owner's sharing code ("code": "ys1…")`)
 	}
+	people := map[string]bool{}
+	for _, pn := range p.PeopleNames {
+		l, dom, ok := strings.Cut(pn.Name, ".")
+		if !ok || ValidLabel(l) != nil || ValidDomain(dom) != nil {
+			return fmt.Errorf("name %q is not like anna.example.org", pn.Name)
+		}
+		if owners[pn.Name] {
+			return fmt.Errorf("name %s given twice", pn.Name)
+		}
+		owners[pn.Name] = true
+		if pn.Person == "" || people[strings.ToLower(pn.Person)] {
+			return fmt.Errorf("name %s: each person on a box has one name, and must be named", pn.Name)
+		}
+		people[strings.ToLower(pn.Person)] = true
+		if !strings.HasPrefix(pn.Code, "ys1") {
+			return fmt.Errorf(`name %s needs its person's sharing code ("code": "ys1…")`, pn.Name)
+		}
+	}
 	return nil
 }
 
@@ -76,26 +106,61 @@ func GroupDomain(list []Peer) string {
 	return ""
 }
 
-// NameOwner is the peer that holds name (anna.example.org).
+// NameOwner is the peer that holds name (anna.example.org): the node it
+// was given to, or the box of the person it was given to.
 func NameOwner(list []Peer, name string) (Peer, bool) {
+	p, _, ok := NameHolder(list, name)
+	return p, ok
+}
+
+// NameHolder is the peer that holds name and the sharing code its mail and
+// contact forms are sealed for: the person's own, for a name given to
+// someone on a box (person is then their name on the box).
+func NameHolder(list []Peer, name string) (p Peer, person PersonName, ok bool) {
 	name = strings.ToLower(strings.TrimSuffix(name, "."))
 	for _, p := range list {
 		for _, n := range p.Names {
 			if n == name {
-				return p, true
+				return p, PersonName{Name: n, Code: p.Code}, true
+			}
+		}
+		for _, pn := range p.PeopleNames {
+			if pn.Name == name {
+				return p, pn, true
 			}
 		}
 	}
-	return Peer{}, false
+	return Peer{}, PersonName{}, false
+}
+
+// PersonNameOf is the name node's entry gives person, if any.
+func PersonNameOf(list []Peer, node, person string) (PersonName, bool) {
+	for _, p := range list {
+		if p.IP() != node {
+			continue
+		}
+		for _, pn := range p.PeopleNames {
+			if strings.EqualFold(pn.Person, person) {
+				return pn, true
+			}
+		}
+	}
+	return PersonName{}, false
 }
 
 // MailOwner is the peer whose name an address (anna@example.org) is.
 func MailOwner(list []Peer, addr string) (Peer, bool) {
+	p, _, ok := MailHolder(list, addr)
+	return p, ok
+}
+
+// MailHolder is MailOwner with the code the address's mail is sealed for.
+func MailHolder(list []Peer, addr string) (Peer, PersonName, bool) {
 	local, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
 	if !ok || ValidLabel(local) != nil {
-		return Peer{}, false
+		return Peer{}, PersonName{}, false
 	}
-	return NameOwner(list, local+"."+domain)
+	return NameHolder(list, local+"."+domain)
 }
 
 // MailAddress is the address a name receives mail at.

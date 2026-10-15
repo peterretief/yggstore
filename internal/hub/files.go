@@ -358,10 +358,20 @@ func (f *filesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case FilesPath:
 		name := p.Name
-		(&workhere.Live{Outbox: p.Path, Client: f.client, Holding: func() bool { return f.u.Holding(name) },
-			Devices: FilesPath + "/devices", Room: func(size int64) error { return f.room(p, size) }}).ServeHTTP(w, r)
+		live := &workhere.Live{Outbox: p.Path, Client: f.client, Holding: func() bool { return f.u.Holding(name) },
+			Devices: FilesPath + "/devices", Room: func(size int64) error { return f.room(p, size) }}
+		if f.u.cfg.People != nil {
+			live.Site = SitePath
+		}
+		live.ServeHTTP(w, r)
 	case FilesPath + "/devices":
 		f.devices(w, r, p, remote)
+	case SitePath:
+		if f.u.cfg.People == nil {
+			http.NotFound(w, r)
+			return
+		}
+		f.site(w, r, p)
 	default:
 		http.NotFound(w, r)
 	}

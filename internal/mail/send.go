@@ -46,6 +46,8 @@ type Draft struct {
 	Bcc     string
 	Subject string
 	Text    string
+	// ReplyTo, if set, is where replies go instead of From.
+	ReplyTo string
 	// InReplyTo and References thread a reply (from the message replied to).
 	InReplyTo  string
 	References string
@@ -98,6 +100,14 @@ func (d Draft) Compose() (raw []byte, rcpts []string, err error) {
 	}
 	if len(rcpts) == 0 {
 		return nil, nil, errors.New("no one to send it to")
+	}
+	if rt := strings.TrimSpace(d.ReplyTo); rt != "" {
+		a, err := netmail.ParseAddress(rt)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Reply-To: %w", err)
+		}
+		a.Name = oneLine(a.Name)
+		put("Reply-To", a.String())
 	}
 	if len(rcpts) > MaxRecipients {
 		return nil, nil, fmt.Errorf("at most %d recipients", MaxRecipients)

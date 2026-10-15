@@ -21,10 +21,16 @@ import (
 // dashboards list it. The admin approves it by adding the name to the
 // member's entry in the group's list, which then reaches every node: the web
 // nodes deliver the address's mail to that node and let it send as it.
+//
+// A box's dashboard also asks for names for the people on the box (see
+// people.go), with each person's own sharing code; the admin decides on
+// those the same way, and the name goes on the box's entry as one of its
+// PeopleNames. When the box removes the person, it gives the name back.
 
 const (
 	typeNameClaim  = "name-claim"  // member → admins: {"name", "code"}
 	typeNameAnswer = "name-answer" // admin → member: {"name", "approved"}
+	typeNameReturn = "name-return" // holder → admins: {"name"}, no longer wanted
 )
 
 // reserved are labels members can't ask for; an admin can still give them.
@@ -38,10 +44,11 @@ type nameClaim struct {
 	Name     string `json:"name"` // anna.example.org
 	Node     string `json:"node"` // the asking node's ID
 	NodeName string `json:"node_name,omitempty"`
-	Code     string `json:"code,omitempty"` // the asker's sharing code
-	Time     int64  `json:"time"`           // unix ms
-	Status   string `json:"status"`         // asked, approved, declined
-	Mine     bool   `json:"mine,omitempty"` // asked from this dashboard
+	Code     string `json:"code,omitempty"`   // the asker's sharing code
+	Person   string `json:"person,omitempty"` // for someone on the asking box
+	Time     int64  `json:"time"`             // unix ms
+	Status   string `json:"status"`           // asked, approved, declined
+	Mine     bool   `json:"mine,omitempty"`   // asked from this dashboard
 }
 
 type namesFile struct {
@@ -99,6 +106,8 @@ func (d *Dashboard) syncNames(ctx context.Context, list []peers.Peer) {
 					d.takeClaim(&f, list, m.From, m.FromName, m.Body, m.Time)
 				case typeNameAnswer:
 					takeAnswer(&f, list, m.From, m.Body)
+				case typeNameReturn:
+					d.takeReturn(list, m.From, m.FromName, m.Body)
 				}
 			}
 		}
@@ -106,9 +115,16 @@ func (d *Dashboard) syncNames(ctx context.Context, list []peers.Peer) {
 	own, _ := selfEntry(list, d.cfg.SelfID)
 	for i := range f.Claims {
 		c := &f.Claims[i]
-		if c.Status == "asked" && c.Mine && contains(own.Names, c.Name) {
+		if c.Status != "asked" || !c.Mine {
+			continue
+		}
+		if c.Person == "" && contains(own.Names, c.Name) {
 			c.Status, changed = "approved", true
 			d.event("ok", fmt.Sprintf("you now have %s and https://%s", peers.MailAddress(c.Name), c.Name))
+		}
+		if pn, ok := peers.PersonNameOf(list, d.cfg.SelfID, c.Person); c.Person != "" && ok && pn.Name == c.Name {
+			c.Status, changed = "approved", true
+			d.event("ok", fmt.Sprintf("box: %s has %s and https://%s now", c.Person, peers.MailAddress(c.Name), c.Name))
 		}
 	}
 	if changed {
@@ -129,8 +145,8 @@ func (d *Dashboard) takeClaim(f *namesFile, list []peers.Peer, from, fromName, b
 	if !isAdmin(list, d.cfg.SelfID) {
 		return
 	}
-	var req struct{ Name, Code string }
-	if json.Unmarshal([]byte(body), &req) != nil || !strings.HasPrefix(req.Code, "ys1") {
+	var req struct{ Name, Code, Person string }
+	if json.Unmarshal([]byte(body), &req) != nil || !strings.HasPrefix(req.Code, "ys1") || len(req.Person) > 60 {
 		return
 	}
 	domain := peers.GroupDomain(list)
@@ -147,8 +163,12 @@ func (d *Dashboard) takeClaim(f *namesFile, list []peers.Peer, from, fromName, b
 			break
 		}
 	}
-	f.Claims = append(f.Claims, nameClaim{Name: req.Name, Node: from, NodeName: fromName, Code: req.Code, Time: at, Status: "asked"})
-	d.event("info", fmt.Sprintf("%s asks for %s: approve or decline it under Names", fromName, peers.MailAddress(req.Name)))
+	f.Claims = append(f.Claims, nameClaim{Name: req.Name, Node: from, NodeName: fromName, Code: req.Code, Person: req.Person, Time: at, Status: "asked"})
+	who := fromName
+	if req.Person != "" {
+		who = fmt.Sprintf("%s (on %s's box)", req.Person, fromName)
+	}
+	d.event("info", fmt.Sprintf("%s asks for %s: approve or decline it under Names", who, peers.MailAddress(req.Name)))
 }
 
 func takeAnswer(f *namesFile, list []peers.Peer, from, body string) {
@@ -166,6 +186,24 @@ func takeAnswer(f *namesFile, list []peers.Peer, from, body string) {
 		if c := &f.Claims[i]; c.Mine && c.Name == ans.Name && c.Status == "asked" && !ans.Approved {
 			c.Status = "declined"
 		}
+	}
+}
+
+// takeReturn takes back a name its holder gives up (admin dashboards).
+// Called with namesMu held.
+func (d *Dashboard) takeReturn(list []peers.Peer, from, fromName, body string) {
+	if !isAdmin(list, d.cfg.SelfID) {
+		return
+	}
+	var req struct{ Name string }
+	if json.Unmarshal([]byte(body), &req) != nil {
+		return
+	}
+	if p, ok := peers.NameOwner(list, req.Name); !ok || p.IP() != from {
+		return
+	}
+	if who, err := d.takeBack(req.Name); err == nil {
+		d.event("info", fmt.Sprintf("%s gave %s back (it was %s's)", fromName, req.Name, who))
 	}
 }
 
@@ -190,8 +228,9 @@ type namesState struct {
 }
 
 type givenName struct {
-	Name string `json:"name"`
-	Node string `json:"node"`
+	Name   string `json:"name"`
+	Node   string `json:"node"`
+	Person string `json:"person,omitempty"` // someone on that box
 }
 
 func (d *Dashboard) handleNames(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +250,8 @@ func (d *Dashboard) handleNames(w http.ResponseWriter, r *http.Request) {
 	d.namesMu.Unlock()
 	for _, c := range f.Claims {
 		switch {
+		case c.Mine && c.Person != "":
+			// for someone on this box: under People on this box
 		case c.Mine && c.Status != "approved":
 			out.Claims = append(out.Claims, c)
 		case !c.Mine && out.Admin && (c.Status == "asked" || time.Since(time.UnixMilli(c.Time)) < 30*24*time.Hour):
@@ -222,6 +263,9 @@ func (d *Dashboard) handleNames(w http.ResponseWriter, r *http.Request) {
 		for _, p := range list {
 			for _, n := range p.Names {
 				out.Given = append(out.Given, givenName{Name: n, Node: p.Name})
+			}
+			for _, pn := range p.PeopleNames {
+				out.Given = append(out.Given, givenName{Name: pn.Name, Node: p.Name, Person: pn.Person})
 			}
 		}
 	}
@@ -267,7 +311,7 @@ func (d *Dashboard) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if admin {
-		if err := d.giveName(d.cfg.SelfID, name, d.cfg.Identity.Code()); err != nil {
+		if err := d.giveName(d.cfg.SelfID, name, d.cfg.Identity.Code(), ""); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -313,8 +357,9 @@ func (d *Dashboard) handleClaim(w http.ResponseWriter, r *http.Request) {
 }
 
 // giveName adds name to node's entry in the group's list, with the sharing
-// code its mail is sealed for; poll then sends every node the new list.
-func (d *Dashboard) giveName(node, name, code string) error {
+// code its mail is sealed for, or to one of person's on that box; poll then
+// sends every node the new list.
+func (d *Dashboard) giveName(node, name, code, person string) error {
 	d.namesMu.Lock()
 	defer d.namesMu.Unlock()
 	list, err := peers.Load(d.cfg.PeersPath)
@@ -326,12 +371,24 @@ func (d *Dashboard) giveName(node, name, code string) error {
 	}
 	found := false
 	for i := range list {
-		if list[i].IP() == node {
-			if !contains(list[i].Names, name) {
-				list[i].Names = append(list[i].Names, name)
-			}
-			list[i].Code, found = code, true
+		if list[i].IP() != node {
+			continue
 		}
+		found = true
+		if person != "" {
+			if pn, ok := peers.PersonNameOf(list, node, person); ok {
+				if pn.Name == name {
+					return nil
+				}
+				return fmt.Errorf("%s has %s already: one name each", person, pn.Name)
+			}
+			list[i].PeopleNames = append(list[i].PeopleNames, peers.PersonName{Name: name, Person: person, Code: code})
+			continue
+		}
+		if !contains(list[i].Names, name) {
+			list[i].Names = append(list[i].Names, name)
+		}
+		list[i].Code = code
 	}
 	if !found {
 		return errors.New("that node is no longer in the group")
@@ -373,7 +430,7 @@ func (d *Dashboard) handleDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Approve {
-		if err := d.giveName(c.Node, c.Name, c.Code); err != nil {
+		if err := d.giveName(c.Node, c.Name, c.Code, c.Person); err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -396,7 +453,11 @@ func (d *Dashboard) handleDecide(w http.ResponseWriter, r *http.Request) {
 		body, _ := json.Marshal(map[string]any{"name": req.Name, "approved": req.Approve})
 		lc.Send(r.Context(), req.Node, typeNameAnswer, string(body))
 	}
-	d.event("ok", fmt.Sprintf("%s %s for %s", status, peers.MailAddress(req.Name), c.NodeName))
+	who := c.NodeName
+	if c.Person != "" {
+		who = c.Person + " on " + c.NodeName
+	}
+	d.event("ok", fmt.Sprintf("%s %s for %s", status, peers.MailAddress(req.Name), who))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -413,11 +474,33 @@ func (d *Dashboard) handleRemoveName(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "only an admin dashboard takes names back", http.StatusForbidden)
 		return
 	}
+	found, err := d.takeBack(req.Name)
+	if errors.Is(err, errNoOne) {
+		http.Error(w, "no one has "+req.Name, http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d.event("info", fmt.Sprintf("took %s back from %s", req.Name, found))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+var errNoOne = errors.New("no one has that name")
+
+// takeBack takes name off whoever holds it in the group's list and says
+// whose it was; poll then sends every node the new list. Called with
+// namesMu held.
+func (d *Dashboard) takeBack(name string) (string, error) {
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		return "", err
+	}
 	found := ""
 	for i := range list {
 		keep := list[i].Names[:0]
 		for _, n := range list[i].Names {
-			if n == req.Name {
+			if n == name {
 				found = list[i].Name
 			} else {
 				keep = append(keep, n)
@@ -426,18 +509,26 @@ func (d *Dashboard) handleRemoveName(w http.ResponseWriter, r *http.Request) {
 		if list[i].Names = keep; len(keep) == 0 {
 			list[i].Names = nil
 		}
+		people := list[i].PeopleNames[:0]
+		for _, pn := range list[i].PeopleNames {
+			if pn.Name == name {
+				found = pn.Person + " on " + list[i].Name
+			} else {
+				people = append(people, pn)
+			}
+		}
+		if list[i].PeopleNames = people; len(people) == 0 {
+			list[i].PeopleNames = nil
+		}
 	}
 	if found == "" {
-		http.Error(w, "no one has "+req.Name, http.StatusNotFound)
-		return
+		return "", errNoOne
 	}
 	if err := peers.Write(d.cfg.PeersPath, list); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return "", err
 	}
 	d.poke()
-	d.event("info", fmt.Sprintf("took %s back from %s", req.Name, found))
-	w.WriteHeader(http.StatusNoContent)
+	return found, nil
 }
 
 func (d *Dashboard) poke() {

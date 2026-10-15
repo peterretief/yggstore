@@ -629,43 +629,6 @@ func (d *Dashboard) handleSiteFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSONResp(w, out)
 }
 
-// The contact link the dashboard puts on a site's home page when its form is
-// turned on, between markers so turning the form off takes out only this.
-const (
-	contactLinkStart = "<!-- yggstore: contact link -->"
-	contactLinkEnd   = "<!-- /yggstore: contact link -->"
-	contactLinkHTML  = contactLinkStart + "\n<p style=\"text-align:center;margin:2em 0\"><a href=\"" + site.ContactPath + "\">Contact</a></p>\n" + contactLinkEnd + "\n"
-)
-
-// withContactLink adds the link to a home page before </body>, unless the
-// page links to the form already.
-func withContactLink(page string) string {
-	if strings.Contains(page, site.ContactPath) {
-		return page
-	}
-	if i := strings.LastIndex(strings.ToLower(page), "</body>"); i >= 0 {
-		return page[:i] + contactLinkHTML + page[i:]
-	}
-	return page + contactLinkHTML
-}
-
-// withoutContactLink takes out the link withContactLink added.
-func withoutContactLink(page string) string {
-	i := strings.Index(page, contactLinkStart)
-	if i < 0 {
-		return page
-	}
-	j := strings.Index(page[i:], contactLinkEnd)
-	if j < 0 {
-		return page
-	}
-	j += i + len(contactLinkEnd)
-	if j < len(page) && page[j] == '\n' {
-		j++
-	}
-	return page[:i] + page[j:]
-}
-
 // contactLink publishes a new version of the site with the contact link on
 // its home page (on) or taken off it, when that changes the page.
 func (d *Dashboard) contactLink(ctx context.Context, pub *site.Publisher, name string, on bool) error {
@@ -684,9 +647,9 @@ func (d *Dashboard) contactLink(ctx context.Context, pub *site.Publisher, name s
 	if err != nil {
 		return nil
 	}
-	page := withoutContactLink(string(b))
+	page := site.WithoutContactLink(string(b))
 	if on {
-		page = withContactLink(page)
+		page = site.WithContactLink(page)
 	}
 	if page == string(b) {
 		return nil

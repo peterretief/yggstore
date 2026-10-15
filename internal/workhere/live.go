@@ -37,6 +37,9 @@ type Live struct {
 	// Devices, if set, is where the person manages the devices that open
 	// the page (on a box, where it isn't on a dashboard); the page links it.
 	Devices string
+	// Site, if set, is the person's page for their website and messages
+	// (on a box); the page links it beside Devices.
+	Site string
 	// Room, if set, says whether a file of this size (-1 if unknown) may be
 	// put in the folder (a box's people may have a quota).
 	Room func(size int64) error
@@ -52,7 +55,7 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		mark := liveMark
 		if l.Devices != "" {
-			mark = []byte(`<html lang="en" data-live="1" data-devices="` + html.EscapeString(l.Devices) + `">`)
+			mark = []byte(`<html lang="en" data-live="1" data-devices="` + html.EscapeString(l.Devices) + `" data-site="` + html.EscapeString(l.Site) + `">`)
 		}
 		w.Write(bytes.Replace(page, []byte(`<html lang="en">`), mark, 1))
 	case op == "get" && r.Method == http.MethodGet:

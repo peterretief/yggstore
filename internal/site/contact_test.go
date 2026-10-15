@@ -180,3 +180,18 @@ func TestContactForm(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+func TestContactLink(t *testing.T) {
+	page := "<html><body>\n<h1>Hi</h1>\n</BODY></html>"
+	with := WithContactLink(page)
+	if !strings.HasSuffix(with, contactLinkHTML+"</BODY></html>") {
+		t.Fatalf("added: %q", with)
+	}
+	if got := WithoutContactLink(with); got != page {
+		t.Fatalf("removed: %q", got)
+	}
+	own := `<a href="/_yggstore/contact">Write to me</a>`
+	if WithContactLink(own) != own {
+		t.Fatal("a page that links to the form already got a second link")
+	}
+}

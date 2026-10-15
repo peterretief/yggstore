@@ -9,15 +9,19 @@ import (
 
 // LocalNode is what the hub needs from the yggstore node running on the
 // same machine, which stores what devices sync to the hub: the group's
-// member list it holds, and its messaging token.
+// member list it holds, its messaging token, and the mailbox it collects
+// mail into (the box's people's mail too).
 type LocalNode struct {
 	Peers    string // the newest member list: the one the admin pushed, else its own
 	MsgToken string
+	Mailbox  string // "" if it collects no mail
 }
 
 // FindLocalNode looks for a "yggstore serve" process on this machine (Linux)
 // and reads where it keeps its member list and messaging token from its
-// command line, so the hub uses the node's group without being told.
+// command line, so the hub uses the node's group without being told. A
+// second node on the machine (one per disk, say) runs without messaging,
+// so it is passed over.
 func FindLocalNode() (LocalNode, bool) {
 	ents, err := os.ReadDir("/proc")
 	if err != nil {
@@ -72,7 +76,15 @@ func nodeFromArgs(args []string, dir, home string) (LocalNode, bool) {
 	if data == "" && home != "" {
 		data = filepath.Join(yh, "shards")
 	}
+	if api, ok := flags["msg-api"]; ok && api == "" {
+		return LocalNode{}, false // no messaging: a second node on the machine
+	}
 	n := LocalNode{Peers: abs(flags["peers"]), MsgToken: abs(flags["msg-token"])}
+	if box, ok := flags["mailbox"]; ok {
+		n.Mailbox = abs(box)
+	} else if home != "" {
+		n.Mailbox = filepath.Join(yh, "mail")
+	}
 	if pushed := filepath.Join(data, "peers.pushed.json"); data != "" && exists(pushed) {
 		n.Peers = pushed
 	}

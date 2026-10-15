@@ -376,3 +376,40 @@ func (l *limiter) allow(key string, n int, per time.Duration) bool {
 	l.seen[key] = append(recent, now)
 	return true
 }
+
+// The contact link the dashboard (or a box) puts on a site's home page when its form is
+// turned on, between markers so turning the form off takes out only this.
+const (
+	contactLinkStart = "<!-- yggstore: contact link -->"
+	contactLinkEnd   = "<!-- /yggstore: contact link -->"
+	contactLinkHTML  = contactLinkStart + "\n<p style=\"text-align:center;margin:2em 0\"><a href=\"" + ContactPath + "\">Contact</a></p>\n" + contactLinkEnd + "\n"
+)
+
+// WithContactLink adds the link to a home page before </body>, unless the
+// page links to the form already.
+func WithContactLink(page string) string {
+	if strings.Contains(page, ContactPath) {
+		return page
+	}
+	if i := strings.LastIndex(strings.ToLower(page), "</body>"); i >= 0 {
+		return page[:i] + contactLinkHTML + page[i:]
+	}
+	return page + contactLinkHTML
+}
+
+// WithoutContactLink takes out the link WithContactLink added.
+func WithoutContactLink(page string) string {
+	i := strings.Index(page, contactLinkStart)
+	if i < 0 {
+		return page
+	}
+	j := strings.Index(page[i:], contactLinkEnd)
+	if j < 0 {
+		return page
+	}
+	j += i + len(contactLinkEnd)
+	if j < len(page) && page[j] == '\n' {
+		j++
+	}
+	return page[:i] + page[j:]
+}

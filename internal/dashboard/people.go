@@ -1,17 +1,20 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/hub"
+	"github.com/peterretief/yggstore/internal/peers"
 )
 
 // People on this box: on a box, its admin adds the people who use it,
@@ -36,6 +39,18 @@ type boxPerson struct {
 	Syncthing   int              `json:"syncthing"` // devices syncing their folder
 	Devices     []devices.Device `json:"devices"`
 	Path        string           `json:"path"`
+	// Their own name in the group (see hub/personsite.go): given, or asked
+	// for and waiting for the group's admin, or declined.
+	Site     string  `json:"site,omitempty"`
+	Asked    string  `json:"asked,omitempty"`
+	Declined string  `json:"declined,omitempty"`
+	Forward  *boxFwd `json:"forward,omitempty"`
+}
+
+type boxFwd struct {
+	To        string `json:"to"`
+	Confirmed bool   `json:"confirmed"`
+	Allowed   bool   `json:"allowed"`
 }
 
 // usageCache keeps what each person stores for a minute: counting means
@@ -87,6 +102,10 @@ func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	list, _ := peers.Load(d.cfg.PeersPath)
+	d.namesMu.Lock()
+	claims := d.loadNames().Claims
+	d.namesMu.Unlock()
 	people := []boxPerson{}
 	for _, p := range st.People {
 		bp := boxPerson{Name: p.Name, Added: p.Added, Quota: p.Quota, MaxDevices: p.MaxDevices, Suspended: p.Suspended,
@@ -98,9 +117,25 @@ func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {
 		if t, ok := st.InviteOf(p.Name); ok {
 			bp.InviteUntil = t.Unix()
 		}
+		if pn, ok := peers.PersonNameOf(list, d.cfg.SelfID, p.Name); ok {
+			bp.Site = pn.Name
+		}
+		for _, c := range claims {
+			if c.Mine && strings.EqualFold(c.Person, p.Name) {
+				switch c.Status {
+				case "asked":
+					bp.Asked = c.Name
+				case "declined":
+					bp.Declined = c.Name
+				}
+			}
+		}
+		if f := p.Forward; f != nil {
+			bp.Forward = &boxFwd{To: f.To, Confirmed: f.Confirmed, Allowed: f.Allowed}
+		}
 		people = append(people, bp)
 	}
-	out["people"], out["files_at"] = people, d.boxURL()+hub.FilesPath
+	out["people"], out["files_at"], out["domain"] = people, d.boxURL()+hub.FilesPath, peers.GroupDomain(list)
 	writeJSONResp(w, out)
 }
 
@@ -114,12 +149,23 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 		Addr       string
 		Quota      *int64 // bytes, 0 for no limit
 		MaxDevices *int   `json:"max_devices"`
+		Label      string // for "name": the name to ask the group for
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	action := r.PathValue("action")
+	if action == "name" {
+		msg, err := d.claimForPerson(r.Context(), req.Name, req.Label)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		d.event("ok", "box: "+msg)
+		writeJSONResp(w, map[string]string{})
+		return
+	}
 	var token, done string
 	_, err := hub.Update(r.Context(), d.cfg.HubState, func(s *hub.HubState) error {
 		switch action {
@@ -156,6 +202,10 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 		case "remove":
 			done = req.Name + " is removed: their devices are shut out, and their files stay on the box"
 			return s.RemovePerson(req.Name)
+		case "forward-allow", "forward-stop":
+			on := action == "forward-allow"
+			done = req.Name + map[bool]string{true: "'s mail is forwarded now", false: "'s mail isn't forwarded any more"}[on]
+			return s.AllowForward(req.Name, on)
 		case "device-remove":
 			who, dev, err := s.LetOut(req.Name, req.Addr)
 			done = fmt.Sprintf("%s can't open %s's files any more", dev.Name, who)
@@ -173,4 +223,79 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 		out["link"] = d.boxURL() + hub.JoinPath + "?t=" + token
 	}
 	writeJSONResp(w, out)
+}
+
+// claimForPerson asks the group's admin for LABEL.domain for someone on the
+// box, with their own sharing code; an admin's box gives it at once. When
+// the admin approves, the name goes on the box's entry for them.
+func (d *Dashboard) claimForPerson(ctx context.Context, person, label string) (string, error) {
+	st, err := hub.Load(d.cfg.HubState)
+	if err != nil {
+		return "", err
+	}
+	p, ok := st.PersonNamed(person)
+	if !ok || !p.Active() {
+		return "", fmt.Errorf("nobody called %q uses this box now", person)
+	}
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		return "", err
+	}
+	domain, admin := peers.GroupDomain(list), isAdmin(list, d.cfg.SelfID)
+	l := strings.ToLower(strings.TrimSpace(label))
+	switch {
+	case domain == "":
+		return "", errors.New(`the group has no domain yet: the admin sets "domain" on their entry in peers.json`)
+	case peers.ValidLabel(l) != nil:
+		return "", peers.ValidLabel(l)
+	case reserved[l] && !admin:
+		return "", fmt.Errorf("%s is kept for the group; choose another", l)
+	}
+	name := l + "." + domain
+	if _, ok := peers.NameOwner(list, name); ok {
+		return "", fmt.Errorf("%s is taken", name)
+	}
+	if pn, ok := peers.PersonNameOf(list, d.cfg.SelfID, p.Name); ok {
+		return "", fmt.Errorf("%s has %s already: one name each", p.Name, pn.Name)
+	}
+	id, err := hub.PersonKey(d.cfg.HubState, p)
+	if err != nil {
+		return "", fmt.Errorf("%s's sharing key: %w", p.Name, err)
+	}
+	if admin {
+		if err := d.giveName(d.cfg.SelfID, name, id.Code(), p.Name); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s has %s and https://%s now", p.Name, peers.MailAddress(name), name), nil
+	}
+	lc, err := d.msgClient()
+	if err != nil {
+		return "", err
+	}
+	body, _ := json.Marshal(map[string]string{"name": name, "code": id.Code(), "person": p.Name})
+	sent := 0
+	for _, a := range list {
+		if a.Admin {
+			if _, err = lc.Send(ctx, a.IP(), typeNameClaim, string(body)); err == nil {
+				sent++
+			}
+		}
+	}
+	if sent == 0 {
+		return "", errors.New("could not send the request to the group's admin: " + shortErr(err))
+	}
+	d.namesMu.Lock()
+	defer d.namesMu.Unlock()
+	f := d.loadNames()
+	keep := f.Claims[:0]
+	for _, c := range f.Claims {
+		if !(c.Mine && strings.EqualFold(c.Person, p.Name)) {
+			keep = append(keep, c)
+		}
+	}
+	f.Claims = append(keep, nameClaim{Name: name, Node: d.cfg.SelfID, Person: p.Name, Time: time.Now().UnixMilli(), Status: "asked", Mine: true})
+	if err := d.saveNames(f); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("asked the group's admin for %s for %s", peers.MailAddress(name), p.Name), nil
 }

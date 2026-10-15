@@ -331,6 +331,43 @@ yggstore hub devices                      # whose devices open which files, and 
 yggstore hub devices remove "anna's phone"
 ```
 
+### A website and email address for someone on the box
+
+Someone on the box can have a name in the group of their own, such as
+`anna.example.org`. It gives them a web page, a contact form, and the
+address `anna@example.org`, all without a node of their own. Two people
+vet it: you vouch for them as the box's admin, and the group's admin
+approves the name.
+
+1. Under **People on this box**, open **Give them a website and email
+   address** on their row, type the name and press **Ask the group**.
+2. The group's admin sees the request under **Names**, marked as being for
+   Anna on your box, and approves or declines it.
+3. Once it's approved, the box starts her site with a page of her own. Her
+   files page gets a link, **Your website and messages**, where she:
+   - sees her address, and that the site is online;
+   - turns the **contact form** on (a "Contact" link appears on her home
+     page);
+   - reads, replies to and deletes the messages that come in, from the
+     form or sent to her address;
+   - asks for her messages to be **forwarded** to an address she already
+     reads. A code goes to that address first, which she types in to show
+     it's hers. Then you press **Allow** on her row, and every new message
+     goes there too, from `anna@example.org` through the group's mail
+     relay.
+
+   She edits the site itself on her files page, under **Your websites**.
+
+Her mail and contact form are sealed for her own sharing key, not the
+box's, so nobody else in the group can read them. The key is kept on the
+box (`keys/` beside the hub's state file), so the box's owner could read
+them, and her page says so. Each person has one name. **Suspend** takes
+her site down until she's let back in. **Remove** takes it down and gives
+the name back to the group's admin.
+
+The box's node must be on this version or later, and so must the group's
+web nodes and the admin's. Older ones don't know these names.
+
 ### Team folders
 
 A team folder is for files several people work on. It lives on the box,

@@ -1245,11 +1245,11 @@ async function refreshNames() {
     <div class="sub">The same name is your email address and your website, <span class="mono">yourname.${esc(n.domain)}</span>.
       ${n.admin ? "" : "The group's admin approves it first."}</div>`;
   if (n.admin) {
-    const req = n.requests.map(c => `<tr><td><b>${esc(mail(c.name))}</b><div class="sub">from ${esc(c.node_name || c.node)} · ${ago(c.time / 1000)}</div></td>
+    const req = n.requests.map(c => `<tr><td><b>${esc(mail(c.name))}</b><div class="sub">${c.person ? `for ${esc(c.person)}, who uses ${esc(c.node_name || c.node)}'s box (its owner vouches for them)` : `from ${esc(c.node_name || c.node)}`} · ${ago(c.time / 1000)}</div></td>
       <td>${c.status === "asked"
         ? `<button data-decide="${esc(c.name)}" data-node="${esc(c.node)}" data-ok="1">Approve</button> <button class="del" data-decide="${esc(c.name)}" data-node="${esc(c.node)}">Decline</button>`
         : `<span class="pill ${c.status === "approved" ? "ok" : "bad"}">${esc(c.status)}</span>`}</td></tr>`).join("");
-    const given = n.given.map(g => `<tr><td>${esc(mail(g.name))}</td><td class="sub">${esc(g.node)}</td>
+    const given = n.given.map(g => `<tr><td>${esc(mail(g.name))}</td><td class="sub">${g.person ? `${esc(g.person)}, on ${esc(g.node)}` : esc(g.node)}</td>
       <td><button class="del" data-unname="${esc(g.name)}">Take back</button></td></tr>`).join("");
     html += `<h3 style="font-size:13px;margin:16px 0 4px">Requests</h3>
       ${req ? `<table>${req}</table>` : `<div class="sub">No one has asked for a name.</div>`}
@@ -1372,11 +1372,25 @@ async function refreshPeople() {
       : `<button data-pact="invite" data-name="${esc(p.name)}">${p.invite_until ? "New invite link" : "Invite link"}</button>
         <button data-pact="${p.suspended ? "resume" : "suspend"}" data-name="${esc(p.name)}">${p.suspended ? "Let back in" : "Suspend"}</button>
         <button class="del" data-pact="remove" data-name="${esc(p.name)}">Remove</button>`;
+    const site = p.removed ? "" : p.site
+      ? `<div class="sub">website <a href="https://${esc(p.site)}/" target="_blank" rel="noopener">${esc(p.site)}</a> · mail ${esc(p.site.replace(".", "@"))}</div>`
+      : p.asked ? `<div class="sub">asked the group for ${esc(p.asked)}: waiting for the group's admin</div>`
+      : st.domain ? `<details style="margin-top:4px"><summary class="sub">Give them a website and email address${p.declined ? ` (${esc(p.declined)} was declined)` : ""}</summary>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center">
+        <input data-label="${esc(p.name)}" placeholder="${esc(p.name.toLowerCase())}" style="width:10em"><span class="sub">.${esc(st.domain)}</span>
+        <button data-pact="name" data-name="${esc(p.name)}">Ask the group</button></div>
+        <div class="sub">The group's admin approves it. Then they get a page of their own, a contact form, and mail at that address, sealed for them.</div></details>` : "";
+    const f = p.forward;
+    const fwd = p.removed || !f ? "" : f.allowed
+      ? `<div class="sub">mail forwarded to ${esc(f.to)} <button class="del" data-pact="forward-stop" data-name="${esc(p.name)}">Stop</button></div>`
+      : f.confirmed ? `<div>wants their mail forwarded to <b>${esc(f.to)}</b> (they confirmed it's theirs)
+        <button data-pact="forward-allow" data-name="${esc(p.name)}">Allow</button> <button class="del" data-pact="forward-stop" data-name="${esc(p.name)}">Refuse</button></div>`
+      : "";
     const link = peopleLink && peopleLink.name === p.name ? `<div style="margin-top:6px">Send ${esc(p.name)} this link. It works once, for a week, on a device with
       <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noreferrer">Yggdrasil</a>:
       <div class="mono" style="user-select:all;margin-top:4px">${esc(peopleLink.link)}</div></div>` : "";
     return `<tr><td><b>${esc(p.name)}</b> ${state}${p.invite_until && !p.removed ? `<div class="sub">invite works until ${esc(new Date(p.invite_until * 1000).toLocaleDateString())}</div>` : ""}
-        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${link}</td>
+        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${site}${fwd}${link}</td>
       <td class="num">${size(p.bytes)}${p.quota ? ` of ${size(p.quota)}` : ""}${over ? ` <span class="pill bad">over</span>` : ""}<div class="sub">${p.files} files</div></td>
       <td class="sub">${p.devices.length ? "last on " + esc(when(last)) : ""}</td>
       <td class="actions">${acts}${p.removed ? "" : `<details style="margin-top:6px"><summary class="sub">Limits</summary>
@@ -1402,6 +1416,8 @@ $("people").addEventListener("click", async ev => {
   if (act === "remove" && !confirm(`Remove ${name}? Their devices are shut out; their files stay on the box.`)) return;
   if (act === "suspend" && !confirm(`Suspend ${name}? They can't open their files until you let them back in.`)) return;
   if (act === "device-remove") body.addr = b.dataset.addr;
+  if (act === "name") body.label = (document.querySelector(`[data-label="${CSS.escape(name)}"]`).value.trim() || name).toLowerCase();
+  if (act === "forward-allow" && !confirm(`Forward ${name}'s mail to ${b.closest("div").querySelector("b").textContent}?`)) return;
   if (act === "limit") {
     const q = document.querySelector(`[data-quota="${CSS.escape(name)}"]`).value, m = document.querySelector(`[data-maxdev="${CSS.escape(name)}"]`).value;
     body.quota = q ? Math.round(+q * (1 << 30)) : 0;

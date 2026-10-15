@@ -415,13 +415,13 @@ func (n *Node) lookup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "use GET", http.StatusMethodNotAllowed)
 		return
 	}
-	p, ok := peers.MailOwner(n.Peers(), r.URL.Query().Get("to"))
+	p, holder, ok := peers.MailHolder(n.Peers(), r.URL.Query().Get("to"))
 	if !ok || p.Gateway {
 		http.Error(w, "no such mailbox", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"node": p.IP(), "code": p.Code})
+	json.NewEncoder(w).Encode(map[string]string{"node": p.IP(), "code": holder.Code})
 }
 
 // Take stores a sealed message in the group for a member's node and tells
