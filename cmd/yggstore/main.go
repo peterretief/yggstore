@@ -278,7 +278,11 @@ func cmdServe(ctx context.Context, args []string) error {
 		return err
 	}
 	// An admin node can push a newer list; it is kept next to the shards.
-	live, err := peers.NewLive(*peersPath, filepath.Join(*dataDir, "peers.pushed.json"), ip.String())
+	// One pushed before this node's yggstore copied pushes over the list it
+	// starts with is copied now, where the node may write that file.
+	pushed := filepath.Join(*dataDir, "peers.pushed.json")
+	peers.Follow(*peersPath, pushed)
+	live, err := peers.NewLive(*peersPath, pushed, ip.String())
 	if err != nil {
 		return err
 	}
