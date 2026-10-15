@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -369,29 +370,25 @@ func (d *Dashboard) giveName(node, name, code, person string) error {
 	if p, ok := peers.NameOwner(list, name); ok && p.IP() != node {
 		return fmt.Errorf("%s is already %s's", name, p.Name)
 	}
-	found := false
-	for i := range list {
-		if list[i].IP() != node {
-			continue
-		}
-		found = true
-		if person != "" {
-			if pn, ok := peers.PersonNameOf(list, node, person); ok {
-				if pn.Name == name {
-					return nil
-				}
-				return fmt.Errorf("%s has %s already: one name each", person, pn.Name)
+	// A machine with a second node (one per disk) has two entries at its
+	// address: names go on the first, as selfEntry finds it.
+	i := slices.IndexFunc(list, func(p peers.Peer) bool { return p.IP() == node })
+	if i < 0 {
+		return errors.New("that node is no longer in the group")
+	}
+	if person != "" {
+		if pn, ok := peers.PersonNameOf(list, node, person); ok {
+			if pn.Name == name {
+				return nil
 			}
-			list[i].PeopleNames = append(list[i].PeopleNames, peers.PersonName{Name: name, Person: person, Code: code})
-			continue
+			return fmt.Errorf("%s has %s already: one name each", person, pn.Name)
 		}
+		list[i].PeopleNames = append(list[i].PeopleNames, peers.PersonName{Name: name, Person: person, Code: code})
+	} else {
 		if !contains(list[i].Names, name) {
 			list[i].Names = append(list[i].Names, name)
 		}
 		list[i].Code = code
-	}
-	if !found {
-		return errors.New("that node is no longer in the group")
 	}
 	if err := peers.Validate(list); err != nil {
 		return err

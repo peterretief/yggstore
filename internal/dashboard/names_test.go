@@ -42,6 +42,7 @@ func namePair(t *testing.T, extra func(*Config)) (ctx context.Context, admin, me
 	list := []peers.Peer{
 		{Name: "desktop", Addr: "[200::1]:7400", Admin: true, Domain: "example.org"},
 		{Name: "pi", Addr: "[200::2]:7400"},
+		{Name: "pi-usb1", Addr: "[200::2]:7401", Host: "pi"}, // a second node on the machine
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
