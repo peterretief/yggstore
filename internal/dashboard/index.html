@@ -254,6 +254,21 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
       <b>The group's balances</b> <span class="sub">· they always add up to 0: one person's plus is another's minus</span>
       <table><tbody id="walletBalances"></tbody></table>
     </div>
+    <div class="card" style="grid-column:1/-1">
+      <b>Who stores what</b> <span class="sub" id="usageRate"></span>
+      <div class="tablewrap" style="border:0"><table><thead><tr><th>Person</th><th style="text-align:right">Stores</th><th style="text-align:right">On others' nodes</th>
+        <th style="text-align:right">Holds for others</th><th style="text-align:right">Yggs a month</th></tr></thead><tbody id="usagePeople"></tbody></table></div>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <b>What each node holds</b>
+      <div class="tablewrap" style="border:0"><table><thead><tr><th>Node</th><th>Whose</th><th style="text-align:right">Holds</th><th style="text-align:right">For others</th>
+        <th style="text-align:right">Space given</th><th style="text-align:right">Earns a month</th></tr></thead><tbody id="usageNodes"></tbody></table></div>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <b>Storage today so far</b> <span class="sub">· goes into the ledger at midnight (UTC), whole yggs, the rest carried to the next day</span>
+      <div class="tablewrap" style="border:0"><table><thead><tr><th>Node</th><th>Holds files of</th><th style="text-align:right">GB-days</th>
+        <th style="text-align:right">Yggs</th></tr></thead><tbody id="usageToday"></tbody></table></div>
+    </div>
   </section>
   <p class="sub">A ygg is a tenth of a US cent ($0.001). Yggs are a record of who owes whom in the group, not money: nobody holds money for
     anyone, and they can't be cashed out or passed on. Settling up in real money comes later (see <span class="mono">docs/ygg.md</span>).</p>
@@ -1751,7 +1766,7 @@ if (PAGE === "web") { refreshSites(); setInterval(refreshSites, 10000); }
 
 // Wallet: your balance in yggs, paying other members, and the group's
 // balances, from the ledger the group's admin node keeps.
-const yggUsd = n => (n < 0 ? "-" : "") + "$" + (Math.round(Math.abs(n) / 10) / 100).toFixed(2);
+const yggUsd = n => { const c = Math.round(Math.abs(n) / 10); return (n < 0 && c ? "-" : "") + "$" + (c / 100).toFixed(2); };
 const yggNum = n => n.toLocaleString();
 let walletKey = "", walletLast = null;
 async function refreshWallet() {
@@ -1786,11 +1801,24 @@ async function refreshWallet() {
   $("walletHistory").innerHTML = w.history.map(p => {
     const out = p.from === w.account;
     return `<tr><td class="sub">${esc(new Date(p.at * 1000).toLocaleString())}</td><td>${out ? "to" : "from"} <b>${esc(out ? p.to : p.from)}</b></td>
-      <td>${esc(p.note || "")}</td><td class="num ${out ? "minus" : "plus"}" style="text-align:right">${out ? "−" : "+"}${yggNum(p.amount)}</td></tr>`;
+      <td>${p.kind === "storage" ? `<span class="pill info">storage</span> ` : ""}${esc(p.note || "")}</td><td class="num ${out ? "minus" : "plus"}" style="text-align:right">${out ? "−" : "+"}${yggNum(p.amount)}</td></tr>`;
   }).join("") || `<tr><td colspan="4" class="sub">No payments yet.</td></tr>`;
   $("walletBalances").innerHTML = w.balances.map(b => `<tr><td>${esc(b.account)}${b.me ? ` <span class="pill info">you</span>` : ""}</td>
     <td class="num ${b.balance < 0 ? "minus" : b.balance > 0 ? "plus" : ""}" style="text-align:right">${yggNum(b.balance)} yggs</td>
     <td class="num sub" style="text-align:right">${yggUsd(b.balance)}</td></tr>`).join("") || `<tr><td class="sub">Nobody has paid anyone yet.</td></tr>`;
+  const fy = n => Math.abs(n) >= 10 ? yggNum(Math.round(n)) : n.toFixed(2);
+  const r = `style="text-align:right"`, sz = n => !n ? "–" : n >= 1e9 ? (n / 1e9).toFixed(n >= 1e11 ? 0 : 1) + " GB" : (n / 1e6).toFixed(0) + " MB";
+  $("usageRate").textContent = `· holding someone else's files earns ${w.rate} yggs (${yggUsd(w.rate)}) per GB a month; your own are free`;
+  $("usagePeople").innerHTML = w.people.map(p => `<tr><td>${esc(p.person)}${p.person === w.account ? ` <span class="pill info">you</span>` : ""}
+    <div class="sub">${p.nodes} node${p.nodes === 1 ? "" : "s"}</div></td><td class="num" ${r}>${sz(p.stores)}</td><td class="num" ${r}>${sz(p.on_others)}</td>
+    <td class="num" ${r}>${sz(p.for_others)}</td><td class="num ${p.net < 0 ? "minus" : p.net > 0 ? "plus" : ""}" ${r}>${p.net > 0 ? "+" : ""}${fy(p.net)}
+    <div class="sub">${yggUsd(p.net)}</div></td></tr>`).join("") || `<tr><td colspan="5" class="sub">No nodes report what they hold yet.</td></tr>`;
+  $("usageNodes").innerHTML = w.nodes.map(n => `<tr><td><b>${esc(n.node)}</b>${n.up ? "" : ` <span class="pill bad">down</span>`}</td><td>${esc(n.owner)}</td>
+    <td class="num" ${r}>${sz(n.holds)}</td><td class="num" ${r}>${sz(n.for_others)}</td><td class="num" ${r}>${sz(n.quota)}</td>
+    <td class="num" ${r}>${n.earns ? fy(n.earns) + " yggs" : "–"}</td></tr>`).join("");
+  $("usageToday").innerHTML = w.today.map(t => `<tr><td>${esc(t.node)} <span class="sub">(${esc(t.holder)})</span></td><td>${esc(t.writer)}</td>
+    <td class="num" ${r}>${t.gb_days.toFixed(2)}</td><td class="num" ${r}>${t.yggs.toFixed(2)}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="sub">Nobody's nodes hold anyone else's files today.</td></tr>`;
 }
 $("payAmount").addEventListener("input", () => {
   const n = parseInt($("payAmount").value, 10);

@@ -365,8 +365,30 @@ Your devices like the other pages:
 - **Notes** are seen by the two people and the keeper. Balances are open to
   the group.
 
-Not yet: storage earning yggs, wallet addresses and the ygg button, Open
-Payments, settling, and signed records.
+### Step 2: storage in the ledger
+
+- **The keeper counts storage as it goes.** Each node reports how many
+  bytes it holds for each writer node (as Give and use shows). Every few
+  seconds the keeper adds up how long each node held how much for each
+  person. A gap of more than 15 minutes between counts (the keeper was
+  off) isn't counted, and a node that's down holds nothing for that time.
+- **At midnight (UTC) the day goes into the ledger:** for each person whose
+  files someone else's nodes held, a payment to that person at **10 yggs
+  per GB-month**, marked as storage, such as "storage on localbox-004,
+  2026-10-16: 3.20 GB-days". Only whole yggs go in; the rest carries to the
+  next day. Each day's entry has an ID made from the day and the two
+  people, so it's never counted twice.
+- **Your own nodes are free,** and storage paid for through the gateway
+  isn't counted here.
+- **The Wallet page shows usage,** open to the group: who stores what (on
+  their own and on others' nodes) and what that comes to in yggs a month;
+  what each node holds, for whom, and earns; and today's count so far.
+- **For now it trusts what the nodes report.** Writers checking the
+  figures, with signed statements and challenges, comes later.
+- The keeper keeps its count in `~/.yggstore/ygg/usage.json`.
+
+Not yet: writers checking storage, wallet addresses and the ygg button,
+Open Payments, settling, and signed records.
 
 ## Build order, once approved
 

@@ -93,6 +93,9 @@ type Config struct {
 	// WalletLimit is how far below 0 a balance may go before the wallet
 	// warns, in yggs (DefaultWalletLimit if 0).
 	WalletLimit int64
+	// StorageRate is what holding others' files earns, in yggs per
+	// GB-month (DefaultStorageRate if 0; see usage.go).
+	StorageRate int64
 	// OwnSites, if set, serves the sites published here at SiteURL (this
 	// box's Yggdrasil address), and gives their files for download.
 	OwnSites *site.Own
@@ -246,13 +249,15 @@ type Dashboard struct {
 	namesMu      sync.Mutex           // NamesPath, and the list while names change
 	walletMu     sync.Mutex           // the wallet file, and the ledger
 	yggLedger    *ygg.Ledger          // the ledger, if this dashboard keeps it
+	storage      *usageFile           // the keeper's storage count, under walletMu
+	storageSaved time.Time            // when it was last written, under walletMu
 	siteMu       sync.Mutex           // one website publish at a time
 	repair       func()               // asks for a repair pass now (see SetRepair)
 	noRoom       func() map[string]int
 	down         func() map[string]int64
-	asks         []deviceAsk // devices asking to be let in
-	usage        usageCache  // what the box's people store
-	netProbe     netProbe    // the network page's probes
+	asks         []deviceAsk     // devices asking to be let in
+	usage        usageCache      // what the box's people store
+	netProbe     netProbe        // the network page's probes
 	yggName      string          // this machine's name for its Yggdrasil address (see peers.YggNames), under mu
 	yggDNSAt     time.Time       // when the machines' names were last added to DNS, used only by poll
 	names        peers.NameCheck // which machines' names are in DNS
@@ -740,6 +745,9 @@ func (d *Dashboard) poll(ctx context.Context) {
 		}
 	}
 	st.Accounts = accounts(mainList, st.Peers, d.cfg.SelfID)
+	if k, ok := keeperOf(mainList); ok && st.PeersError == "" && k.IP() == d.cfg.SelfID {
+		d.countUsage(ctx, mainList, st.Peers, time.Now())
+	}
 
 	up := map[string]bool{}
 	names := map[string]string{}

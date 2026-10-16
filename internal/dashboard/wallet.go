@@ -57,6 +57,10 @@ type walletView struct {
 	History  []ygg.Payment     `json:"history"`  // the account's own, newest first
 	Refused  map[string]string `json:"refused,omitempty"`
 	At       int64             `json:"at"` // unix seconds
+	// Today is the storage counted so far today, not yet in the ledger;
+	// Rate the storage rate, yggs per GB-month.
+	Today []storageToday `json:"today,omitempty"`
+	Rate  int64          `json:"rate,omitempty"`
 }
 
 // sentPayment is a payment sent to the keeper, until the ledger has it.
@@ -154,7 +158,8 @@ func (d *Dashboard) ledger() (*ygg.Ledger, error) {
 
 // view is account's part of the ledger, as the keeper has it.
 func (d *Dashboard) view(lg *ygg.Ledger, list []peers.Peer, account string) walletView {
-	v := walletView{Account: account, Balances: lg.Balances(), History: lg.History(account, walletHistory), At: time.Now().Unix()}
+	v := walletView{Account: account, Balances: lg.Balances(), History: lg.History(account, walletHistory), At: time.Now().Unix(),
+		Today: d.today(list), Rate: d.storageRate()}
 	for _, a := range walletAccounts(list) {
 		v.Balances[a] += 0 // everyone, at 0 until they pay or are paid
 	}
@@ -318,6 +323,12 @@ type walletOut struct {
 	Payees   []string        `json:"payees"` // accounts you can pay
 	Limit    int64           `json:"limit"`
 	At       int64           `json:"at"` // when the keeper last said, unix seconds; 0 if never
+	// What's stored now, per node and per person, from the nodes this
+	// dashboard polls; Today and Rate from the keeper.
+	Nodes  []usageNode    `json:"nodes"`
+	People []usagePerson  `json:"people"`
+	Today  []storageToday `json:"today"`
+	Rate   int64          `json:"rate"`
 }
 
 func (d *Dashboard) walletLimit() int64 {
@@ -386,8 +397,16 @@ func (d *Dashboard) handleWallet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	out.Nodes, out.People = d.usageNow(list)
+	out.Today, out.Rate = []storageToday{}, d.storageRate()
 	if v != nil {
 		out.Balance, out.History, out.At = v.Balances[out.Account], v.History, v.At
+		if v.Today != nil {
+			out.Today = v.Today
+		}
+		if v.Rate > 0 {
+			out.Rate = v.Rate
+		}
 		for a, b := range v.Balances {
 			out.Balances = append(out.Balances, walletBalance{Account: a, Balance: b, Me: a == out.Account})
 		}

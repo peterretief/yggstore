@@ -28,10 +28,15 @@ const (
 	MaxNote = 200
 )
 
+// KindStorage marks the keeper's daily payment for storage: the person
+// whose files were held pays the holder.
+const KindStorage = "storage"
+
 // Payment is one payment between two members' accounts. Accounts are the
 // people the group's list says run its nodes (peers.Peer.Operator).
 type Payment struct {
-	ID     string `json:"id"` // chosen by the payer's dashboard, so a retry isn't paid twice
+	ID     string `json:"id"`             // chosen by the payer's dashboard, so a retry isn't paid twice
+	Kind   string `json:"kind,omitempty"` // "" for a payment a member made, or KindStorage
 	From   string `json:"from"`
 	To     string `json:"to"`
 	Amount int64  `json:"amount"` // yggs
