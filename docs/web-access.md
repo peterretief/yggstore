@@ -62,6 +62,24 @@ flowchart LR
 - **It's the same page** as over Yggdrasil: one set of code, so files,
   website, messages and (later) writing mail all work both ways.
 
+## At their own address
+
+Someone on a box who has a name in the group (see
+[hub.md](hub.md#a-website-and-email-address-for-someone-on-the-box)) signs
+in at their own address instead: `https://kath.withcare.co.za/files`.
+Their invite link uses it too. Decided 2026-10-16.
+
+- The web nodes send `/files` on that address to the person's box; the
+  rest of the address is still their website.
+- A passkey made there works only there, and only that person can make
+  one or sign in there: someone else's invite or passkey is refused at it.
+  A session started there counts only there.
+- People without a name keep using `my.` and the domain.
+- **The trade-off:** their website and their files share one address, so a
+  page they put on their own site could act on their files while they're
+  signed in. That's fine for pages they wrote; it's a reason to be careful
+  with scripts copied from elsewhere.
+
 ## What the box's owner sees
 
 On each person's row under People on this box:

@@ -27,7 +27,8 @@ import (
 // Passkey is one of a person's passkeys.
 type Passkey struct {
 	passkey.Key
-	Name  string `json:"name"` // the device, as they named it
+	RP    string `json:"rp,omitempty"` // the address it signs in at
+	Name  string `json:"name"`         // the device, as they named it
 	Added int64  `json:"added"`
 	Used  int64  `json:"used,omitempty"`
 	Count uint32 `json:"count,omitempty"`
@@ -37,7 +38,8 @@ type Passkey struct {
 type Session struct {
 	Hash    string `json:"hash"` // of the cookie's token
 	Person  string `json:"person"`
-	Device  string `json:"device"` // the passkey's name
+	Device  string `json:"device"`         // the passkey's name
+	Host    string `json:"host,omitempty"` // the address it was started at
 	Started int64  `json:"started"`
 	Used    int64  `json:"used"`
 }
@@ -99,12 +101,12 @@ func sessionHash(token string) string {
 
 // NewSession signs person in, on the device the passkey device names. It
 // gives the cookie's token, which only the browser keeps.
-func (s *HubState) NewSession(person, device string, now time.Time) string {
+func (s *HubState) NewSession(person, device, host string, now time.Time) string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	token := passkey.B64.EncodeToString(b)
 	s.PruneSessions(now)
-	s.Sessions = append(s.Sessions, Session{Hash: sessionHash(token), Person: person, Device: device, Started: now.Unix(), Used: now.Unix()})
+	s.Sessions = append(s.Sessions, Session{Hash: sessionHash(token), Person: person, Device: device, Host: host, Started: now.Unix(), Used: now.Unix()})
 	return token
 }
 
@@ -121,14 +123,14 @@ func (s *HubState) PruneSessions(now time.Time) {
 	s.Sessions = kept
 }
 
-// SessionOf is the person signed in with token.
-func (s HubState) SessionOf(token string, now time.Time) (Person, Session, bool) {
+// SessionOf is the person signed in with token, at host.
+func (s HubState) SessionOf(token, host string, now time.Time) (Person, Session, bool) {
 	if token == "" {
 		return Person{}, Session{}, false
 	}
 	h := sessionHash(token)
 	for _, ss := range s.Sessions {
-		if ss.Hash != h || now.Sub(time.Unix(ss.Used, 0)) >= SessionFor {
+		if ss.Hash != h || now.Sub(time.Unix(ss.Used, 0)) >= SessionFor || !strings.EqualFold(ss.Host, host) {
 			continue
 		}
 		if p, ok := s.PersonNamed(ss.Person); ok && p.WebAccess() {
@@ -186,13 +188,23 @@ func (f *filesPage) relayed(ctx context.Context, r *http.Request, remote string)
 	return f.web[remote]
 }
 
-// rp is the site passkeys are for: my. and the group's domain.
-func (f *filesPage) rp() string {
+// rpFor is the address a relayed request came to, which its passkeys are
+// for: my. and the group's domain, for anyone on the box; or the name of
+// someone on this box (kath.example.org), for them alone (only).
+func (f *filesPage) rpFor(r *http.Request) (rp, only string, ok bool) {
 	list, err := peers.Load(f.u.cfg.PeersPath)
-	if err != nil || peers.GroupDomain(list) == "" {
-		return ""
+	domain := peers.GroupDomain(list)
+	if err != nil || domain == "" {
+		return "", "", false
 	}
-	return light.Host + "." + peers.GroupDomain(list)
+	host := strings.ToLower(strings.TrimSuffix(r.Header.Get("X-Forwarded-Host"), "."))
+	if host == light.Host+"."+domain {
+		return host, "", true
+	}
+	if p, pn, found := peers.NameHolder(list, host); found && pn.Person != "" && p.IP() == f.self {
+		return host, pn.Person, true
+	}
+	return "", "", false
 }
 
 // boxName is the name the group's list gives this box: the first node at
@@ -234,9 +246,9 @@ type passkeyReq struct {
 // serveLight serves a request relayed from a web node: signing in, and
 // then the person's files page.
 func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
-	rp := f.rp()
-	if rp == "" || !strings.EqualFold(r.Header.Get("X-Forwarded-Host"), rp) {
-		http.Error(w, "this box answers light clients only at "+rp, http.StatusForbidden)
+	rp, only, ok := f.rpFor(r)
+	if !ok {
+		http.Error(w, "this box doesn't answer light clients at that address", http.StatusForbidden)
 		return
 	}
 	origin := "https://" + rp
@@ -265,6 +277,9 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p, err := st.CheckInvite(req.T, now)
+		if err == nil && only != "" && !strings.EqualFold(p.Name, only) {
+			err = errors.New("This invite is for someone else, not for " + rp + ".")
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
@@ -278,7 +293,7 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 			"user_id": passkey.B64.EncodeToString(uid), "user_name": p.Name + " on " + f.boxName(), "algs": passkey.Algs})
 		return
 	case light.Base + "/register", light.Base + "/signin":
-		f.passkeyIn(w, r, rp, origin, now)
+		f.passkeyIn(w, r, rp, only, origin, now)
 		return
 	case light.Base + "/signout":
 		if c, err := r.Cookie(light.SessionCookie); err == nil {
@@ -297,7 +312,7 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(light.SessionCookie); err == nil {
 		token = c.Value
 	}
-	p, ss, ok := st.SessionOf(token, now)
+	p, ss, ok := st.SessionOf(token, rp, now)
 	if !ok {
 		if r.Method == http.MethodGet && (r.URL.Path == FilesPath || r.URL.Path == FilesPath+"/") && r.URL.RawQuery == "" {
 			light.ServeSignIn(w, http.StatusOK)
@@ -326,7 +341,7 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 
 // passkeyIn makes a passkey with an invite (register) or signs in with one,
 // and starts a session.
-func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, origin string, now time.Time) {
+func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, origin string, now time.Time) {
 	var req passkeyReq
 	if json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req) != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -357,7 +372,10 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, origin
 			if device == "" {
 				device = "a browser"
 			}
-			p, err := s.UseInviteWeb(req.T, Passkey{Key: k, Name: device}, now)
+			if p, err := s.CheckInvite(req.T, now); err == nil && only != "" && !strings.EqualFold(p.Name, only) {
+				return errors.New("This invite is for someone else, not for " + rp + ".")
+			}
+			p, err := s.UseInviteWeb(req.T, Passkey{Key: k, RP: rp, Name: device}, now)
 			if err != nil {
 				return err
 			}
@@ -375,13 +393,16 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, origin
 			if count != 0 && count <= pk.Count {
 				return errors.New("This passkey looks copied (its counter went back). Ask the box's owner.")
 			}
+			if only != "" && !strings.EqualFold(s.People[i].Name, only) {
+				return errors.New("This passkey is someone else's, not for " + rp + ".")
+			}
 			if !s.People[i].WebAccess() {
 				return errors.New("Opening your files through the web is turned off for now. Ask the box's owner.")
 			}
 			pk.Count, pk.Used = count, now.Unix()
 			who, device = s.People[i].Name, pk.Name
 		}
-		token = s.NewSession(who, device, now)
+		token = s.NewSession(who, device, rp, now)
 		return nil
 	})
 	if err != nil {
@@ -480,7 +501,7 @@ document.addEventListener("click", async ev => {
   const b = ev.target;
   if (b.dataset.forget && confirm("Forget this passkey? It won't sign in any more.")) { const r = await post("?op=forget&id=" + encodeURIComponent(b.dataset.forget)); if (!r.ok) alert(await r.text()); load(); }
   if (b.dataset.out) { await post("?op=signout&id=" + encodeURIComponent(b.dataset.out)); load(); }
-  if (b.id === "out") { ev.preventDefault(); await post("`+light.Base+`/signout"); location.href = "/"; }
+  if (b.id === "out") { ev.preventDefault(); await post("`+light.Base+`/signout"); location.href = "`+FilesPath+`"; }
 });
 load();
 </script>`)

@@ -58,3 +58,33 @@ func TestRelay(t *testing.T) {
 		t.Fatalf("box off: %d %s", w.Code, w.Body)
 	}
 }
+
+func TestRelayPersonHost(t *testing.T) {
+	var got *http.Request
+	box := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r }))
+	defer box.Close()
+	list := []peers.Peer{{Name: "box", Addr: "[201::4]:7400", PeopleNames: []peers.PersonName{{Name: "kath.example.org", Person: "Kath", Code: "ys1x"}}}}
+	rl := &Relay{Peers: func() []peers.Peer { return list }, BoxURL: func(ip string) string {
+		if ip != "201::4" {
+			t.Errorf("relayed to %s", ip)
+		}
+		return box.URL
+	}}
+	do := func(host, target string) int {
+		got = nil
+		r := httptest.NewRequest("GET", target, nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		rl.ServeHTTP(w, r)
+		return w.Code
+	}
+	if c := do("kath.example.org", "/files/join?t=x"); c != 200 || got == nil || got.Header.Get("X-Forwarded-Host") != "kath.example.org" {
+		t.Fatalf("kath's invite: %d %v", c, got)
+	}
+	if c := do("Kath.Example.org", "/files"); c != 200 || got == nil {
+		t.Fatalf("kath's files: %d", c)
+	}
+	if c := do("kath.example.org", "/"); c != 404 || got != nil {
+		t.Fatalf("kath's website went to the box: %d", c)
+	}
+}

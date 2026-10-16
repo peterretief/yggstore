@@ -95,9 +95,25 @@ func setBox(w http.ResponseWriter, name string) {
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 }
 
+// PersonHost reports whether host is the name of someone on a box (such
+// as kath.example.org), whose /files their box serves through the relay.
+func PersonHost(list []peers.Peer, host string) (box peers.Peer, ok bool) {
+	p, pn, ok := peers.NameHolder(list, hostOnly(host))
+	return p, ok && pn.Person != ""
+}
+
 func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rl.init()
 	r.Header.Del(RelayHeader) // only this relay sets it
+	if box, ok := PersonHost(rl.Peers(), r.Host); ok {
+		// Someone's own address: their box, whoever asks.
+		if p := r.URL.Path; p != "/files" && !strings.HasPrefix(p, "/files/") {
+			http.NotFound(w, r)
+			return
+		}
+		rl.forward(w, r, box.IP())
+		return
+	}
 	name := ""
 	if c, err := r.Cookie(BoxCookie); err == nil {
 		name = c.Value
@@ -155,6 +171,11 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sign in first", http.StatusUnauthorized)
 		return
 	}
+	rl.forward(w, r, ip)
+}
+
+// forward passes r to the box at ip.
+func (rl *Relay) forward(w http.ResponseWriter, r *http.Request, ip string) {
 	u := "http://" + net.JoinHostPort(ip, HubPort)
 	if rl.BoxURL != nil {
 		u = rl.BoxURL(ip)

@@ -604,6 +604,11 @@ func cmdHubControl(ctx context.Context, args []string) error {
 				}
 			}
 			list, _ := peers.Load(*peersPath)
+			if pn, ok := peers.PersonNameOf(list, addr, name); ok {
+				fmt.Printf("Send %s this link. It works once, for a week, in any browser:\n  https://%s%s?t=%s\n", name, pn.Name, hub.JoinPath, token)
+				fmt.Printf("Or, on a device with Yggdrasil:\n  http://[%s]:7490%s?t=%s\n", addr, hub.JoinPath, token)
+				return nil
+			}
 			if domain := peers.GroupDomain(list); domain != "" {
 				box := name
 				for _, p := range list {

@@ -352,6 +352,14 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 			w.Light.ServeHTTP(rw, r)
 			return
 		}
+		// Someone on a box signs in at their own name: /files there is
+		// their box's, the rest their website.
+		if p := r.URL.Path; p == "/files" || strings.HasPrefix(p, "/files/") {
+			if _, pn, ok := peers.NameHolder(w.Peers(), host); ok && pn.Person != "" {
+				w.Light.ServeHTTP(rw, r)
+				return
+			}
+		}
 	}
 	if w.Mail != nil && (r.URL.Path == mail.IngestPath || r.URL.Path == mail.MailboxPath) {
 		w.Mail.ServeHTTP(rw, r)

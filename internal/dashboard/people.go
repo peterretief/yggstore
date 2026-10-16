@@ -96,9 +96,13 @@ func (d *Dashboard) onBox() bool {
 }
 
 // webInvite is an invite link that opens in any browser, through the
-// group's web nodes (see hub/light.go), or "" if the group has no domain.
-func (d *Dashboard) webInvite(token string) string {
+// group's web nodes (see hub/light.go): at the person's own name if they
+// have one, else at my. and the domain; "" if the group has no domain.
+func (d *Dashboard) webInvite(person, token string) string {
 	list, _ := peers.Load(d.cfg.PeersPath)
+	if pn, ok := peers.PersonNameOf(list, d.cfg.SelfID, person); ok {
+		return "https://" + pn.Name + hub.JoinPath + "?t=" + url.QueryEscape(token)
+	}
 	box, ok := selfEntry(list, d.cfg.SelfID)
 	if domain := peers.GroupDomain(list); domain != "" && ok {
 		return "https://" + light.Host + "." + domain + hub.JoinPath + "?box=" + url.QueryEscape(box.Name) + "&t=" + url.QueryEscape(token)
@@ -262,7 +266,7 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 	d.event("ok", "box: "+done)
 	out := map[string]string{}
 	if token != "" {
-		out["link"], out["ygg_link"] = d.webInvite(token), d.boxURL()+hub.JoinPath+"?t="+token
+		out["link"], out["ygg_link"] = d.webInvite(req.Name, token), d.boxURL()+hub.JoinPath+"?t="+token
 		if out["link"] == "" {
 			out["link"] = out["ygg_link"]
 		}

@@ -30,6 +30,7 @@ const (
 
 // phone is a fake authenticator with one ES256 passkey.
 type phone struct {
+	rp    string // rpHost if ""
 	key   *ecdsa.PrivateKey
 	id    []byte
 	user  []byte
@@ -37,7 +38,11 @@ type phone struct {
 }
 
 func (p *phone) authData(withCred bool) []byte {
-	h := sha256.Sum256([]byte(rpHost))
+	rp := p.rp
+	if rp == "" {
+		rp = rpHost
+	}
+	h := sha256.Sum256([]byte(rp))
 	flags := byte(0x05)
 	if withCred {
 		flags |= 0x40
@@ -53,8 +58,10 @@ func (p *phone) authData(withCred bool) []byte {
 	return b
 }
 
-func clientJSON(typ, challenge string) []byte {
-	b, _ := json.Marshal(map[string]string{"type": typ, "challenge": challenge, "origin": "https://" + rpHost})
+func clientJSON(typ, challenge string) []byte { return clientJSONAt(typ, challenge, rpHost) }
+
+func clientJSONAt(typ, challenge, host string) []byte {
+	b, _ := json.Marshal(map[string]string{"type": typ, "challenge": challenge, "origin": "https://" + host})
 	return b
 }
 
@@ -253,5 +260,88 @@ func TestLightClientStored(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("a web-only person's files aren't stored")
+	}
+}
+
+// Someone with a name signs in at their own address, and only they can.
+func TestLightOwnAddress(t *testing.T) {
+	u, _, dir := setupUsers(t, 0)
+	statePath := filepath.Join(dir, "hub.json")
+	ctx := context.Background()
+	peersPath := filepath.Join(dir, "peers.json")
+	peers.Write(peersPath, []peers.Peer{
+		{Name: "desktop", Addr: "[" + webYgg + "]:7400", Admin: true, Domain: "example.org"},
+		{Name: "box", Addr: "[" + boxYgg + "]:7400", PeopleNames: []peers.PersonName{{Name: "anna.example.org", Person: "anna", Code: "ys1annaannaanna"}}},
+	})
+	u.cfg.PeersPath = peersPath
+	u.cfg.WebNodes = func(context.Context) []string { return []string{"[" + webYgg + "]:7400"} }
+	tokens := map[string]string{}
+	Update(ctx, statePath, func(s *HubState) error {
+		for _, who := range []string{"anna", "ben"} {
+			s.AddPerson(who, u.cfg.Dir)
+			tokens[who], _ = s.Invite(who, time.Now())
+		}
+		return nil
+	})
+	h := (&Hub{cfg: Config{Files: u.FilesHandler(boxYgg)}}).Handler()
+	cookies := map[string]string{}
+	do := func(host, path, body string) *httptest.ResponseRecorder {
+		hdr := map[string]string{"X-Yggstore": "1", light.RelayHeader: "1", "X-Forwarded-Host": host}
+		var c []string
+		for k, v := range cookies {
+			c = append(c, k+"="+v)
+		}
+		if len(c) > 0 {
+			hdr["Cookie"] = strings.Join(c, "; ")
+		}
+		rec := filesReq(h, "POST", path, webYgg, body, hdr)
+		for _, ck := range rec.Result().Cookies() {
+			cookies[ck.Name] = ck.Value
+		}
+		return rec
+	}
+	begin := func(host, token string) (string, int) {
+		rec := do(host, light.Base+"/begin", `{"t":"`+token+`"}`)
+		var b struct{ Challenge string }
+		json.Unmarshal(rec.Body.Bytes(), &b)
+		return b.Challenge, rec.Code
+	}
+	if _, code := begin("anna.example.org", tokens["ben"]); code != http.StatusForbidden {
+		t.Fatalf("ben's invite at anna's address: %d", code)
+	}
+	if _, code := begin("evil.example.org", tokens["anna"]); code != http.StatusForbidden {
+		t.Fatalf("an address that isn't anyone's: %d", code)
+	}
+	ch, code := begin("anna.example.org", tokens["anna"])
+	if code != 200 {
+		t.Fatalf("anna's invite at her address: %d", code)
+	}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	ph := &phone{rp: "anna.example.org", key: key, id: []byte("anna-key")}
+	spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	reg, _ := json.Marshal(map[string]any{"t": tokens["anna"], "name": "phone", "challenge": ch, "id": passkey.B64.EncodeToString(ph.id),
+		"client_data": passkey.B64.EncodeToString(clientJSONAt("webauthn.create", ch, "anna.example.org")),
+		"auth_data":   passkey.B64.EncodeToString(ph.authData(true)), "spki": passkey.B64.EncodeToString(spki), "alg": passkey.ES256})
+	if rec := do("anna.example.org", light.Base+"/register", string(reg)); rec.Code != 200 {
+		t.Fatalf("register at her address: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do("anna.example.org", "/files?op=list", `{"path":""}`); rec.Code != 200 {
+		t.Fatalf("her files at her address: %d %s", rec.Code, rec.Body)
+	}
+	// The same session at the shared address counts for nothing.
+	if rec := do(rpHost, "/files?op=list", `{"path":""}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("her session at the shared address: %d", rec.Code)
+	}
+	// And her passkey doesn't sign in there either.
+	ch2 := passkey.NewChallenge(time.Now())
+	ph.count++
+	cj, auth := clientJSONAt("webauthn.get", ch2, rpHost), ph.authData(false)
+	hc := sha256.Sum256(cj)
+	digest := sha256.Sum256(append(append([]byte{}, auth...), hc[:]...))
+	sig, _ := ecdsa.SignASN1(rand.Reader, key, digest[:])
+	body, _ := json.Marshal(map[string]string{"challenge": ch2, "id": passkey.B64.EncodeToString(ph.id),
+		"client_data": passkey.B64.EncodeToString(cj), "auth_data": passkey.B64.EncodeToString(auth), "signature": passkey.B64.EncodeToString(sig)})
+	if rec := do(rpHost, light.Base+"/signin", string(body)); rec.Code == 200 {
+		t.Fatal("her passkey signed in at the shared address")
 	}
 }
