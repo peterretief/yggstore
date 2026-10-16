@@ -3,9 +3,11 @@ package dashboard
 import (
 	"context"
 	_ "embed"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/site"
 )
 
 // The network page (/network): every node in the group with its addresses
@@ -61,6 +64,10 @@ type netMachine struct {
 	Open  []int  `json:"open"`
 	Hub   string `json:"hub,omitempty"` // where its people open their files
 	Known bool   `json:"known"`         // probed yet
+	// YggName is the machine's DNS name for its Yggdrasil address, and
+	// InDNS whether it points there yet (see peers.YggNames).
+	YggName string `json:"ygg_name,omitempty"`
+	InDNS   bool   `json:"in_dns,omitempty"`
 }
 
 type netName struct {
@@ -90,6 +97,7 @@ type netProbe struct {
 	portsAt time.Time
 	sites   map[string]netName // per name: Status and Problem
 	sitesAt time.Time
+	inDNS   map[string]bool // per IP: its name points at it
 	mx      []string
 	busy    bool
 }
@@ -132,6 +140,7 @@ func (d *Dashboard) handleNetwork(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	yggNames := peers.YggNames(list)
 	out := netState{Domain: peers.GroupDomain(list), MX: []string{}, Nodes: []netNode{}, Machines: []netMachine{}, Names: []netName{}, At: time.Now().Unix()}
 	var ips []string
 	machineOf := map[string]string{}
@@ -176,16 +185,22 @@ func (d *Dashboard) handleNetwork(w http.ResponseWriter, r *http.Request) {
 		out.Names = append(out.Names, netName{Name: out.Domain, Node: "the group"})
 	}
 
-	ports, sites, mx := d.netProbes(ips, out.Names, out.Domain)
+	ports, sites, mx, inDNS := d.netProbes(ips, out.Names, out.Domain, yggNames)
 	out.MX = mx
+	host := func(ip string) string { // the name to link to, once DNS has it
+		if inDNS[ip] {
+			return yggNames[ip]
+		}
+		return ip
+	}
 	for _, ip := range ips {
 		open, known := ports[ip]
-		m := netMachine{IP: ip, Name: machineOf[ip], Open: open, Known: known}
+		m := netMachine{IP: ip, Name: machineOf[ip], Open: open, Known: known, YggName: yggNames[ip], InDNS: inDNS[ip]}
 		if m.Open == nil {
 			m.Open = []int{}
 		}
 		if hasPort(open, 7490) {
-			m.Hub = "http://" + net.JoinHostPort(ip, "7490") + "/files"
+			m.Hub = peers.HostURL(host(ip), "7490") + "/files"
 		}
 		out.Machines = append(out.Machines, m)
 	}
@@ -195,7 +210,7 @@ func (d *Dashboard) handleNetwork(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if dp := 7480 + pt - 7400; hasPort(ports[n.IP], dp) {
-			out.Nodes[i].Dashboard = "http://" + net.JoinHostPort(n.IP, strconv.Itoa(dp))
+			out.Nodes[i].Dashboard = peers.HostURL(host(n.IP), strconv.Itoa(dp))
 		}
 	}
 	for i, nm := range out.Names {
@@ -238,14 +253,14 @@ func hasPort(open []int, p int) bool {
 
 // netProbes gives what the last probes found, and starts new ones in the
 // background once those are old.
-func (d *Dashboard) netProbes(ips []string, names []netName, domain string) (map[string][]int, map[string]netName, []string) {
+func (d *Dashboard) netProbes(ips []string, names []netName, domain string, yggNames map[string]string) (map[string][]int, map[string]netName, []string, map[string]bool) {
 	pr := &d.netProbe
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 	stalePorts, staleSites := time.Since(pr.portsAt) > portsFresh, time.Since(pr.sitesAt) > sitesFresh
 	if (stalePorts || staleSites) && !pr.busy {
 		pr.busy = true
-		go pr.refresh(ips, names, domain, stalePorts, staleSites)
+		go pr.refresh(ips, names, domain, yggNames, stalePorts, staleSites)
 	}
 	ports, sites := map[string][]int{}, map[string]netName{}
 	for k, v := range pr.ports {
@@ -255,10 +270,14 @@ func (d *Dashboard) netProbes(ips []string, names []netName, domain string) (map
 		sites[k] = v
 	}
 	mx := append([]string{}, pr.mx...)
-	return ports, sites, mx
+	inDNS := map[string]bool{}
+	for k, v := range pr.inDNS {
+		inDNS[k] = v
+	}
+	return ports, sites, mx, inDNS
 }
 
-func (pr *netProbe) refresh(ips []string, names []netName, domain string, doPorts, doSites bool) {
+func (pr *netProbe) refresh(ips []string, names []netName, domain string, yggNames map[string]string, doPorts, doSites bool) {
 	defer func() {
 		pr.mu.Lock()
 		pr.busy = false
@@ -286,12 +305,29 @@ func (pr *netProbe) refresh(ips []string, names []netName, domain string, doPort
 				}()
 			}
 		}
+		inDNS := map[string]bool{}
+		for ip, name := range yggNames {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				got, _ := net.DefaultResolver.LookupIP(ctx, "ip6", name)
+				mu.Lock()
+				defer mu.Unlock()
+				for _, g := range got {
+					if g.Equal(net.ParseIP(ip)) {
+						inDNS[ip] = true
+					}
+				}
+			}()
+		}
 		wg.Wait()
 		for _, v := range ports {
 			sort.Ints(v)
 		}
 		pr.mu.Lock()
-		pr.ports, pr.portsAt = ports, time.Now()
+		pr.ports, pr.portsAt, pr.inDNS = ports, time.Now(), inDNS
 		pr.mu.Unlock()
 	}
 	if doSites {
@@ -330,5 +366,37 @@ func (pr *netProbe) refresh(ips []string, names []netName, domain string, doPort
 		pr.mu.Lock()
 		pr.sites, pr.sitesAt, pr.mx = sites, time.Now(), mx
 		pr.mu.Unlock()
+	}
+}
+
+// addYggNames puts the machines' names in DNS (see peers.YggNames), if this
+// admin dashboard has a Cloudflare API token; without one, the network page
+// lists the records to add by hand.
+func (d *Dashboard) addYggNames(ctx context.Context, list []peers.Peer) {
+	token, err := os.ReadFile(d.cfg.CloudflareToken)
+	if d.cfg.CloudflareToken == "" || err != nil || len(strings.TrimSpace(string(token))) == 0 {
+		return
+	}
+	cf := &site.Cloudflare{APIToken: strings.TrimSpace(string(token))}
+	test := map[string]bool{} // the test cluster's machines stay out of DNS
+	if d.cfg.TestPeersPath != "" {
+		tlist, _ := peers.Load(d.cfg.TestPeersPath)
+		for _, p := range tlist {
+			test[p.IP()] = true
+		}
+	}
+	for ip, name := range peers.YggNames(list) {
+		if test[ip] || d.names.Points(name, ip) {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		added, err := cf.AAAA(cctx, name, ip)
+		cancel()
+		switch {
+		case err != nil:
+			d.event("warn", fmt.Sprintf("names: %s: %v", name, err))
+		case added:
+			d.event("ok", fmt.Sprintf("names: %s now points at %s", name, ip))
+		}
 	}
 }

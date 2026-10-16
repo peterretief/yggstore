@@ -66,9 +66,19 @@ label.show { display: inline-flex; gap: 6px; align-items: center; color: var(--m
 
   <h2>Machines</h2>
   <div class="tablewrap"><table>
-    <thead><tr><th>Machine</th><th>Yggdrasil address</th><th>Answers on</th><th>Links</th></tr></thead>
+    <thead><tr><th>Machine</th><th>Name and Yggdrasil address</th><th>Answers on</th><th>Links</th></tr></thead>
     <tbody id="machines"></tbody>
   </table></div>
+
+  <div id="dnsWrap" hidden>
+  <h2>Names to add to DNS</h2>
+  <div class="sub" style="margin-bottom:8px">Each machine gets a name for its Yggdrasil address, so links to it survive email and chat.
+    Add these records in the domain's DNS (at Cloudflare: DNS-only, not proxied). An admin dashboard with a Cloudflare API token adds them itself.</div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Name</th><th>Type</th><th>Address</th></tr></thead>
+    <tbody id="dns"></tbody>
+  </table></div>
+  </div>
 
   <h2>Public names</h2>
   <div class="tablewrap"><table>
@@ -125,8 +135,13 @@ function render() {
       : `<span class="pill down">nothing answers</span>`;
     const dash = st.nodes.filter(n => n.ip === m.ip && n.dashboard).map(n => `<a href="${esc(n.dashboard)}" target="_blank" rel="noopener">${esc(n.name)} dashboard</a>`);
     if (m.hub) dash.push(`<a href="${esc(m.hub)}" target="_blank" rel="noopener">people's files</a>`, `<a href="${esc(m.hub)}/site" target="_blank" rel="noopener">their websites</a>`);
-    return `<tr><td><b>${esc(m.name)}</b></td><td>${cp(m.ip)}</td><td>${open}</td><td>${dash.join(" · ") || "—"}</td></tr>`;
+    const name = !m.ygg_name ? "" : m.in_dns ? `${cp(m.ygg_name)}<br>`
+      : `<span class="mono">${esc(m.ygg_name)}</span> <span class="pill warn">not in DNS yet</span><br>`;
+    return `<tr><td><b>${esc(m.name)}</b></td><td>${name}${cp(m.ip)}</td><td>${open}</td><td>${dash.join(" · ") || "—"}</td></tr>`;
   }).join("");
+  const missing = st.machines.filter(m => m.ygg_name && !m.in_dns && m.known && (test || realIPs.has(m.ip) || !testIPs.has(m.ip)));
+  $("dnsWrap").hidden = !missing.length;
+  $("dns").innerHTML = missing.map(m => `<tr><td>${cp(m.ygg_name)}</td><td class="mono">AAAA</td><td>${cp(m.ip)}</td></tr>`).join("");
   $("names").innerHTML = st.names.map(x => {
     const ans = !x.checked ? `<span class="sub">checking…</span>` : x.status >= 200 && x.status < 400 ? `<span class="pill up">${x.status}</span> online`
       : x.status ? `<span class="pill warn">${x.status}</span> ${x.status === 404 ? "no site published" : ""}` : `<span class="pill down">no answer</span> <span class="sub">${esc(x.problem)}</span>`;

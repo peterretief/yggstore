@@ -38,7 +38,7 @@ const (
 var reserved = map[string]bool{
 	"www": true, "mail": true, "mail-in": true, "smtp": true, "imap": true, "admin": true, "administrator": true,
 	"root": true, "postmaster": true, "abuse": true, "hostmaster": true, "webmaster": true, "noreply": true,
-	"no-reply": true, "security": true,
+	"no-reply": true, "security": true, "ygg": true,
 }
 
 type nameClaim struct {

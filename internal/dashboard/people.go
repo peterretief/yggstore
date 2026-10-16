@@ -88,7 +88,7 @@ func (d *Dashboard) boxURL() string {
 	if ip := net.ParseIP(d.cfg.SelfID); ip == nil || ip.To4() != nil {
 		return ""
 	}
-	return "http://" + net.JoinHostPort(d.cfg.SelfID, HubPort)
+	return peers.HostURL(d.yggHost(d.cfg.SelfID), HubPort)
 }
 
 func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {

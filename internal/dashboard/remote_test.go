@@ -207,3 +207,32 @@ func TestPageOf(t *testing.T) {
 		}
 	}
 }
+
+func TestYggNameHost(t *testing.T) {
+	dir := t.TempDir()
+	list := filepath.Join(dir, "devices.json")
+	d := New(Config{PeersPath: filepath.Join(dir, "peers.json"), StubDir: dir, Listen: "127.0.0.1:7480",
+		YggAddr: "200::1", Devices: devices.NewWatch(list)})
+	d.yggName = "desktop.ygg.example.org"
+	d.names.Lookup = func(context.Context, string) ([]net.IP, error) { return []net.IP{net.ParseIP("200::1")}, nil }
+	devices.Add(list, "201::9", "laptop")
+	h := d.Handler()
+	do := func(target, host, local, remote string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", target, nil)
+		r.Host, r.RemoteAddr = host, net.JoinHostPort(remote, "50000")
+		r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.ParseIP(local), Port: 7480}))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for host, want := range map[string]int{"desktop.ygg.example.org:7480": 200, "Desktop.YGG.example.org.:7480": 200,
+		"other.ygg.example.org:7480": 403, "evil.example:7480": 403} {
+		if w := do("/", host, "200::1", "201::9"); w.Code != want {
+			t.Errorf("Host %s: %d, want %d", host, w.Code, want)
+		}
+	}
+	// From the LAN, sent on by name once DNS has it.
+	if w := do("/mail", "box.local:7480", "192.168.0.5", "192.168.0.20"); w.Header().Get("Location") != "http://desktop.ygg.example.org:7480/mail" {
+		t.Fatalf("sent to %q", w.Header().Get("Location"))
+	}
+}

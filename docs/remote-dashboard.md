@@ -117,6 +117,30 @@ Remove a device when you sell or lose it. Its Yggdrasil keys are in its
 > browser sees plain `http://`. So "copy" buttons may not reach the
 > clipboard; they select the text instead, for Ctrl+C.
 
+## Names instead of bare addresses
+
+A link with a bare Yggdrasil address, such as `http://[201:1193::a74]:7480`,
+breaks in email and chat: Gmail, for one, sends links through its own page,
+which mangles the brackets. So each machine in a group with a domain gets a
+name for its Yggdrasil address under it, such as
+`localbox-003.ygg.withcare.co.za`: the name of the first node at the
+address, under `ygg.` and the group's domain.
+
+- Each is an **AAAA record pointing at the Yggdrasil address**, DNS only
+  (not proxied). Anyone can look the name up, but only devices on
+  Yggdrasil can reach the address, and the device list still decides who
+  gets in.
+- The dashboard and the box page **answer to their own name** as well as
+  their address. Any other name is still refused, which stops DNS
+  rebinding.
+- **Once DNS has the name, links use it:** the LAN sends you on to
+  `http://NAME:7480`, and the network page, Your devices and the box page
+  show it.
+- **An admin dashboard with a Cloudflare API token** (in
+  `~/.yggstore/cloudflare-api.token`, with Zone › DNS › Edit) adds the
+  records itself, every half hour, leaving out the test cluster. Without
+  one, the network page lists the records to add by hand.
+
 ## Pages
 
 The dashboard is a page for each thing it does, all on the same port. A

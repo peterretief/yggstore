@@ -15,6 +15,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/devices"
+	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/workhere"
 )
 
@@ -175,10 +176,29 @@ type filesPage struct {
 	u      *Users
 	self   string
 	client client.Client
+	names  peers.NameCheck
+
+	nameMu sync.Mutex
+	name   string // the box's name for self (see peers.YggNames)
+	nameAt time.Time
 
 	mu     sync.Mutex
 	seenAt map[string]time.Time // per device, when last written down
 	used   map[string]*usage    // per person
+}
+
+// ownName is the box's name for its Yggdrasil address, from the group's
+// list, read at most every half minute.
+func (f *filesPage) ownName() string {
+	f.nameMu.Lock()
+	defer f.nameMu.Unlock()
+	if time.Since(f.nameAt) > 30*time.Second {
+		if list, err := peers.Load(f.u.cfg.PeersPath); err == nil {
+			f.name = peers.YggName(list, f.self)
+		}
+		f.nameAt = time.Now()
+	}
+	return f.name
 }
 
 // usage is what a person stores, counted now and then, plus what they put
@@ -309,7 +329,11 @@ func (f *filesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if a, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
 			_, port, _ = net.SplitHostPort(a.String())
 		}
-		http.Redirect(w, r, "http://"+net.JoinHostPort(f.self, port)+r.URL.RequestURI(), http.StatusFound)
+		host := f.self
+		if name := f.ownName(); f.names.Points(name, f.self) {
+			host = name
+		}
+		http.Redirect(w, r, "http://"+net.JoinHostPort(host, port)+r.URL.RequestURI(), http.StatusFound)
 		return
 	}
 	// The Host must name the box, which stops DNS rebinding.
@@ -317,7 +341,8 @@ func (f *filesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if hh, _, err := net.SplitHostPort(h); err == nil {
 		h = hh
 	}
-	if ip := net.ParseIP(strings.Trim(h, "[]")); ip == nil || !ip.Equal(net.ParseIP(f.self)) {
+	if ip := net.ParseIP(strings.Trim(h, "[]")); (ip == nil || !ip.Equal(net.ParseIP(f.self))) &&
+		(f.ownName() == "" || !strings.EqualFold(strings.TrimSuffix(h, "."), f.ownName())) {
 		http.Error(w, "the box only answers to its own address", http.StatusForbidden)
 		return
 	}

@@ -245,7 +245,8 @@ async function refresh() {
   $('filesCard').hidden = !st.files_at;
   $('noFiles').hidden = !!st.files_at;
   if (st.files_at) {
-    const url = 'http://[' + st.files_at + ']' + (location.port ? ':' + location.port : '') + '/files';
+    const host = st.files_at.includes(':') ? '[' + st.files_at + ']' : st.files_at;
+    const url = 'http://' + host + (location.port ? ':' + location.port : '') + '/files';
     $('filesURL').textContent = url;
     $('filesLink').href = url;
   } else if (!opened) { $('advanced').open = true; opened = true; } // Syncthing is the only way in, then

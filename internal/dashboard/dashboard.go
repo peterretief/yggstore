@@ -253,6 +253,9 @@ type Dashboard struct {
 	asks         []deviceAsk // devices asking to be let in
 	usage        usageCache  // what the box's people store
 	netProbe     netProbe    // the network page's probes
+	yggName      string          // this machine's name for its Yggdrasil address (see peers.YggNames), under mu
+	yggDNSAt     time.Time       // when the machines' names were last added to DNS, used only by poll
+	names        peers.NameCheck // which machines' names are in DNS
 }
 
 func New(cfg Config) *Dashboard {
@@ -439,8 +442,12 @@ func (d *Dashboard) guard(next http.Handler) http.Handler {
 		}
 		host = strings.Trim(host, "[]")
 		listenHost, _, _ := net.SplitHostPort(d.cfg.Listen)
+		d.mu.Lock()
+		yggName := d.yggName
+		d.mu.Unlock()
 		ownName := host == "localhost" || (host != "" && host == listenHost) || net.ParseIP(host).IsLoopback() ||
-			(d.cfg.YggAddr != "" && net.ParseIP(host).Equal(net.ParseIP(d.cfg.YggAddr)))
+			(d.cfg.YggAddr != "" && net.ParseIP(host).Equal(net.ParseIP(d.cfg.YggAddr))) ||
+			(yggName != "" && strings.EqualFold(strings.TrimSuffix(host, "."), yggName))
 		if !ownName {
 			http.Error(w, "the dashboard only answers to its own address", http.StatusForbidden)
 			return
@@ -478,10 +485,23 @@ func remoteIP(r *http.Request) string {
 	return host
 }
 
-// yggURL is the dashboard's address on Yggdrasil.
+// yggURL is the dashboard's address on Yggdrasil: by its name, once DNS
+// has it, as a bare address in [brackets] doesn't survive email and chat.
 func (d *Dashboard) yggURL() string {
 	_, port, _ := net.SplitHostPort(d.cfg.Listen)
-	return "http://" + net.JoinHostPort(d.cfg.YggAddr, port)
+	return peers.HostURL(d.yggHost(d.cfg.YggAddr), port)
+}
+
+// yggHost is this machine's name, if it is in DNS pointing at ip, or else
+// ip.
+func (d *Dashboard) yggHost(ip string) string {
+	d.mu.Lock()
+	name := d.yggName
+	d.mu.Unlock()
+	if d.names.Points(name, ip) {
+		return name
+	}
+	return ip
 }
 
 // notAllowed tells a device that isn't on the list how to be added.
@@ -670,6 +690,12 @@ func (d *Dashboard) poll(ctx context.Context) {
 		st.PeersError = err.Error()
 	}
 	mainList := list
+	if err == nil {
+		name := peers.YggName(mainList, d.cfg.SelfID)
+		d.mu.Lock()
+		d.yggName = name
+		d.mu.Unlock()
+	}
 	if d.cfg.Identity != nil {
 		st.SharingCode, st.Me = d.cfg.Identity.Code(), d.me()
 	}
@@ -708,6 +734,10 @@ func (d *Dashboard) poll(ctx context.Context) {
 		d.syncLists(ctx, mainList, st.Peers, st.AdminEntry != "")
 		d.syncNames(ctx, mainList)
 		d.syncWallet(ctx, mainList)
+		if st.AdminEntry != "" && time.Since(d.yggDNSAt) > 30*time.Minute {
+			d.yggDNSAt = time.Now()
+			go d.addYggNames(ctx, mainList)
+		}
 	}
 	st.Accounts = accounts(mainList, st.Peers, d.cfg.SelfID)
 

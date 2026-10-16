@@ -78,6 +78,7 @@ type Hub struct {
 	state   State
 	checked time.Time
 	join    joinState
+	names   peers.NameCheck // whether the box's name is in DNS
 }
 
 func New(cfg Config) *Hub { return &Hub{cfg: cfg} }
@@ -105,7 +106,7 @@ type State struct {
 	Checked  int64      `json:"checked"`
 	Sync     *Status    `json:"sync,omitempty"`     // pairing through Syncthing
 	LAN      []string   `json:"lan"`                // this box's addresses on the LAN
-	FilesAt  string     `json:"files_at,omitempty"` // the Yggdrasil address people open their files at
+	FilesAt  string     `json:"files_at,omitempty"` // where people open their files: the box's name, or its Yggdrasil address
 }
 
 // check asks every node in the group whether it is up, at most every few
@@ -131,6 +132,9 @@ func (h *Hub) check(ctx context.Context) State {
 		if !os.IsNotExist(err) {
 			st.Problem = "This box's member list can't be read: " + err.Error()
 		}
+	}
+	if name := peers.YggName(list, h.cfg.SelfAddr); st.FilesAt != "" && h.names.Points(name, h.cfg.SelfAddr) {
+		st.FilesAt = name // links by name survive email and chat
 	}
 	st.Nodes = len(list)
 	nodes := make([]NodeState, len(list))

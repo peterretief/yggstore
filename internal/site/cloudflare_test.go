@@ -121,3 +121,26 @@ func TestTunnelFromToken(t *testing.T) {
 		t.Fatal("tunnel ID taken for a token")
 	}
 }
+
+func TestCloudflareAAAA(t *testing.T) {
+	fake := &fakeCloudflare{}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	cf := &Cloudflare{APIToken: "api-token", Base: srv.URL}
+	ctx := context.Background()
+	if added, err := cf.AAAA(ctx, "box.ygg.example.org", "201:1193::a74"); err != nil || !added {
+		t.Fatalf("add: %v %v", added, err)
+	}
+	if r := fake.records[0]; r["type"] != "AAAA" || r["content"] != "201:1193::a74" || r["proxied"] != false {
+		t.Fatalf("record %v", r)
+	}
+	if added, err := cf.AAAA(ctx, "box.ygg.example.org", "201:1193:0::a74"); err != nil || added {
+		t.Fatalf("again: %v %v", added, err)
+	}
+	if _, err := cf.AAAA(ctx, "box.ygg.example.org", "201::5"); err == nil || !strings.Contains(err.Error(), "already has") {
+		t.Fatalf("over another address: %v", err)
+	}
+	if len(fake.records) != 1 {
+		t.Fatalf("records %v", fake.records)
+	}
+}

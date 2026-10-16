@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -145,6 +146,32 @@ func (c *Cloudflare) Route(ctx context.Context, host, service string) ([]string,
 		added = append(added, "DNS record "+host)
 	}
 	return added, nil
+}
+
+// AAAA gives host an AAAA record for ip, DNS only (a Yggdrasil address
+// can't go through Cloudflare's proxy), unless it has that one already. It
+// leaves alone, and reports, a record of host that points elsewhere. It
+// reports whether it added the record.
+func (c *Cloudflare) AAAA(ctx context.Context, host, ip string) (bool, error) {
+	zone, _, err := c.Zone(ctx, host)
+	if err != nil {
+		return false, err
+	}
+	var records []struct{ Type, Content string }
+	if err := c.call(ctx, "GET", "/zones/"+zone+"/dns_records?name="+url.QueryEscape(host), nil, &records); err != nil {
+		return false, err
+	}
+	for _, r := range records {
+		if r.Type == "AAAA" && net.ParseIP(r.Content).Equal(net.ParseIP(ip)) {
+			return false, nil
+		}
+		return false, fmt.Errorf("%s already has a DNS record (%s %s); delete it in the Cloudflare dashboard if %s should point at %s", host, r.Type, r.Content, host, ip)
+	}
+	rec := map[string]any{"type": "AAAA", "name": host, "content": ip, "proxied": false, "ttl": 1, "comment": "yggstore machine's Yggdrasil address"}
+	if err := c.call(ctx, "POST", "/zones/"+zone+"/dns_records", rec, nil); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Zone finds the Cloudflare zone host is in.
