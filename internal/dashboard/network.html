@@ -96,7 +96,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const cp = s => `<span class="copy mono" data-copy="${esc(s)}">${esc(s)}</span>`;
 const gb = b => b >= 1 << 30 ? (b / (1 << 30)).toFixed(1) + " GB" : (b / (1 << 20)).toFixed(0) + " MB";
-const portName = {7480: "dashboard", 7481: "2nd dashboard", 7490: "hub", 8480: "websites", 22000: "Syncthing", 22: "SSH"};
+const portName = {7400: "node", 7401: "2nd node", 7480: "dashboard", 7481: "2nd dashboard", 7490: "hub", 8480: "websites", 22000: "Syncthing", 22: "SSH"};
 let st;
 try { $("showTest").checked = localStorage.getItem("net.test") === "1"; } catch (e) {}
 

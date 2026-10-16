@@ -25,7 +25,7 @@ import (
 var networkHTML []byte
 
 // netPorts are the ports a machine is checked for (see the page's legend).
-var netPorts = []int{7480, 7481, 7490, 8480, 22000, 22}
+var netPorts = []int{7400, 7401, 7480, 7481, 7490, 8480, 22000, 22}
 
 const (
 	portsFresh = time.Minute
