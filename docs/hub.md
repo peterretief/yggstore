@@ -19,7 +19,15 @@ its name, its group and its websites are on it already. Where it ends up,
 it needs only power and a network cable, and users need only its page.
 
 The hub serves that page on the LAN, at `http://NAME.local:7490`. It is
-written for the people who use the box, not for developers:
+written for the people who use the box, not for developers. It leads with
+**Your files**: install Yggdrasil once, open the invite link from the box's
+owner, then open your files in the browser at the address shown (see
+[your files in the browser](#your-files-in-the-browser)).
+
+Syncthing is the advanced option, folded away under **Advanced**, for
+people who want a folder on their device kept in step with the box. It is
+opened by itself when the box doesn't serve files in the browser, or with
+`#syncthing` on the page's address. Inside it:
 
 1. **Install Syncthing**, with steps for Windows, Mac, Linux, Android
    (Syncthing-Fork) and iPhone (Möbius Sync). The visitor's own system is
@@ -28,6 +36,7 @@ written for the people who use the box, not for developers:
    (`tcp://IP:22000`), each with a Copy button, and where to paste them in
    Syncthing. Then accept the folder the box offers.
 3. **Use the folder**: how to store, restore and delete files.
+4. **Work from anywhere** (below).
 
 Below that, **This box** shows whether its node is up, how many of the
 group's machines answer, and whether it is taking new devices. A folded
@@ -257,7 +266,7 @@ its folder.
 ### Work from anywhere
 
 People who use a box have no dashboard of their own, so they turn this on
-from the box's page (step 4 there). They paste their device's Syncthing
+from the box's page (step 4 under Advanced). They paste their device's Syncthing
 ID, which tells the box who they are, and an email address they can read
 anywhere. The box then makes them a sharing key if they have none, starts
 keeping recovery copies of their folder, keeps their record on the group's
@@ -284,7 +293,7 @@ each person sees only their own folder.
 
 It goes over Yggdrasil, at the box's Yggdrasil address on the hub's port,
 such as `http://[200:1f12::cfd6]:7490/files`. The box's page shows the
-address (step 5 there). A Yggdrasil address can only be used by the device
+address, first, under **Your files**. A Yggdrasil address can only be used by the device
 holding its private key, so the address says which device is asking, and
 the box opens the folder of the person it belongs to. Opened over the LAN,
 the page sends the browser on to that address and serves nothing itself.

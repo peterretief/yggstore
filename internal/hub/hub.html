@@ -68,113 +68,122 @@ b.ui { font-weight: 600; background: var(--empty); padding: 0 5px; border-radius
 <body>
 <main>
   <h1 id="host">yggstore box</h1>
-  <p class="lead">Keep your files safe on this box: put them in a folder on your computer or phone, and they are stored, encrypted, on the group's machines.</p>
-  <div class="row" id="syncstate" style="margin-top:10px"></div>
+  <p class="lead">Keep your files safe on this box: open them in your browser to upload, download and sort them, and they are stored, encrypted, on the group's machines.</p>
 
-  <h2>Set up your computer or phone</h2>
+  <h2>Your files</h2>
 
-  <div class="card step">
-    <div class="num">1</div>
-    <div>
-      <h3>Install Syncthing</h3>
-      <p>Syncthing is a free program that keeps a folder on your device in step with this box. Install it once:</p>
+  <div class="card" id="filesCard" hidden>
+    <ol>
+      <li>Install <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noopener">Yggdrasil</a> on your laptop or phone, once. It is how the box knows the device is yours, wherever it is.</li>
+      <li>On that device, open the invite link the box's owner sent you. It lets the device in.</li>
+      <li>From then on, open your files here, from home, work or anywhere: browse, download, upload, rename and delete.
+        <div class="copyrow"><pre id="filesURL"></pre><button data-copy="filesURL">Copy</button></div>
+        <p><a id="filesLink" href="#" target="_blank" rel="noopener"><b>Open my files</b></a></p></li>
+    </ol>
+    <p class="note">Each person sees only their own files. To use another device too, let it in yourself, under <b>Your devices</b> on your files page.</p>
+  </div>
+  <div class="card" id="noFiles" hidden>
+    <p>Opening your files in the browser isn't switched on for this box: ask its owner. Until then, you can keep a folder in step with it through Syncthing (under <b>Advanced</b> below).</p>
+  </div>
 
-      <details class="os" data-os="windows"><summary>Windows</summary>
+  <details class="os adv" id="advanced" style="margin-top:16px"><summary>Advanced: keep a folder on your device in step with the box, with Syncthing
+      <span class="sub">(for working without a browser, or offline)</span></summary>
+    <p>Syncthing is a free program that keeps a folder on your device the same as your folder on the box, so you work on your files with your own programs. It takes more setting up than the browser.</p>
+    <div class="row" id="syncstate"></div>
+
+    <div class="card step" style="margin-top:12px">
+      <div class="num">1</div>
+      <div>
+        <h3>Install Syncthing</h3>
+        <p>Install it once on your device:</p>
+
+        <details class="os" data-os="windows"><summary>Windows</summary>
+          <ol>
+            <li>Go to <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a>.</li>
+            <li>Under <b>Windows</b>, download <b>Syncthing Windows Setup</b> and run it. Accept what it suggests.</li>
+            <li>When it has finished, Syncthing opens in your web browser. If it doesn't, open <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a>.</li>
+          </ol>
+        </details>
+
+        <details class="os" data-os="mac"><summary>Mac</summary>
+          <ol>
+            <li>Go to <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a>.</li>
+            <li>Under <b>macOS</b>, download the <b>Syncthing app</b>, open the file and drag Syncthing into <b>Applications</b>.</li>
+            <li>Open Syncthing from Applications. Its icon appears in the menu bar at the top of the screen: click it and choose <b class="ui">Open</b>.</li>
+          </ol>
+        </details>
+
+        <details class="os" data-os="linux"><summary>Linux <span class="sub">(Ubuntu, Debian, Raspberry Pi OS)</span></summary>
+          <ol>
+            <li>Open a terminal and run:
+              <pre>sudo apt install syncthing
+  systemctl --user enable --now syncthing</pre></li>
+            <li>Open <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a> in your browser.</li>
+          </ol>
+        </details>
+
+        <details class="os" data-os="android"><summary>Android phone or tablet</summary>
+          <ol>
+            <li>Install <b>Syncthing-Fork</b> from <a href="https://play.google.com/store/apps/details?id=com.github.catfriend1.syncthingandroid" target="_blank" rel="noopener">Google Play</a> or <a href="https://f-droid.org/packages/com.github.catfriend1.syncthingandroid/" target="_blank" rel="noopener">F-Droid</a>.</li>
+            <li>Open it and allow what it asks for (storage, and running in the background).</li>
+          </ol>
+        </details>
+
+        <details class="os" data-os="ios"><summary>iPhone or iPad</summary>
+          <p>There is no official Syncthing for iPhone. <b>Möbius Sync</b> from the App Store works the same way (it is a paid app made by others).</p>
+        </details>
+      </div>
+    </div>
+
+    <div class="card step" style="margin-top:12px">
+      <div class="num">2</div>
+      <div>
+        <h3>Connect to this box</h3>
         <ol>
-          <li>Go to <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a>.</li>
-          <li>Under <b>Windows</b>, download <b>Syncthing Windows Setup</b> and run it. Accept what it suggests.</li>
-          <li>When it has finished, Syncthing opens in your web browser. If it doesn't, open <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a>.</li>
+          <li>In Syncthing, click <b class="ui">+ Add Remote Device</b> (bottom right; on a phone, the <b class="ui">Devices</b> tab, then <b class="ui">+</b>).</li>
+          <li>Under <b>Device ID</b>, this box may be listed among the nearby devices: click it. If it isn't, copy this box's ID and paste it in:
+            <div class="copyrow"><pre id="stid">(waiting for this box's Syncthing)</pre><button data-copy="stid">Copy</button></div></li>
+          <li>Under <b>Device Name</b>, type <b id="boxname">this box's name</b>.</li>
+          <li>Open the <b class="ui">Advanced</b> tab. Under <b>Addresses</b>, replace what's there with this, so your device finds the box even when it isn't listed nearby:
+            <div class="copyrow"><pre id="staddr">…</pre><button data-copy="staddr">Copy</button></div></li>
+          <li>Click <b class="ui">Save</b>.</li>
+          <li>Within half a minute this box welcomes your device, and Syncthing shows a message: <b>"<span class="boxname2">this box</span> wants to share folder yggstore (<span class="boxname2">this box</span>)"</b>. Click <b class="ui">Add</b>.</li>
+          <li>Choose where the folder goes on your device (<b>Folder Path</b>, in the <b class="ui">General</b> tab), for example a folder called <span class="mono">yggstore</span> in your home folder. Click <b class="ui">Save</b>.</li>
         </ol>
-      </details>
-
-      <details class="os" data-os="mac"><summary>Mac</summary>
-        <ol>
-          <li>Go to <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a>.</li>
-          <li>Under <b>macOS</b>, download the <b>Syncthing app</b>, open the file and drag Syncthing into <b>Applications</b>.</li>
-          <li>Open Syncthing from Applications. Its icon appears in the menu bar at the top of the screen: click it and choose <b class="ui">Open</b>.</li>
-        </ol>
-      </details>
-
-      <details class="os" data-os="linux"><summary>Linux <span class="sub">(Ubuntu, Debian, Raspberry Pi OS)</span></summary>
-        <ol>
-          <li>Open a terminal and run:
-            <pre>sudo apt install syncthing
-systemctl --user enable --now syncthing</pre></li>
-          <li>Open <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a> in your browser.</li>
-        </ol>
-      </details>
-
-      <details class="os" data-os="android"><summary>Android phone or tablet</summary>
-        <ol>
-          <li>Install <b>Syncthing-Fork</b> from <a href="https://play.google.com/store/apps/details?id=com.github.catfriend1.syncthingandroid" target="_blank" rel="noopener">Google Play</a> or <a href="https://f-droid.org/packages/com.github.catfriend1.syncthingandroid/" target="_blank" rel="noopener">F-Droid</a>.</li>
-          <li>Open it and allow what it asks for (storage, and running in the background).</li>
-        </ol>
-      </details>
-
-      <details class="os" data-os="ios"><summary>iPhone or iPad</summary>
-        <p>There is no official Syncthing for iPhone. <b>Möbius Sync</b> from the App Store works the same way (it is a paid app made by others).</p>
-      </details>
+        <p class="note">Your device must be on the same network (the same Wi-Fi or router) as this box when you connect.</p>
+        <div id="sites"></div>
+      </div>
     </div>
-  </div>
 
-  <div class="card step" style="margin-top:12px">
-    <div class="num">2</div>
-    <div>
-      <h3>Connect to this box</h3>
-      <ol>
-        <li>In Syncthing, click <b class="ui">+ Add Remote Device</b> (bottom right; on a phone, the <b class="ui">Devices</b> tab, then <b class="ui">+</b>).</li>
-        <li>Under <b>Device ID</b>, this box may be listed among the nearby devices: click it. If it isn't, copy this box's ID and paste it in:
-          <div class="copyrow"><pre id="stid">(waiting for this box's Syncthing)</pre><button data-copy="stid">Copy</button></div></li>
-        <li>Under <b>Device Name</b>, type <b id="boxname">this box's name</b>.</li>
-        <li>Open the <b class="ui">Advanced</b> tab. Under <b>Addresses</b>, replace what's there with this, so your device finds the box even when it isn't listed nearby:
-          <div class="copyrow"><pre id="staddr">…</pre><button data-copy="staddr">Copy</button></div></li>
-        <li>Click <b class="ui">Save</b>.</li>
-        <li>Within half a minute this box welcomes your device, and Syncthing shows a message: <b>"<span class="boxname2">this box</span> wants to share folder yggstore (<span class="boxname2">this box</span>)"</b>. Click <b class="ui">Add</b>.</li>
-        <li>Choose where the folder goes on your device (<b>Folder Path</b>, in the <b class="ui">General</b> tab), for example a folder called <span class="mono">yggstore</span> in your home folder. Click <b class="ui">Save</b>.</li>
-      </ol>
-      <p class="note">Your device must be on the same network (the same Wi-Fi or router) as this box when you connect.</p>
-      <div id="sites"></div>
+    <div class="card step" style="margin-top:12px">
+      <div class="num">3</div>
+      <div>
+        <h3>Use the folder</h3>
+        <ul>
+          <li><b>To keep a file safe</b>, put it in the <b>files</b> folder inside it, in folders of your own if you like. A few seconds later it is stored on the group's machines, and in the folder it is replaced by a small file ending in <span class="mono">.ystub</span>. Keep that: it is how you get the file back.</li>
+          <li><b>To get a file back</b>, copy its <span class="mono">.ystub</span> into the <b>restore</b> folder. The file appears in the <b>restored</b> folder, in the same folders it has in <b>files</b>.</li>
+          <li><b>To delete a file for good</b>, put its <span class="mono">.ystub</span> (or a copy) into the <b>delete</b> folder.</li>
+        </ul>
+      </div>
     </div>
-  </div>
 
-  <div class="card step" style="margin-top:12px">
-    <div class="num">3</div>
-    <div>
-      <h3>Use the folder</h3>
-      <ul>
-        <li><b>To keep a file safe</b>, put it in the <b>files</b> folder inside it, in folders of your own if you like. A few seconds later it is stored on the group's machines, and in the folder it is replaced by a small file ending in <span class="mono">.ystub</span>. Keep that: it is how you get the file back.</li>
-        <li><b>To get a file back</b>, copy its <span class="mono">.ystub</span> into the <b>restore</b> folder. The file appears in the <b>restored</b> folder, in the same folders it has in <b>files</b>.</li>
-        <li><b>To delete a file for good</b>, put its <span class="mono">.ystub</span> (or a copy) into the <b>delete</b> folder.</li>
-      </ul>
+    <div class="card step" style="margin-top:12px">
+      <div class="num">4</div>
+      <div>
+        <h3>Work from anywhere</h3>
+        <p>If you want to work remotely, or can't get to this device, you can carry on from any other one. Once your device is connected,
+          the box emails you a link: open it on the device you want to work on, and your files come to it.</p>
+        <label for="awDevice">Your device's ID (in Syncthing: <b class="ui">Actions</b> › <b class="ui">Show ID</b>)</label>
+        <input id="awDevice" placeholder="XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX" autocomplete="off" spellcheck="false">
+        <label for="awEmail" style="display:block;margin-top:8px">Email the link to</label>
+        <input id="awEmail" type="email" placeholder="an address you can read anywhere, such as Gmail" autocomplete="email">
+        <button id="awGo">Email me my link</button>
+        <p class="note" id="awMsg"></p>
+        <p class="note">Only one device has your files at a time: opening the link somewhere else moves them there. Anyone who can read that email can open your files too, so keep it safe.</p>
+      </div>
     </div>
-  </div>
 
-  <div class="card step" style="margin-top:12px">
-    <div class="num">4</div>
-    <div>
-      <h3>Work from anywhere</h3>
-      <p>If you want to work remotely, or can't get to this device, you can carry on from any other one. Once your device is connected,
-        the box emails you a link: open it on the device you want to work on, and your files come to it.</p>
-      <label for="awDevice">Your device's ID (in Syncthing: <b class="ui">Actions</b> › <b class="ui">Show ID</b>)</label>
-      <input id="awDevice" placeholder="XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX" autocomplete="off" spellcheck="false">
-      <label for="awEmail" style="display:block;margin-top:8px">Email the link to</label>
-      <input id="awEmail" type="email" placeholder="an address you can read anywhere, such as Gmail" autocomplete="email">
-      <button id="awGo">Email me my link</button>
-      <p class="note" id="awMsg"></p>
-      <p class="note">Only one device has your files at a time: opening the link somewhere else moves them there. Anyone who can read that email can open your files too, so keep it safe.</p>
-    </div>
-  </div>
-
-  <div class="card step" style="margin-top:12px" id="filesCard" hidden>
-    <div class="num">5</div>
-    <div>
-      <h3>Your files in the browser</h3>
-      <p>Open your files from your laptop or phone, without Syncthing: browse, download, upload, rename and delete. It goes over
-        <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noopener">Yggdrasil</a>, which must be installed on the device. Open:</p>
-      <div class="copyrow"><pre id="filesURL"></pre><button data-copy="filesURL">Copy</button></div>
-      <p class="note">Each person sees only their own files. Your first device gets in with the invite link the box's owner sends you; after that you let in your other devices yourself, under <b>Your devices</b>.</p>
-    </div>
-  </div>
+  </details>
 
   <h2>This box</h2>
   <div class="card" id="node"><span class="sub">Checking…</span></div>
@@ -219,6 +228,9 @@ function ago(t) {
   $('win').hidden = os !== 'windows';
 })();
 
+let opened = location.hash === '#syncthing'; // the advanced section, opened once
+if (opened) $('advanced').open = true;
+
 async function refresh() {
   let st;
   try { st = await (await fetch('api/state', {cache: 'no-store'})).json(); }
@@ -231,7 +243,12 @@ async function refresh() {
   $('staddr').textContent = (st.lan || []).map(ip => 'tcp://' + (ip.includes(':') ? '[' + ip + ']' : ip) + ':22000').concat(['dynamic']).join(', ');
   showSync(st.sync);
   $('filesCard').hidden = !st.files_at;
-  if (st.files_at) $('filesURL').textContent = 'http://[' + st.files_at + ']' + (location.port ? ':' + location.port : '') + '/files';
+  $('noFiles').hidden = !!st.files_at;
+  if (st.files_at) {
+    const url = 'http://[' + st.files_at + ']' + (location.port ? ':' + location.port : '') + '/files';
+    $('filesURL').textContent = url;
+    $('filesLink').href = url;
+  } else if (!opened) { $('advanced').open = true; opened = true; } // Syncthing is the only way in, then
   const n = st.node;
   let html;
   if (st.problem) {
