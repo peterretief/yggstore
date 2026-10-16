@@ -33,6 +33,18 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .live { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); font-size: 13px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 .dot.stale { background: var(--bad); }
+nav.pages { display: flex; flex-wrap: wrap; gap: 4px; margin: -8px 0 16px; border-bottom: 1px solid var(--line); }
+nav.pages a { padding: 6px 12px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 600; font-size: 14px; }
+nav.pages a:hover { color: var(--ink); }
+nav.pages a.on { color: var(--info); border-bottom-color: var(--info); }
+.pagelinks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.pagelinks a { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; color: var(--ink); text-decoration: none; }
+.pagelinks a:hover { border-color: var(--info); }
+.pagelinks b { display: block; color: var(--info); margin-bottom: 2px; }
+.pagelinks span { color: var(--muted); font-size: 13px; }
+.ticks { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.off { display: none !important; }
+.ticks label { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; white-space: nowrap; }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
@@ -186,13 +198,19 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <a class="sub" id="netLink" href="/network" hidden>Network: every node's addresses and links</a>
     <span class="live"><span class="dot" id="dot"></span><span id="updated">connecting…</span></span>
   </header>
+  <nav class="pages" id="pagenav"></nav>
 
-  <section class="card" id="workBanner" hidden style="margin-bottom:14px;border-color:var(--warn)"></section>
+  <section class="card" data-page="home files" id="workBanner" hidden style="margin-bottom:14px;border-color:var(--warn)"></section>
 
+  <div data-page="home">
   <h2>My box</h2>
   <section class="card" id="mybox"><div class="sub">Loading…</div></section>
-  <section class="job" id="job" hidden></section>
+  <h2>Open</h2>
+  <section class="pagelinks" id="pagelinks"></section>
+  </div>
+  <section class="job" data-page="home files" id="job" hidden></section>
 
+  <div data-page="admin">
   <div id="peopleWrap" hidden>
   <h2>People on this box</h2>
   <section class="card" id="people"><div class="sub">Loading…</div></section>
@@ -219,7 +237,9 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   </div>
   <div class="sub" style="margin-top:6px">Each person should hold for others about 1.5× what they use. Accounting only for now: nothing is enforced. Set who runs a node with <span class="mono">"owner"</span> in peers.json; it defaults to the machine.</div>
   </div>
+  </div>
 
+  <div data-page="web">
   <h2>Your name</h2>
   <section class="card" id="names"><div class="sub">Loading…</div></section>
 
@@ -228,7 +248,9 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   <input type="file" id="siteFolder" webkitdirectory multiple hidden>
   <input type="file" id="siteZip" accept=".zip,application/zip" hidden>
   <input type="file" id="siteAdd" multiple hidden>
+  </div>
 
+  <div data-page="mail">
   <h2>Mail</h2>
   <section class="mail" id="mail">
     <div>
@@ -239,14 +261,15 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     </div>
     <div class="reader" id="mailReader"><div class="empty">Choose a message to read it.</div></div>
   </section>
+  </div>
 
+  <div data-page="files">
+  <section class="card" style="margin-top:8px">Browse, download, upload, rename and delete in your folder:
+    <a href="files" target="_blank"><b>open your files in the browser</b></a>.</section>
   <div id="recoveryWrap" hidden>
   <h2>Work from anywhere</h2>
   <section class="card" id="recovery"></section>
   </div>
-
-  <h2>Your devices</h2>
-  <section class="card" id="devices"><div class="sub">Loading…</div></section>
 
   <h2>Your files</h2>
   <div id="restoreBox" hidden>
@@ -289,7 +312,9 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
 
   <h2>Sharing</h2>
   <section class="sharing" id="sharing"></section>
+  </div>
 
+  <div data-page="messages">
   <h2>Messages</h2>
   <section class="msgs" id="msgs">
     <div id="msgError" class="err"></div>
@@ -306,6 +331,7 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <div class="sub" id="msgPending"></div>
     <div class="list" id="msgList"></div>
   </section>
+  </div>
 
 
 
@@ -334,6 +360,10 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     </form>
   </dialog>
 
+  <div data-page="admin">
+  <h2>Your devices</h2>
+  <section class="card" id="devices"><div class="sub">Loading…</div></section>
+
   <div id="test" hidden>
     <h2>Test cluster <span class="sub" id="testSummary" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
     <div id="testError" class="err"></div>
@@ -348,12 +378,38 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
 
   <h2>Activity</h2>
   <section class="events" id="events"></section>
+  </div>
 </main>
 
 <script>
 const $ = id => document.getElementById(id);
 // Every action carries this header; the dashboard refuses actions without it,
 // which keeps other web pages from pressing buttons here.
+// The page this is: each shows its own part of the dashboard, and each
+// device opens only the pages it is let in to (Your devices, on Admin).
+const PAGE_INFO = [
+  ["home", "/", "Overview", ""],
+  ["files", "/storage", "Files", "What's stored, restoring, sharing, and your files in the browser"],
+  ["web", "/web", "Website", "Your name, your address and your website"],
+  ["messages", "/messages", "Messages", "Messages between the group's nodes"],
+  ["mail", "/mail", "Mail", "Your inbox, and writing mail"],
+  ["admin", "/admin", "Admin", "The group, its nodes, people on this box and your devices"],
+];
+const PAGE = (PAGE_INFO.find(x => x[1] === location.pathname) || PAGE_INFO[0])[0];
+document.querySelectorAll("[data-page]").forEach(e => e.classList.toggle("off", !e.dataset.page.split(" ").includes(PAGE)));
+let pagesKey = "";
+function renderPages(pages) {
+  const key = (pages || []).join(",");
+  if (key === pagesKey) return;
+  pagesKey = key;
+  const mine = PAGE_INFO.filter(x => x[0] === "home" || key.split(",").includes(x[0]));
+  $("pagenav").innerHTML = mine.map(x => `<a href="${x[1]}"${x[0] === PAGE ? ` class="on"` : ""}>${x[2]}</a>`).join("");
+  $("pagelinks").innerHTML = mine.filter(x => x[0] !== "home").map(x => `<a href="${x[1]}"><b>${x[2]}</b><span>${x[3]}</span></a>`).join("")
+    || `<div class="sub">This device isn't let in to any page yet.</div>`;
+  const me = PAGE_INFO.find(x => x[0] === PAGE);
+  if (PAGE !== "home") document.title = "yggstore · " + me[2];
+}
+
 const post = (url, opts = {}) => fetch(url, {...opts, method: "POST", headers: {...(opts.headers || {}), "X-Yggstore": "1"}});
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const verifyResults = {};
@@ -404,11 +460,6 @@ function spark(hist) {
     <path d="${path}" fill="none" stroke="var(--bar)" stroke-width="1.5" stroke-linecap="round" vector-effect="non-scaling-stroke"/>${down}</svg>`;
 }
 
-// The group's view (nodes, accounts, invites) is for admins; a member's box
-// shows it only when asked.
-let showGroup = false;
-try { showGroup = localStorage.getItem("showGroup") === "1"; } catch (e) {}
-
 function renderMyBox(s) {
   const all = s.peers.filter(p => !p.test);
   const me = all.find(p => p.addr.includes("[" + s.self_id + "]"));
@@ -424,7 +475,7 @@ function renderMyBox(s) {
   const diskPct = b.disk_total ? 100 * (b.disk_total - b.disk_free) / b.disk_total : 0;
   const host = b.hostname ? `<span class="mono">${esc(b.hostname)}.local</span>` : "";
   const admin = !!s.admin_entry;
-  $("netLink").hidden = !admin;
+  $("netLink").hidden = !admin || !(s.pages || []).includes("admin");
   $("mybox").innerHTML = `
     <div class="row"><span class="name">${esc(b.hostname || me?.name || "This box")}</span>${admin ? ` <span class="pill info">admin</span>` : ""}<span style="margin-left:auto">${pill}</span></div>
     <div class="sub" style="margin:4px 0 12px">${line}</div>
@@ -435,18 +486,8 @@ function renderMyBox(s) {
     ${i.quota_bytes ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>
       <div class="barlabel"><span>${size(i.used_bytes)} of the ${size(i.quota_bytes)} it gives</span>${b.disk_total ? `<span>disk ${diskPct.toFixed(0)}% full</span>` : ""}</div>` : ""}
     <div class="sub" style="margin-top:10px">On this network: ${host}${b.lan?.length ? ` <span class="mono">${b.lan.map(esc).join(", ")}</span>` : ""}
-      · anywhere: <span class="mono">${esc(s.self_id || "")}</span>${b.version ? ` · yggstore ${esc(b.version)}` : ""}</div>
-    ${admin ? "" : `<div style="margin-top:10px"><button id="groupToggle">${showGroup ? "Hide the group" : "Show the whole group"}</button></div>`}`;
-  const showing = admin || showGroup;
-  $("groupView").hidden = !showing;
-  if (!showing) $("test").hidden = true;
+      · anywhere: <span class="mono">${esc(s.self_id || "")}</span>${b.version ? ` · yggstore ${esc(b.version)}` : ""}</div>`;
 }
-$("mybox").addEventListener("click", ev => {
-  if (!ev.target.closest("#groupToggle")) return;
-  showGroup = !showGroup;
-  try { localStorage.setItem("showGroup", showGroup ? "1" : "0"); } catch (e) {}
-  if (lastState) renderMyBox(lastState);
-});
 
 function renderTiles(all) {
   const s = {peers: all.peers.filter(p => !p.test), files: all.files.filter(f => !f.test)};
@@ -886,6 +927,7 @@ async function refresh() {
     lastState = s;
     lastOK = Date.now();
     $("self").textContent = s.self_id || "unknown";
+    renderPages(s.pages);
     renderTiles(s);
     renderJob(s.activity);
     $("peersError").textContent = s.peers_error ? "peers.json: " + s.peers_error : "";
@@ -1110,8 +1152,7 @@ $("msgTopics").addEventListener("click", async ev => {
   await post("api/msg/unsubscribe", {body: JSON.stringify({topic: b.dataset.unsub})});
   refreshMsgs();
 });
-refreshMsgs();
-setInterval(refreshMsgs, 2000);
+if (PAGE === "messages") { refreshMsgs(); setInterval(refreshMsgs, 2000); }
 
 let mailOpen = "", mailKey = "", mailSent = false, mailAddress = "", mailReply = "";
 async function refreshMail() {
@@ -1209,8 +1250,7 @@ $("mailList").addEventListener("click", ev => {
   const it = ev.target.closest(".item[data-id]");
   if (it) openMail(it.dataset.id);
 });
-refreshMail();
-setInterval(refreshMail, 10000);
+if (PAGE === "mail") { refreshMail(); setInterval(refreshMail, 10000); }
 
 // Names: an address and website under the group's domain, asked of the
 // admin; on an admin dashboard, the requests to decide on.
@@ -1286,8 +1326,7 @@ $("names").addEventListener("keydown", ev => {
   if (ev.key === "Enter" && ev.target.id === "nameLabel") $("nameAsk").click();
   if (ev.key === "Enter" && ev.target.id === "meName") $("meSave").click();
 });
-refreshNames();
-setInterval(refreshNames, 5000);
+if (PAGE === "web") { refreshNames(); setInterval(refreshNames, 5000); }
 
 // Your devices: laptops and phones that open the dashboard and your files
 // over Yggdrasil, each known by its own key.
@@ -1310,7 +1349,11 @@ async function refreshDevices() {
     <td style="white-space:nowrap"><button data-allow="${esc(a.addr)}" data-name="${esc(a.name)}">Allow</button>
     <button class="del" data-dismiss="${esc(a.addr)}">Ignore</button></td></tr>`).join("");
   const list = st.devices.map(v => `<tr><td><b>${esc(v.name || "a device")}</b>${v.addr === st.you ? ` <span class="pill info">this one</span>` : ""}
-    <div class="sub mono">${esc(v.addr)}</div></td><td class="sub">added ${esc(new Date(v.added).toLocaleDateString())}</td>
+    <div class="sub mono">${esc(v.addr)}</div>
+    <div class="ticks" data-pages="${esc(v.addr)}">${PAGE_INFO.filter(x => x[0] !== "home").map(x => {
+      const on = !v.pages || v.pages.includes(x[0]), mine = x[0] === "admin" && v.addr === st.you;
+      return `<label${mine ? ` title="Take Admin from this device on another one"` : ""}><input type="checkbox" value="${x[0]}"${on ? " checked" : ""}${mine ? " disabled" : ""}> ${x[2]}</label>`;
+    }).join("")}</div></td><td class="sub">added ${esc(new Date(v.added).toLocaleDateString())}</td>
     <td>${v.addr === st.you ? "" : `<button class="del" data-unallow="${esc(v.addr)}" data-name="${esc(v.name)}">Remove</button>`}</td></tr>`).join("");
   el.innerHTML = `<div>Open your files on this computer: <a href="files" target="_blank">your files</a>.
       On your laptop or phone, over a secure Yggdrasil connection that only your devices can use:</div>
@@ -1318,6 +1361,7 @@ async function refreshDevices() {
     <div class="sub">There you can browse, download, upload (any size), rename, move and delete, straight in your folder.</div>
     ${asks ? `<h3 style="font-size:13px;margin:16px 0 4px">Asking to be let in</h3><table>${asks}</table>` : ""}
     <h3 style="font-size:13px;margin:16px 0 4px">Devices let in</h3>
+    <div class="sub">Tick the pages each one may open. A device you allow gets every page but Admin.</div>
     ${list ? `<table>${list}</table>` : `<div class="sub">None yet.</div>`}
     <details style="margin-top:12px"><summary><b>Add a laptop or phone</b></summary><ol style="margin:8px 0 0;padding-left:20px">
       <li>Install Yggdrasil on it: <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noreferrer">Windows, Mac, Linux, Android and iPhone</a>.
@@ -1331,6 +1375,14 @@ async function refreshDevices() {
         <input id="devName" placeholder="name, e.g. my phone" style="flex:1;min-width:120px"><button id="devAdd">Add</button></div>
       <div id="devMsg" class="err"></div></details>`;
 }
+$("devices").addEventListener("change", async ev => {
+  const t = ev.target.closest("[data-pages]");
+  if (!t) return;
+  const pages = [...t.querySelectorAll("input:checked")].map(i => i.value);
+  const r = await post("api/devices/pages", {body: JSON.stringify({addr: t.dataset.pages, pages})});
+  if (!r.ok) alert(await r.text());
+  devKey = ""; refreshDevices();
+});
 $("devices").addEventListener("click", async ev => {
   const b = ev.target.closest("button");
   if (!b) return;
@@ -1346,8 +1398,7 @@ $("devices").addEventListener("click", async ev => {
   if (document.activeElement) document.activeElement.blur();
   devKey = ""; refreshDevices();
 });
-refreshDevices();
-setInterval(refreshDevices, 5000);
+if (PAGE === "admin") { refreshDevices(); setInterval(refreshDevices, 5000); }
 
 // People on this box: the admin adds people, sends each an invite link to
 // open their files from anywhere, sees what they store, and limits,
@@ -1432,8 +1483,7 @@ $("people").addEventListener("click", async ev => {
   if (document.activeElement) document.activeElement.blur();
   peopleKey = ""; refreshPeople();
 });
-refreshPeople();
-setInterval(refreshPeople, 15000);
+if (PAGE === "admin") { refreshPeople(); setInterval(refreshPeople, 15000); }
 
 // Your website: publish a folder or zip as the site of one of this box's
 // names, or edit the version being served file by file.
@@ -1647,8 +1697,7 @@ $("siteAdd").addEventListener("change", async () => {
   for (const f of files) fd.append("f:" + (dir ? dir + "/" : "") + f.name, f, f.name);
   afterSend(name, await sendSite(name, fd, true, `${files.length} file${files.length > 1 ? "s" : ""}`));
 });
-refreshSites();
-setInterval(refreshSites, 10000);
+if (PAGE === "web") { refreshSites(); setInterval(refreshSites, 10000); }
 </script>
 </body>
 </html>

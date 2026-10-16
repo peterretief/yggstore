@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,17 @@ type deviceAsk struct {
 
 // maxAsks keeps strangers on Yggdrasil from filling the list.
 const maxAsks = 10
+
+// newDevicePages are what a device let in from the dashboard may open
+// until you tick more.
+var newDevicePages = []string{"files", "web", "messages", "mail"}
+
+// hadDevice reports whether addr was on the list before (so allowing it
+// again, to rename it, keeps its pages).
+func (d *Dashboard) hadDevice(addr string) bool {
+	_, ok := d.cfg.Devices.Device(addr)
+	return ok
+}
 
 // FilesPage is where your files open.
 const FilesPage = "/files"
@@ -115,7 +127,10 @@ func (d *Dashboard) handleDeviceAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the dashboard isn't open to your devices: start it with -remote", http.StatusConflict)
 		return
 	}
-	var req struct{ Addr, Name string }
+	var req struct {
+		Addr, Name string
+		Pages      []string
+	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -127,9 +142,28 @@ func (d *Dashboard) handleDeviceAction(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = "my device"
 		}
-		_, err = devices.Add(d.cfg.Devices.Path(), req.Addr, name)
+		// A new device gets every page but Admin, which is ticked for it
+		// on purpose.
+		had := d.hadDevice(req.Addr)
+		var dev devices.Device
+		if dev, err = devices.Add(d.cfg.Devices.Path(), req.Addr, name); err == nil && !had {
+			_, err = devices.SetPages(d.cfg.Devices.Path(), dev.Addr, newDevicePages)
+		}
 		if err == nil {
-			d.event("ok", fmt.Sprintf("%s (%s) may open your dashboard and files now", name, req.Addr))
+			d.event("ok", fmt.Sprintf("%s (%s) may open your dashboard now: files, website, messages and mail", name, req.Addr))
+		}
+	case "pages":
+		if remoteIP(r) == strings.Trim(req.Addr, "[]") && !slices.Contains(req.Pages, "admin") {
+			http.Error(w, "this is the device you're using: take Admin away from it on another one", http.StatusConflict)
+			return
+		}
+		var dev devices.Device
+		if dev, err = devices.SetPages(d.cfg.Devices.Path(), req.Addr, req.Pages); err == nil {
+			names := []string{}
+			for _, p := range dev.Pages {
+				names = append(names, pageNames[p])
+			}
+			d.event("ok", fmt.Sprintf("%s may open: %s", dev.Name, strings.Join(names, ", ")))
 		}
 	case "remove":
 		if remoteIP(r) == strings.Trim(req.Addr, "[]") {

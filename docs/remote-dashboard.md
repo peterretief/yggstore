@@ -76,8 +76,8 @@ dashboard also on http://[200:1f12::cfd6]:7480 for the devices in /home/anna/.yg
 
 ## 4. Add your devices
 
-The dashboard's **Your devices** section lists them, and says how to add
-one:
+**Your devices**, on the dashboard's [Admin page](#pages), lists them and
+says how to add one:
 
 1. Install Yggdrasil on the device
    ([Windows, Mac, Linux, Android and iPhone](https://yggdrasil-network.github.io/installation.html)).
@@ -88,7 +88,9 @@ one:
    `http://[200:1f12::cfd6]:7480/files`. The page says the device isn't on
    the list, shows its address, and has **Ask to let it in**.
 4. Press **Allow** next to it under **Your devices**, on your computer or
-   on a device already let in. Reload the page on the device.
+   on a device already let in to Admin. Reload the page on the device.
+   It may open every page but Admin; tick what it may open (see
+   [pages](#pages)).
 
 **Remove** shuts a device out at once (the device you're using can't remove
 itself). Requests are kept for a day, ten at most, so strangers on
@@ -105,6 +107,8 @@ yggstore devices                      # who may open it
 yggstore devices remove "anna's laptop"
 ```
 
+A device added on the command line may open every page.
+
 Remove a device when you sell or lose it. Its Yggdrasil keys are in its
 `yggdrasil.conf`; anyone who copies that file can use its address.
 
@@ -112,6 +116,39 @@ Remove a device when you sell or lose it. Its Yggdrasil keys are in its
 > The page goes over Yggdrasil, which encrypts it end to end, but the
 > browser sees plain `http://`. So "copy" buttons may not reach the
 > clipboard; they select the text instead, for Ctrl+C.
+
+## Pages
+
+The dashboard is a page for each thing it does, all on the same port. A
+menu at the top goes from one to another, and the overview at
+<http://127.0.0.1:7480/> links to the pages the device may open:
+
+| Page | Address | What's on it |
+|---|---|---|
+| Files | `/storage`, and `/files` | what's stored, restoring, sharing, work from anywhere; your files in the browser |
+| Website | `/web` | your name, address and website |
+| Messages | `/messages` | messages between the group's nodes |
+| Mail | `/mail` | your inbox, and writing mail |
+| Admin | `/admin` | the group, its nodes and invites, people on the box, your devices, the network page, activity |
+
+Each device is let in to the pages ticked for it under **Your devices**,
+so a phone can have Mail and Messages and nothing else. A device that
+opens a page it isn't let in to is told so; every action and every part of
+the dashboard's state belongs to one page, and goes only to devices let
+in to it. The machine the dashboard runs on opens every page.
+
+- A device you **Allow** gets every page but Admin. Admin can change who
+  gets in, so it is only given on purpose.
+- The device you're using can't take Admin from itself, so you can't shut
+  yourself out.
+- Devices added before there were pages keep every page until you untick
+  some.
+
+On the command line:
+
+```sh
+yggstore devices pages "anna's phone" mail,messages   # of files, web, messages, mail, admin
+```
 
 ## Your files
 

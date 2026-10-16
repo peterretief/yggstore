@@ -190,6 +190,8 @@ type State struct {
 	Accounts    []Account        `json:"accounts"`
 	Invites     []invite.Pending `json:"invites"`
 	Box         *BoxState        `json:"box,omitempty"`
+	// Pages are the pages the device looking may open (see pages.go).
+	Pages []string `json:"pages"`
 }
 
 // Account is one person's share of the network, from what the nodes report.
@@ -286,10 +288,14 @@ func (d *Dashboard) Run(ctx context.Context) {
 
 func (d *Dashboard) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+	page := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)
-	})
+	}
+	mux.HandleFunc("GET /{$}", page)
+	for path := range PagePaths {
+		mux.HandleFunc("GET "+path, page)
+	}
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()
 		st := d.state
@@ -306,6 +312,15 @@ func (d *Dashboard) Handler() http.Handler {
 			st.Restore = d.restoreState()
 			st.Recovery = d.recoveryStatus()
 			st.WorkCopy = d.workcopyState()
+		}
+		// Each part goes only to a device let in to its page.
+		st.Pages = d.viewerPages(r)
+		if !slices.Contains(st.Pages, "files") {
+			st.Files, st.Activity, st.Restore, st.Recovery, st.WorkCopy = []FileState{}, nil, nil, nil, nil
+			st.SharingCode, st.Contacts, st.StubDir = "", []Contact{}, ""
+		}
+		if !slices.Contains(st.Pages, "admin") {
+			st.Events, st.AdminEntry, st.Invites, st.Accounts = []Event{}, "", []invite.Pending{}, []Account{}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -382,7 +397,8 @@ func (d *Dashboard) guard(next http.Handler) http.Handler {
 				http.Redirect(w, r, d.yggURL()+r.URL.RequestURI(), http.StatusFound)
 				return
 			}
-			if remote := remoteIP(r); remote != d.cfg.YggAddr && (d.cfg.Devices == nil || !d.cfg.Devices.Allowed(remote)) {
+			remote := remoteIP(r)
+			if remote != d.cfg.YggAddr && (d.cfg.Devices == nil || !d.cfg.Devices.Allowed(remote)) {
 				if r.Method == http.MethodPost && r.URL.Path == "/ask" {
 					d.ask(w, r, remote)
 					return
@@ -392,8 +408,16 @@ func (d *Dashboard) guard(next http.Handler) http.Handler {
 			}
 			if r.Method == http.MethodPost && r.URL.Path == "/ask" {
 				// Let in already (the asked page reloaded, which sends the
-				// ask again): on to the files.
-				http.Redirect(w, r, "/files", http.StatusSeeOther)
+				// ask again): on to the files, or what it may open.
+				to := "/"
+				if d.canOpen(r, "files") {
+					to = "/files"
+				}
+				http.Redirect(w, r, to, http.StatusSeeOther)
+				return
+			}
+			if page := pageOf(r.URL.Path); !d.canOpen(r, page) {
+				pageRefused(w, r, page)
 				return
 			}
 		}

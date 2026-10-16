@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -128,5 +129,81 @@ func TestDeviceAsks(t *testing.T) {
 	}
 	if w := do("GET", "/api/devices", "", "200::1"); strings.Contains(w.Body.String(), `"asks":[{`) {
 		t.Fatalf("still asking once let in: %s", w.Body)
+	}
+}
+
+func TestDevicePages(t *testing.T) {
+	dir := t.TempDir()
+	list := filepath.Join(dir, "devices.json")
+	d := New(Config{PeersPath: filepath.Join(dir, "peers.json"), StubDir: dir, Listen: "127.0.0.1:7480",
+		YggAddr: "200::1", Devices: devices.NewWatch(list)})
+	h := d.Handler()
+	do := func(method, target, body, remote string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, target, strings.NewReader(body))
+		r.Host, r.RemoteAddr = "[200::1]:7480", net.JoinHostPort(remote, "50000")
+		r.Header.Set("X-Yggstore", "1")
+		r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.ParseIP("200::1"), Port: 7480}))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+
+	// Let in from the dashboard: everything but Admin.
+	if w := do("POST", "/api/devices/add", `{"addr":"201::9","name":"phone"}`, "200::1"); w.Code != http.StatusNoContent {
+		t.Fatalf("allow: %d %s", w.Code, w.Body)
+	}
+	for path, want := range map[string]int{"/": 200, "/mail": 200, "/storage": 200, "/admin": 403, "/network": 403,
+		"/api/devices": 403, "/api/network": 403, "/api/box/people": 403} {
+		if w := do("GET", path, "", "201::9"); w.Code != want {
+			t.Errorf("%s from a new device: %d, want %d", path, w.Code, want)
+		}
+	}
+	if w := do("POST", "/api/devices/pages", `{"addr":"201::9","pages":["admin","files","web","messages","mail"]}`, "201::9"); w.Code != http.StatusForbidden {
+		t.Fatalf("a device giving itself Admin: %d", w.Code)
+	}
+
+	// Mail only.
+	if w := do("POST", "/api/devices/pages", `{"addr":"201::9","pages":["mail"]}`, "200::1"); w.Code != http.StatusNoContent {
+		t.Fatalf("set pages: %d %s", w.Code, w.Body)
+	}
+	for path, want := range map[string]int{"/mail": 200, "/storage": 403, "/files": 403, "/web": 403, "/messages": 403,
+		"/api/msg": 403, "/api/names": 403, "/api/sites": 403} {
+		if w := do("GET", path, "", "201::9"); w.Code != want {
+			t.Errorf("%s from a mail-only device: %d, want %d", path, w.Code, want)
+		}
+	}
+	if w := do("POST", "/api/delete?stub=x", "", "201::9"); w.Code != http.StatusForbidden {
+		t.Errorf("delete from a mail-only device: %d", w.Code)
+	}
+	w := do("GET", "/api/state", "", "201::9")
+	var st State
+	if err := json.Unmarshal(w.Body.Bytes(), &st); err != nil || len(st.Pages) != 1 || st.Pages[0] != "mail" || st.Events == nil || len(st.Events) != 0 {
+		t.Fatalf("state for a mail-only device: %v %+v", err, st)
+	}
+
+	// Admin, and taking it from the device in use.
+	if w := do("POST", "/api/devices/pages", `{"addr":"201::9","pages":["admin"]}`, "200::1"); w.Code != http.StatusNoContent {
+		t.Fatalf("set admin: %d %s", w.Code, w.Body)
+	}
+	if w := do("GET", "/api/devices", "", "201::9"); w.Code != 200 {
+		t.Fatalf("devices from an admin device: %d", w.Code)
+	}
+	if w := do("POST", "/api/devices/pages", `{"addr":"201::9","pages":["mail"]}`, "201::9"); w.Code != http.StatusConflict {
+		t.Fatalf("an admin device taking Admin from itself: %d", w.Code)
+	}
+
+	// From this machine, everything.
+	if w := do("GET", "/admin", "", "200::1"); w.Code != 200 {
+		t.Fatalf("admin from this machine: %d", w.Code)
+	}
+}
+
+func TestPageOf(t *testing.T) {
+	for path, want := range map[string]string{"/": "", "/api/state": "", "/ask": "", "/files": "files", "/api/restore-to": "files",
+		"/api/mail/raw": "mail", "/api/msg/send": "messages", "/api/sites/publish": "web", "/api/box/people/add": "admin",
+		"/api/something-new": "admin", "/mailbox": "", "/api/mailer": "admin"} {
+		if got := pageOf(path); got != want {
+			t.Errorf("pageOf(%s) = %q, want %q", path, got, want)
+		}
 	}
 }

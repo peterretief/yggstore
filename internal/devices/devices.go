@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,17 @@ type Device struct {
 	// LastSeen is when it last opened the page, where that is kept (a box
 	// keeps it for its people's devices).
 	LastSeen time.Time `json:"last_seen,omitzero"`
+	// Pages are the dashboard's pages it may open (see Pages); none listed
+	// means all of them, as for devices added before there were pages.
+	Pages []string `json:"pages,omitempty"`
+}
+
+// Pages are the dashboard's pages, each let in on its own.
+var Pages = []string{"files", "web", "messages", "mail", "admin"}
+
+// Can reports whether the device may open page.
+func (d Device) Can(page string) bool {
+	return len(d.Pages) == 0 || slices.Contains(d.Pages, page)
 }
 
 // Load reads the list at path; a missing file is an empty list.
@@ -79,6 +91,36 @@ func Add(path, addr, name string) (Device, error) {
 	return d, save(path, append(list, d))
 }
 
+// SetPages sets the pages the device with this address or name may open.
+func SetPages(path, key string, pages []string) (Device, error) {
+	var keep []string
+	for _, p := range Pages { // in the usual order, each once
+		if slices.Contains(pages, p) {
+			keep = append(keep, p)
+		}
+	}
+	for _, p := range pages {
+		if !slices.Contains(Pages, p) {
+			return Device{}, fmt.Errorf("no page %q: the pages are %s", p, strings.Join(Pages, ", "))
+		}
+	}
+	if len(keep) == 0 {
+		return Device{}, errors.New("give it at least one page, or remove the device")
+	}
+	list, err := Load(path)
+	if err != nil {
+		return Device{}, err
+	}
+	ip, _ := Parse(key)
+	for i, d := range list {
+		if d.Addr == ip || (d.Name != "" && d.Name == key) {
+			list[i].Pages = keep
+			return list[i], save(path, list)
+		}
+	}
+	return Device{}, fmt.Errorf("no device %q in %s", key, path)
+}
+
 // Remove stops allowing the device with this address or name.
 func Remove(path, key string) (Device, error) {
 	list, err := Load(path)
@@ -112,7 +154,7 @@ type Watch struct {
 	mu    sync.Mutex
 	mtime time.Time
 	size  int64
-	addrs map[string]bool
+	addrs map[string]Device
 }
 
 func NewWatch(path string) *Watch { return &Watch{path: path} }
@@ -120,31 +162,44 @@ func NewWatch(path string) *Watch { return &Watch{path: path} }
 // Path is the file the list is kept in.
 func (w *Watch) Path() string { return w.path }
 
-// Allowed reports whether ip may open the dashboard. If the file can't be
-// read, nobody is let in.
+// Allowed reports whether ip may open the dashboard, any page of it. If
+// the file can't be read, nobody is let in.
 func (w *Watch) Allowed(ip string) bool {
+	_, ok := w.Device(ip)
+	return ok
+}
+
+// Can reports whether ip may open page.
+func (w *Watch) Can(ip, page string) bool {
+	d, ok := w.Device(ip)
+	return ok && d.Can(page)
+}
+
+// Device is the allowed device at ip, if it is one.
+func (w *Watch) Device(ip string) (Device, bool) {
 	norm, err := Parse(ip)
 	if err != nil {
-		return false
+		return Device{}, false
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	info, err := os.Stat(w.path)
 	if err != nil {
 		w.addrs, w.mtime, w.size = nil, time.Time{}, 0
-		return false
+		return Device{}, false
 	}
 	if w.addrs == nil || !info.ModTime().Equal(w.mtime) || info.Size() != w.size {
 		list, err := Load(w.path)
 		if err != nil {
 			w.addrs = nil
-			return false
+			return Device{}, false
 		}
-		w.addrs = map[string]bool{}
+		w.addrs = map[string]Device{}
 		for _, d := range list {
-			w.addrs[d.Addr] = true
+			w.addrs[d.Addr] = d
 		}
 		w.mtime, w.size = info.ModTime(), info.Size()
 	}
-	return w.addrs[norm]
+	d, ok := w.addrs[norm]
+	return d, ok
 }
