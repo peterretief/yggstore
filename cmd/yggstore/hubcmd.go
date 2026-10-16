@@ -404,7 +404,9 @@ func cmdHubControl(ctx context.Context, args []string) error {
 				devs = append(devs, d.Name)
 			}
 			list := strings.Join(devs, ", ")
-			if list == "" && len(p.FilesDevices) > 0 {
+			if list == "" && len(p.Passkeys) > 0 {
+				list = fmt.Sprintf("opens their files on the web (%d passkey%s)", len(p.Passkeys), map[bool]string{true: "", false: "s"}[len(p.Passkeys) == 1])
+			} else if list == "" && len(p.FilesDevices) > 0 {
 				list = "opens their files in the browser"
 			} else if list == "" {
 				list = "no devices: the files stay on the box, unshared"

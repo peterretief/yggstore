@@ -230,3 +230,28 @@ func TestLightClient(t *testing.T) {
 		t.Fatalf("a relay header from a member's device: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// Someone who only signs in on the web still has their files stored.
+func TestLightClientStored(t *testing.T) {
+	u, _, dir := setupUsers(t, 0)
+	watched := make(chan string, 4)
+	u.cfg.Watch = func(ctx context.Context, p Person) { watched <- p.Name; <-ctx.Done() }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	Update(ctx, filepath.Join(dir, "hub.json"), func(s *HubState) error {
+		s.AddPerson("anna", u.cfg.Dir)
+		s.People[s.person("anna")].Passkeys = []Passkey{{Name: "phone"}}
+		return nil
+	})
+	if err := u.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case who := <-watched:
+		if who != "anna" {
+			t.Fatalf("watching %s", who)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a web-only person's files aren't stored")
+	}
+}

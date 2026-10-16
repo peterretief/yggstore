@@ -550,9 +550,9 @@ func (u *Users) sharePeople(ctx context.Context, st HubState, have map[string]bo
 				delete(have, p.Folder)
 			}
 			delete(u.shared, p.Folder)
-			// Someone who only opens their files in the browser still has
-			// them stored.
-			if len(p.FilesDevices) > 0 && p.Active() {
+			// Someone who only opens their files in the browser, over
+			// Yggdrasil or through the web, still has them stored.
+			if (len(p.FilesDevices) > 0 || len(p.Passkeys) > 0) && p.Active() {
 				u.startWatch(ctx, p)
 			} else {
 				u.stopWatch(p.Folder)
