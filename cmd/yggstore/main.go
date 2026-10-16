@@ -429,7 +429,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
-		MailOut: mailOutHandler(relay), Work: workOpt(work),
+		MailOut: mailOutHandler(relay), Work: workOpt(work), Version: versionString(),
 		Join: func(caller string, req invite.Request) (invite.Response, error) {
 			own := ""
 			if id, err := share.Load(*keyPath); err == nil {

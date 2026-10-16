@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>yggstore network</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea;
+  --ok: #1f9d55; --ok-bg: #e5f5ec; --warn: #b7791f; --warn-bg: #fdf3e1;
+  --bad: #d64545; --bad-bg: #fbe9e9; --info: #3b6fd8; --info-bg: #e8effc;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418; --panel: #1a1e24; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038;
+    --ok: #3ccf7e; --ok-bg: #173225; --warn: #e3a948; --warn-bg: #3a2c14;
+    --bad: #f07070; --bad-bg: #3d1c1c; --info: #79a2f2; --info-bg: #1b2842;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 8px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 10px; font-weight: 600; }
+a { color: var(--info); }
+.sub { color: var(--muted); font-size: 13px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.live { margin-left: auto; color: var(--muted); font-size: 13px; }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+thead th { border-top: 0; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+tr.test td { opacity: .7; }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; margin: 1px 2px 1px 0; white-space: nowrap; }
+.up { background: var(--ok-bg); color: var(--ok); }
+.down { background: var(--bad-bg); color: var(--bad); }
+.role { background: var(--info-bg); color: var(--info); }
+.warn { background: var(--warn-bg); color: var(--warn); }
+.copy { cursor: pointer; border-bottom: 1px dotted var(--muted); }
+.copy:hover { color: var(--info); }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 6px 12px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+label.show { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Network</h1>
+    <a class="sub" href="/">← Dashboard</a>
+    <span class="live" id="updated">loading…</span>
+  </header>
+  <div class="sub">Every node in the group and how to reach it, worked out as you look: addresses from the member list, what each
+    node reports about its machine, and which ports and public names answer (checked every minute or few).
+    Click an address to copy it.</div>
+
+  <h2>Nodes</h2>
+  <label class="show"><input type="checkbox" id="showTest"> Show test nodes</label>
+  <div class="tablewrap" style="margin-top:8px"><table>
+    <thead><tr><th>Node</th><th>What it is</th><th>State</th><th>Yggdrasil address</th><th>LAN addresses</th><th>Machine</th><th>Stores</th><th>Dashboard</th></tr></thead>
+    <tbody id="nodes"></tbody>
+  </table></div>
+
+  <h2>Machines</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Machine</th><th>Yggdrasil address</th><th>Answers on</th><th>Links</th></tr></thead>
+    <tbody id="machines"></tbody>
+  </table></div>
+
+  <h2>Public names</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Website</th><th>Email address</th><th>Belongs to</th><th>Answers</th></tr></thead>
+    <tbody id="names"></tbody>
+  </table></div>
+  <p class="sub" id="mx"></p>
+
+  <h2>Ports</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Port</th><th>What answers there</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">7400, 7401…</td><td>A node, on its machine's Yggdrasil address (a second node on the machine takes the next port)</td></tr>
+      <tr><td class="mono">7480, 7481…</td><td>The nodes' dashboards: open over Yggdrasil from an allowed device; on the LAN they send you on to the Yggdrasil address</td></tr>
+      <tr><td class="mono">7490</td><td>A box's hub: people on the box open their files at /files, their website and messages at /files/site</td></tr>
+      <tr><td class="mono">8480</td><td>Websites the node publishes; a web node also serves the group's sites to the tunnel</td></tr>
+      <tr><td class="mono">22000</td><td>Syncthing, for people's folders on a box</td></tr>
+      <tr><td class="mono">22</td><td>SSH (if its firewall lets this machine in)</td></tr>
+    </tbody>
+  </table></div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const cp = s => `<span class="copy mono" data-copy="${esc(s)}">${esc(s)}</span>`;
+const gb = b => b >= 1 << 30 ? (b / (1 << 30)).toFixed(1) + " GB" : (b / (1 << 20)).toFixed(0) + " MB";
+const portName = {7480: "dashboard", 7481: "2nd dashboard", 7490: "hub", 8480: "websites", 22000: "Syncthing", 22: "SSH"};
+let st;
+try { $("showTest").checked = localStorage.getItem("net.test") === "1"; } catch (e) {}
+
+function nodeRow(n) {
+  const state = n.up ? `<span class="pill up">up</span><span class="sub">${n.rtt_ms ? Math.round(n.rtt_ms) + " ms" : ""}</span>`
+    : `<span class="pill down">down</span>${n.error ? `<br><span class="sub">${esc(n.error)}</span>` : ""}`;
+  const roles = n.roles.map(r => `<span class="pill role">${esc(r)}</span>`).join("") + (n.self ? `<span class="pill warn">this dashboard</span>` : "");
+  const lan = n.lan.length ? n.lan.map(cp).join("<br>") : `<span class="sub">${n.up && !n.version ? "older yggstore: not reported" : "—"}</span>`;
+  const mach = [n.hostname && `host <b>${esc(n.hostname)}</b>`, n.version && `<span class="sub">${esc(n.version)}</span>`].filter(Boolean).join("<br>");
+  const names = n.names.length ? `<br>${n.names.map(x => `<span class="sub">${esc(x)}</span>`).join(", ")}` : "";
+  return `<tr class="${n.test ? "test" : ""}"><td><b>${esc(n.name)}</b>${n.owner ? `<br><span class="sub">${esc(n.owner)}</span>` : ""}${names}</td>
+    <td>${roles || `<span class="sub">storage</span>`}</td><td>${state}</td>
+    <td>${cp(n.ip)}<br><span class="sub">port ${esc(n.port)}</span></td><td>${lan}</td><td>${mach || "—"}</td>
+    <td>${n.quota ? `${gb(n.used)} of ${gb(n.quota)}<br><span class="sub">${n.shards} shards</span>` : "—"}</td>
+    <td>${n.dashboard ? `<a href="${esc(n.dashboard)}" target="_blank" rel="noopener">open</a>` : "—"}</td></tr>`;
+}
+
+function render() {
+  const test = $("showTest").checked;
+  const nodes = st.nodes.filter(n => test || !n.test);
+  $("nodes").innerHTML = nodes.map(nodeRow).join("") || `<tr><td colspan="8" class="sub">No nodes.</td></tr>`;
+  const testIPs = new Set(st.nodes.filter(n => n.test).map(n => n.ip));
+  const realIPs = new Set(st.nodes.filter(n => !n.test).map(n => n.ip));
+  $("machines").innerHTML = st.machines.filter(m => test || realIPs.has(m.ip) || !testIPs.has(m.ip)).map(m => {
+    const open = !m.known ? `<span class="sub">checking…</span>` : m.open.length ? m.open.map(p => `<span class="pill up">${p} ${portName[p] || ""}</span>`).join("")
+      : `<span class="pill down">nothing answers</span>`;
+    const dash = st.nodes.filter(n => n.ip === m.ip && n.dashboard).map(n => `<a href="${esc(n.dashboard)}" target="_blank" rel="noopener">${esc(n.name)} dashboard</a>`);
+    if (m.hub) dash.push(`<a href="${esc(m.hub)}" target="_blank" rel="noopener">people's files</a>`, `<a href="${esc(m.hub)}/site" target="_blank" rel="noopener">their websites</a>`);
+    return `<tr><td><b>${esc(m.name)}</b></td><td>${cp(m.ip)}</td><td>${open}</td><td>${dash.join(" · ") || "—"}</td></tr>`;
+  }).join("");
+  $("names").innerHTML = st.names.map(x => {
+    const ans = !x.checked ? `<span class="sub">checking…</span>` : x.status >= 200 && x.status < 400 ? `<span class="pill up">${x.status}</span> online`
+      : x.status ? `<span class="pill warn">${x.status}</span> ${x.status === 404 ? "no site published" : ""}` : `<span class="pill down">no answer</span> <span class="sub">${esc(x.problem)}</span>`;
+    return `<tr><td><a href="https://${esc(x.name)}/" target="_blank" rel="noopener">${esc(x.name)}</a></td><td>${x.mail ? cp(x.mail) : "—"}</td>
+      <td>${esc(x.node)}${x.person ? ` <span class="sub">for ${esc(x.person)}</span>` : ""}</td><td>${ans}</td></tr>`;
+  }).join("") || `<tr><td colspan="4" class="sub">No names yet${st.domain ? "" : ": the group has no domain"}.</td></tr>`;
+  $("mx").textContent = st.domain ? `Mail for ${st.domain} arrives at: ${st.mx.length ? st.mx.join(", ") : "(no MX records found yet)"}` : "";
+  $("updated").textContent = "updated " + new Date(st.at * 1000).toLocaleTimeString();
+}
+
+async function load() {
+  try {
+    const r = await fetch("/api/network", {cache: "no-store"});
+    if (!r.ok) throw new Error((await r.text()).trim());
+    st = await r.json();
+    render();
+  } catch (e) { $("updated").textContent = "not answering: " + e.message; }
+}
+$("showTest").addEventListener("change", () => { try { localStorage.setItem("net.test", $("showTest").checked ? "1" : "0"); } catch (e) {} if (st) render(); });
+document.addEventListener("click", async ev => {
+  const c = ev.target.closest("[data-copy]");
+  if (!c) return;
+  try { await navigator.clipboard.writeText(c.dataset.copy); $("toast").textContent = "Copied"; }
+  catch (e) { $("toast").textContent = "Couldn't copy"; }
+  $("toast").classList.add("on"); setTimeout(() => $("toast").classList.remove("on"), 1200);
+});
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>

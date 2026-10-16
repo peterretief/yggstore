@@ -48,6 +48,12 @@ type Info struct {
 	Web json.RawMessage `json:"web,omitempty"`
 	// MailOut is whether the node sends members' email (see package mail).
 	MailOut bool `json:"mail_out,omitempty"`
+	// Hostname, Version and LAN say which machine the node runs on, its
+	// yggstore, and the machine's addresses on its local network, for the
+	// admin's network page.
+	Hostname string   `json:"hostname,omitempty"`
+	Version  string   `json:"version,omitempty"`
+	LAN      []string `json:"lan,omitempty"`
 }
 
 // RenewRequest renews leases (see package lease): the tokens of stubs the
@@ -92,6 +98,8 @@ type Options struct {
 	Work interface {
 		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
 	}
+	// Version is the node's yggstore, reported in its info.
+	Version string
 }
 
 func Handler(store localstore.Store, opts Options) http.Handler {
@@ -197,7 +205,8 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			}
 			info := Info{Service: "yggstore", Name: opts.Name, NodeID: opts.NodeID,
 				Transport: opts.Transport.Name(), UsedBytes: used, QuotaBytes: store.Quota(),
-				ShardCount: count, StartedAt: started, Customers: opts.Customers}
+				ShardCount: count, StartedAt: started, Customers: opts.Customers, Version: opts.Version, LAN: LANAddrs()}
+			info.Hostname, _ = os.Hostname()
 			if opts.Peers != nil {
 				info.PeersHash = opts.Peers.Hash()
 			}

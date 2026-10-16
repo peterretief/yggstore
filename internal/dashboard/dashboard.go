@@ -240,6 +240,7 @@ type Dashboard struct {
 	down         func() map[string]int64
 	asks         []deviceAsk // devices asking to be let in
 	usage        usageCache  // what the box's people store
+	netProbe     netProbe    // the network page's probes
 }
 
 func New(cfg Config) *Dashboard {
@@ -347,6 +348,8 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sites/{action}", d.handleSiteAction)
 	mux.HandleFunc("GET /api/devices", d.handleDevices)
 	mux.HandleFunc("POST /api/devices/{action}", d.handleDeviceAction)
+	mux.HandleFunc("GET /network", d.handleNetworkPage)
+	mux.HandleFunc("GET /api/network", d.handleNetwork)
 	mux.HandleFunc("GET /api/box/people", d.handlePeople)
 	mux.HandleFunc("POST /api/box/people/{action}", d.handlePeopleAction)
 	mux.Handle(FilesPage, d.filesPage())

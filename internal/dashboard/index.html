@@ -183,6 +183,7 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   <header>
     <h1>yggstore</h1>
     <span class="sub">this node <span class="mono" id="self">…</span></span>
+    <a class="sub" id="netLink" href="/network" hidden>Network: every node's addresses and links</a>
     <span class="live"><span class="dot" id="dot"></span><span id="updated">connecting…</span></span>
   </header>
 
@@ -423,6 +424,7 @@ function renderMyBox(s) {
   const diskPct = b.disk_total ? 100 * (b.disk_total - b.disk_free) / b.disk_total : 0;
   const host = b.hostname ? `<span class="mono">${esc(b.hostname)}.local</span>` : "";
   const admin = !!s.admin_entry;
+  $("netLink").hidden = !admin;
   $("mybox").innerHTML = `
     <div class="row"><span class="name">${esc(b.hostname || me?.name || "This box")}</span>${admin ? ` <span class="pill info">admin</span>` : ""}<span style="margin-left:auto">${pill}</span></div>
     <div class="sub" style="margin:4px 0 12px">${line}</div>
