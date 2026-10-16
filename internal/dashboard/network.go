@@ -382,7 +382,9 @@ func (d *Dashboard) addYggNames(ctx context.Context, list []peers.Peer) {
 	if d.cfg.TestPeersPath != "" {
 		tlist, _ := peers.Load(d.cfg.TestPeersPath)
 		for _, p := range tlist {
-			test[p.IP()] = true
+			if p.IP() != d.cfg.SelfID { // the test cluster's list has this machine too
+				test[p.IP()] = true
+			}
 		}
 	}
 	for ip, name := range peers.YggNames(list) {
