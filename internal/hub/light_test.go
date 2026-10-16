@@ -393,21 +393,34 @@ func TestLightBrowserKey(t *testing.T) {
 	json.Unmarshal(do(light.Base+"/begin", `{"t":"`+token+`"}`).Body.Bytes(), &b)
 	id := "browser-key-id-0001"
 	reg, _ := json.Marshal(map[string]any{"kind": KindBrowser, "t": token, "name": "kath's phone", "challenge": b.Challenge, "id": id,
-		"spki": passkey.B64.EncodeToString(spki), "signature": sign(b.Challenge)})
+		"spki": passkey.B64.EncodeToString(spki), "signature": sign(b.Challenge), "pin": "111111"})
+	if rec := do(light.Base+"/register", string(reg)); rec.Code == 200 {
+		t.Fatal("registered with a PIN that's too easy")
+	}
+	json.Unmarshal(do(light.Base+"/begin", `{"t":"`+token+`"}`).Body.Bytes(), &b)
+	reg, _ = json.Marshal(map[string]any{"kind": KindBrowser, "t": token, "name": "kath's phone", "challenge": b.Challenge, "id": id,
+		"spki": passkey.B64.EncodeToString(spki), "signature": sign(b.Challenge), "pin": "482913"})
 	if rec := do(light.Base+"/register", string(reg)); rec.Code != 200 || cookie == "" {
 		t.Fatalf("register a browser key: %d %s", rec.Code, rec.Body)
 	}
 	st, _ := Load(statePath)
-	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].Kind != KindBrowser {
+	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].Kind != KindBrowser || !pinMatches(p.Passkeys[0].PIN, "482913") {
 		t.Fatalf("kept %+v", p.Passkeys)
 	}
+	if len(st.Sessions) != 1 || !st.Sessions[0].Short {
+		t.Fatalf("a browser key's session isn't short: %+v", st.Sessions)
+	}
+	if rec := do("/files/devices?op=list", ""); strings.Contains(rec.Body.String(), "pbkdf2") {
+		t.Fatal("the devices list shows the PIN's hash")
+	}
 	cookie = ""
+	pin := "482913"
 	signin := func(kind, sig string) *httptest.ResponseRecorder {
 		ch := passkey.NewChallenge(time.Now())
 		if sig == "" {
 			sig = sign(ch)
 		}
-		body, _ := json.Marshal(map[string]string{"kind": kind, "challenge": ch, "id": id, "signature": sig})
+		body, _ := json.Marshal(map[string]string{"kind": kind, "challenge": ch, "id": id, "signature": sig, "pin": pin})
 		return do(light.Base+"/signin", string(body))
 	}
 	if rec := signin("", ""); rec.Code == 200 {
@@ -423,10 +436,61 @@ func TestLightBrowserKey(t *testing.T) {
 	if rec := signin(KindBrowser, passkey.B64.EncodeToString(bad)); rec.Code == 200 {
 		t.Fatal("another key signed in")
 	}
+	// Wrong PINs are counted; a right one starts again.
+	pin = "000001"
+	for i := 0; i < MaxPINFails-1; i++ {
+		if rec := signin(KindBrowser, ""); rec.Code != 403 || cookie != "" {
+			t.Fatalf("wrong PIN %d: %d %s", i, rec.Code, rec.Body)
+		}
+	}
+	pin = "482913"
 	if rec := signin(KindBrowser, ""); rec.Code != 200 || cookie == "" {
 		t.Fatalf("sign in with the browser key: %d %s", rec.Code, rec.Body)
 	}
 	if rec := do("/files?op=list", `{"path":""}`); rec.Code != 200 {
 		t.Fatalf("files after signing in: %d", rec.Code)
+	}
+	// MaxPINFails wrong PINs in a row lock the key, even to the right PIN.
+	cookie = ""
+	pin = "000001"
+	for i := 0; i < MaxPINFails; i++ {
+		signin(KindBrowser, "")
+	}
+	pin = "482913"
+	if rec := signin(KindBrowser, ""); rec.Code != 403 || !strings.Contains(rec.Body.String(), "locked") {
+		t.Fatalf("a locked key: %d %s", rec.Code, rec.Body)
+	}
+	// A key made before PINs: the box asks for one to be chosen.
+	Update(ctx, statePath, func(s *HubState) error {
+		k := &s.People[s.person("kath")].Passkeys[0]
+		k.PIN, k.PINFails = "", 0
+		return nil
+	})
+	if rec := signin(KindBrowser, ""); rec.Code != http.StatusPreconditionRequired || cookie != "" {
+		t.Fatalf("no PIN yet: %d %s", rec.Code, rec.Body)
+	}
+	ch = passkey.NewChallenge(time.Now())
+	body, _ := json.Marshal(map[string]string{"kind": KindBrowser, "challenge": ch, "id": id, "signature": sign(ch), "new_pin": "735102"})
+	if rec := do(light.Base+"/signin", string(body)); rec.Code != 200 || cookie == "" {
+		t.Fatalf("choose a PIN: %d %s", rec.Code, rec.Body)
+	}
+	cookie, pin = "", "735102"
+	if rec := signin(KindBrowser, ""); rec.Code != 200 {
+		t.Fatalf("sign in with the chosen PIN: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestPIN(t *testing.T) {
+	for _, bad := range []string{"", "12345", "111111", "123456", "987654", "4567890"} {
+		if pinOK(bad) == nil {
+			t.Errorf("%q passed as a PIN", bad)
+		}
+	}
+	if err := pinOK("482913"); err != nil {
+		t.Error(err)
+	}
+	h := pinHash("482913")
+	if !pinMatches(h, "482913") || pinMatches(h, "482914") || pinMatches("", "") || h == pinHash("482913") {
+		t.Error("pinHash/pinMatches")
 	}
 }

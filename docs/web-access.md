@@ -92,12 +92,19 @@ invite page has **No screen lock? Keep the key in this browser instead**
   signs the box's challenge with it, together with the address
   (`passkey.BrowserMessage`). The box keeps the public half, marked as a
   browser key.
-- The sign-in page finds the key by itself and signs in, with nothing to
-  type.
-- **What it costs:** no lock guards it, so anyone with the device can open
-  the files; it lives in that one browser, so clearing the browser's data
-  or changing device means a new invite from the box's owner. The page
-  says both before making it.
+- **A PIN as well** (added the same day, after the first person to use it
+  said it didn't feel safe): the person chooses a PIN of at least 6 digits
+  or letters when making the key, and the sign-in page asks for it. The
+  box checks it, not the browser, and keeps only a salted PBKDF2-SHA256
+  hash, so taking the device apart doesn't let anyone try PINs unseen.
+  The browser's signature is checked first, so only the device can try a
+  PIN at all. 5 wrong PINs in a row lock the key (a new invite gives a new
+  one). A key made before PINs is asked to choose one at its next sign-in.
+- Sessions started with a browser key last an hour unused, not 30 days,
+  so the PIN is asked again after time away.
+- **What it costs:** it lives in that one browser, so clearing the
+  browser's data, forgetting the PIN or changing device means a new invite
+  from the box's owner.
 
 ## What the box's owner sees
 

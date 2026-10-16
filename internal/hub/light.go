@@ -33,6 +33,10 @@ type Passkey struct {
 	Added int64  `json:"added"`
 	Used  int64  `json:"used,omitempty"`
 	Count uint32 `json:"count,omitempty"`
+	// A browser key also needs a PIN, which the box checks (pinHash), so
+	// having the device isn't enough.
+	PIN      string `json:"pin,omitempty"`
+	PINFails int    `json:"pin_fails,omitempty"`
 }
 
 // Session is a browser signed in through the web.
@@ -43,6 +47,7 @@ type Session struct {
 	Host    string `json:"host,omitempty"` // the address it was started at
 	Started int64  `json:"started"`
 	Used    int64  `json:"used"`
+	Short   bool   `json:"short,omitempty"` // signed in with a browser key: lasts ShortSessionFor
 }
 
 // KindBrowser marks a key a browser keeps (see passkey.VerifyBrowser), for
@@ -52,6 +57,21 @@ const KindBrowser = "browser"
 
 // SessionFor is how long a session lasts unused.
 const SessionFor = 30 * 24 * time.Hour
+
+// ShortSessionFor is how long a session started with a browser key lasts
+// unused: the PIN is asked again after that.
+const ShortSessionFor = time.Hour
+
+// MaxPINFails wrong PINs in a row lock a browser key.
+const MaxPINFails = 5
+
+// For is how long the session lasts unused.
+func (ss Session) For() time.Duration {
+	if ss.Short {
+		return ShortSessionFor
+	}
+	return SessionFor
+}
 
 // WebAccess is whether the person may sign in through the web.
 func (p Person) WebAccess() bool { return p.Active() && !p.WebOff }
@@ -107,22 +127,22 @@ func sessionHash(token string) string {
 
 // NewSession signs person in, on the device the passkey device names. It
 // gives the cookie's token, which only the browser keeps.
-func (s *HubState) NewSession(person, device, host string, now time.Time) string {
+func (s *HubState) NewSession(person, device, host string, short bool, now time.Time) string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	token := passkey.B64.EncodeToString(b)
 	s.PruneSessions(now)
-	s.Sessions = append(s.Sessions, Session{Hash: sessionHash(token), Person: person, Device: device, Host: host, Started: now.Unix(), Used: now.Unix()})
+	s.Sessions = append(s.Sessions, Session{Hash: sessionHash(token), Person: person, Device: device, Host: host, Started: now.Unix(), Used: now.Unix(), Short: short})
 	return token
 }
 
-// PruneSessions drops sessions unused for SessionFor, and those of people
+// PruneSessions drops sessions unused for their time, and those of people
 // who may no longer sign in.
 func (s *HubState) PruneSessions(now time.Time) {
 	kept := s.Sessions[:0]
 	for _, ss := range s.Sessions {
 		p, ok := s.PersonNamed(ss.Person)
-		if ok && p.WebAccess() && now.Sub(time.Unix(ss.Used, 0)) < SessionFor {
+		if ok && p.WebAccess() && now.Sub(time.Unix(ss.Used, 0)) < ss.For() {
 			kept = append(kept, ss)
 		}
 	}
@@ -136,7 +156,7 @@ func (s HubState) SessionOf(token, host string, now time.Time) (Person, Session,
 	}
 	h := sessionHash(token)
 	for _, ss := range s.Sessions {
-		if ss.Hash != h || now.Sub(time.Unix(ss.Used, 0)) >= SessionFor || !strings.EqualFold(ss.Host, host) {
+		if ss.Hash != h || now.Sub(time.Unix(ss.Used, 0)) >= ss.For() || !strings.EqualFold(ss.Host, host) {
 			continue
 		}
 		if p, ok := s.PersonNamed(ss.Person); ok && p.WebAccess() {
@@ -248,6 +268,8 @@ type passkeyReq struct {
 	Alg        int    `json:"alg"`
 	Signature  string `json:"signature"`
 	UserHandle string `json:"user_handle"`
+	PIN        string `json:"pin"`     // a browser key's PIN
+	NewPIN     string `json:"new_pin"` // one chosen for a browser key that has none yet
 }
 
 // serveLight serves a request relayed from a web node: signing in, and
@@ -328,7 +350,7 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sign in first", http.StatusUnauthorized)
 		return
 	}
-	if now.Sub(time.Unix(ss.Used, 0)) > time.Hour { // a session lasts 30 days from its last use
+	if now.Sub(time.Unix(ss.Used, 0)) > ss.For()/24 { // a session lasts its time from its last use
 		Update(r.Context(), f.u.cfg.StatePath, func(s *HubState) error {
 			for i := range s.Sessions {
 				if s.Sessions[i].Hash == ss.Hash {
@@ -337,7 +359,7 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 			}
 			return nil
 		})
-		http.SetCookie(w, sessionCookie(token, int(SessionFor.Seconds())))
+		http.SetCookie(w, sessionCookie(token, int(ss.For().Seconds())))
 	}
 	if r.URL.Path == FilesPath+"/devices" {
 		f.lightDevices(w, r, p, ss)
@@ -367,6 +389,7 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 	}
 	register := strings.HasSuffix(r.URL.Path, "/register")
 	var who, device, token string
+	var refused error
 	_, err := Update(r.Context(), f.u.cfg.StatePath, func(s *HubState) error {
 		if register {
 			var k passkey.Key
@@ -374,6 +397,9 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 			if browser {
 				if len(req.ID) < 16 || len(req.ID) > 64 {
 					return errors.New("the browser key has no proper ID")
+				}
+				if err := pinOK(req.PIN); err != nil {
+					return err
 				}
 				err = passkey.VerifyBrowser(dec(req.SPKI), origin, req.Challenge, dec(req.Signature))
 				k = passkey.Key{ID: req.ID, SPKI: dec(req.SPKI), Alg: passkey.ES256}
@@ -397,7 +423,11 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 			if browser {
 				kind = KindBrowser
 			}
-			p, err := s.UseInviteWeb(req.T, Passkey{Key: k, RP: rp, Kind: kind, Name: device}, now)
+			pin := ""
+			if browser {
+				pin = pinHash(req.PIN)
+			}
+			p, err := s.UseInviteWeb(req.T, Passkey{Key: k, RP: rp, Kind: kind, Name: device, PIN: pin}, now)
 			if err != nil {
 				return err
 			}
@@ -433,13 +463,39 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 			if !s.People[i].WebAccess() {
 				return errors.New("Opening your files through the web is turned off for now. Ask the box's owner.")
 			}
+			if browser {
+				switch {
+				case pk.PINFails >= MaxPINFails:
+					return errPINLocked
+				case pk.PIN == "" && req.NewPIN == "":
+					return errNeedPIN
+				case pk.PIN == "":
+					if err := pinOK(req.NewPIN); err != nil {
+						return err
+					}
+					pk.PIN = pinHash(req.NewPIN)
+				case !pinMatches(pk.PIN, req.PIN):
+					pk.PINFails++ // kept: this Update saves, and refused says no
+					refused = errWrongPIN(MaxPINFails - pk.PINFails)
+					return nil
+				}
+				pk.PINFails = 0
+			}
 			pk.Count, pk.Used = count, now.Unix()
 			who, device = s.People[i].Name, pk.Name
 		}
-		token = s.NewSession(who, device, rp, now)
+		token = s.NewSession(who, device, rp, browser, now)
 		return nil
 	})
+	if err == nil {
+		err = refused
+	}
+	if errors.Is(err, errNeedPIN) {
+		http.Error(w, err.Error(), http.StatusPreconditionRequired) // the page asks for a new PIN
+		return
+	}
 	if err != nil {
+		f.u.cfg.Logf("hub: web sign-in refused (from %s): %v", r.Header.Get("X-Forwarded-For"), err)
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -451,7 +507,11 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 		}
 	}
 	f.u.cfg.Logf("hub: %s %s through the web (%s, from %s)", who, verb, device, r.Header.Get("X-Forwarded-For"))
-	http.SetCookie(w, sessionCookie(token, int(SessionFor.Seconds())))
+	life := SessionFor
+	if browser {
+		life = ShortSessionFor
+	}
+	http.SetCookie(w, sessionCookie(token, int(life.Seconds())))
 	jsonOK(w, map[string]string{"person": who})
 }
 
@@ -476,9 +536,10 @@ func (f *filesPage) lightDevices(w http.ResponseWriter, r *http.Request, p Perso
 		for _, s := range st.SessionsOf(p.Name) {
 			ss = append(ss, sess{s, s.Hash == me.Hash})
 		}
-		keys := p.Passkeys
-		if keys == nil {
-			keys = []Passkey{}
+		keys := []Passkey{}
+		for _, k := range p.Passkeys {
+			k.PIN = "" // the browser has no business with it
+			keys = append(keys, k)
 		}
 		jsonOK(w, map[string]any{"person": p.Name, "passkeys": keys, "sessions": ss})
 	case (op == "signout" || op == "forget") && r.Method == http.MethodPost:
