@@ -197,6 +197,38 @@ Everything is kept as plain JSON files, one per day, like the gateway's
 `usage/YYYY-MM.json`. A balance is the sum of that member's rows in every
 ledger. Anyone can add their own up again and get the same answer.
 
+## The group's own ygg wallet
+
+The group runs a wallet of its own, but **only for yggs**. It never holds
+dollars or rands.
+
+- **Each member gets a wallet address** on the group's domain, such as
+  `$pay.withcare.co.za/anna`, served from the admin box. Behind it is the
+  member's local balance: the wallet is the ledger above, reached through
+  an open standard.
+- **It speaks Open Payments**, the same standard as the wallets used for
+  settling. So the Web Monetization tag on members' sites, the ygg button
+  and the ledger all work through one standard way of paying, and tools
+  built for Open Payments work with it too.
+- **Rewards between members go through it** and never touch a payment
+  company. They cost nothing and can be as small as 1 ygg.
+- **Nothing in it can be cashed out.** Balances still add up to 0, and
+  still only settle from one member's own wallet to another's (see
+  "Settling"). That keeps it a record between members, not money held for
+  them.
+- **It can't pay makers outside the group.** Paying them would mean real
+  money passing through the group's wallet, which is the regulated part.
+  Those rewards still go from the giver's own wallet.
+
+**How to build it:** either run **Rafiki**, the Interledger Foundation's
+open-source wallet software, with yggs as its only currency, or add a small
+Open Payments server to yggstore itself. Rafiki is complete but heavy (it
+needs databases and several services, and is meant for licensed
+providers), so it would run on the admin box, not on a Pi. A server in
+yggstore would be light and fit what the group already has, but means
+implementing the standard's permissions (GNAP) and request signing. To be
+decided once the ledger works.
+
 ## Settling
 
 The local balance can stay just a score. Settling turns it into real money,
@@ -209,9 +241,10 @@ from one member's own wallet straight to another's.
   $5 a month), without the app ever holding the money.
 - **Web Monetization** is a W3C Community Group draft built on Open
   Payments, used above for the tag on makers' pages.
-- **Interledger** connects the wallets. Wallets that run it are licensed
-  financial institutions. Rafiki, the open-source software they use, is for
-  regulated providers only, so the group doesn't run its own wallet.
+- **Interledger** connects the wallets. Wallets that hold real money with
+  it are licensed financial institutions. That's why the group's own wallet
+  (above) holds yggs only, and real money settles between wallets run by
+  licensed providers.
 
 **How it goes:**
 1. **Once, each member links their wallet** to their dashboard. Their wallet
@@ -239,22 +272,59 @@ statement of what they paid and were paid.
 
 **Wallets, as of October 2026:**
 - Few wallets support Open Payments yet, and the ones that do mostly only
-  pay other accounts at the same wallet. **GateHub** (USD, EUR) is the one
-  on the official list, for the USA and EU. **Whether people in South Africa
-  can open a GateHub account isn't confirmed.**
-- So the first real settling would be between members who all use GateHub.
-  Makers with other wallets can be paid once USD wallets connect to each
-  other.
-- Rand wallets come later, for people who'd rather not convert: some
-  sources mention an Interledger Wallet in ZAR, but the official list
-  doesn't show it, and Fynbos (South Africa) was building Open Payments, but
-  its current status is unknown.
-- A free **test wallet** with play money lets everything be built and tried
-  first.
+  pay other accounts at the same wallet. That's fine for settling, as long
+  as every member uses the same one.
+- **The official list has two:** the free **test wallet** with play money
+  (wallet.interledger-test.dev), which everything is built and tried
+  against first, and **GateHub** (USD, EUR, for the USA and EU). **Whether
+  people in South Africa can open a GateHub account isn't confirmed:** try
+  signing up.
+- **Fynbos** (fynbos.app) is worth trying too. It is based in Cape Town and
+  co-founded by one of the designers of Interledger. In 2024 it ran in the
+  USA, Europe and South Africa, but only paid wallets in the same region.
+  It isn't on the official list now, so check that it still takes sign-ups.
+- **Interledger Wallet** (interledger.app), the Interledger Foundation's
+  own: whether it's open in South Africa isn't known.
+- **Rand wallets come later.** In June 2026 the Interledger Foundation was
+  still planning a rand-to-euro route, not running one.
 - Topping up a USD wallet from a rand account means converting money, and
   the bank or card takes a margin, often a few percent, so monthly top-ups
   are better than frequent ones. It also counts as sending money abroad,
   though a few dollars a month is far inside the yearly allowance.
+
+### Or: settling in a USD stablecoin
+
+A second way to settle, for members who prefer it, or if no Open Payments
+wallet works from South Africa:
+- **Members hold a USD stablecoin, such as USDC,** in a wallet app on their
+  own phone. Each holds their own keys, so the group still never holds
+  anyone's money.
+- **Settling works the same way:** the admin's dashboard works out who pays
+  whom, and each member who owes sends their part from their own wallet to
+  the addresses of the members they owe. On a low-fee network a payment
+  costs a fraction of a cent, so there's no minimum to wait for.
+- **Members buy and sell it themselves,** in rands, through an exchange
+  licensed in South Africa, such as VALR or Luno. The group doesn't buy,
+  sell or exchange anything.
+- **Yggs stay what they are:** a unit fixed in dollars, not a coin. The
+  stablecoin is only how a balance is paid.
+
+**What it costs:**
+- **Keys:** a member who loses their phone and their recovery words loses
+  the money in it. Nobody can reset it.
+- **The coin is only as good as its issuer,** who holds the dollars behind
+  it.
+- **Mistakes are final:** a payment to a wrong address can't be called
+  back, so the dashboard should only pay addresses the member set
+  themselves, after showing them.
+- **Rules:** tax on what members are paid, and whether South Africa's
+  exchange-control limits count stablecoins, need checking with someone
+  who knows the current rules before real money moves.
+
+Open Payments stays the first choice, because members' money then stays
+in an ordinary wallet with a monthly limit their wallet enforces. The
+dashboard could offer both, with each member choosing, as long as each
+pair settling with each other uses the same one.
 
 ## On the dashboard
 
@@ -291,8 +361,9 @@ months and see whether they feel fair first.
    settling, all against the test wallet.
 8. **Real money in USD,** starting with members who can use GateHub, then
    more wallets as they connect.
-9. **Later:** yggs for web and mail work and the uptime bonus, and rand
-   wallets.
+9. **Later:** the group's own ygg wallet, with wallet addresses for every
+   member; settling in a stablecoin as a second option; yggs for web and
+   mail work and the uptime bonus; and rand wallets.
 
 ## Decided later
 
@@ -308,7 +379,11 @@ months and see whether they feel fair first.
 - **Promises to outside makers:** how long they wait for a wallet; a year?
 - **Localbox's domains:** whether to offer the wallet tag to their owners.
 - **GateHub from South Africa:** whether members here can open an account.
-  If not, real settling waits for another USD wallet.
+  If not, try Fynbos and Interledger Wallet, or settle in a stablecoin.
+- **The group's own wallet:** run Rafiki, or build a small Open Payments
+  server into yggstore.
+- **Stablecoin settling:** whether to offer it at all, and if so which coin
+  and which network.
 
 ## Sources
 
@@ -321,3 +396,10 @@ months and see whether they feel fair first.
 - [Open Payments](https://github.com/interledger/open-payments) and
   [Rafiki](https://rafiki.dev/introduction/overview) (for regulated
   account servicing entities)
+- [Open Payments-enabled wallets](https://openpayments.dev/resources/op-wallets/)
+- [Interledger Foundation: wallet work week, June 2026](https://interledger.org/blog/wallet-work-week/)
+  (the rand-to-euro route, being planned)
+- [TechCentral: open payments in South Africa](https://techcentral.co.za/open-payments-interledger-summit/250962/)
+  (Fynbos in the USA, Europe and South Africa, same region only)
+- [Interledger community call, 2024](https://community.interledger.org/chiara/community-call-explained-3oh5)
+  (Fynbos in Europe with GateHub)
