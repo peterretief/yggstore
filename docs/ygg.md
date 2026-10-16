@@ -1,6 +1,7 @@
 # Ygg: balancing what members give, and rewarding the people who make things
 
-Status: proposal, 2026-10-16. Nothing here is built yet. It replaces the
+Status: proposal, 2026-10-16. The wallet's first step is built (see
+"Built so far"); the rest isn't yet. It replaces the
 separate credits and ygg drafts. The open standards it relies on were
 checked on that date (sources at the end); they are moving, so check again
 before building the money parts.
@@ -339,6 +340,33 @@ A **Ygg** card under Give and use:
 
 And the **Rewards** page: your own history of what you rewarded, kept on
 your computer, and, for makers, what came in per page.
+
+## Built so far: the yggwallet, step 1
+
+The dashboard has a **Wallet** page (`/wallet`), with its own tick under
+Your devices like the other pages:
+- **Your balance** in yggs and dollars, **Pay a member** (who, how many
+  yggs, a note), **your payments**, and **the group's balances**, which
+  add up to 0.
+- **An account is a person:** the `owner` the group's list gives a node,
+  or the node's machine if it has none. All of someone's nodes share one
+  account, and only their own nodes can pay from it.
+- **The first admin in the list keeps the ledger**, in
+  `~/.yggstore/ygg/ledger/`, a JSON-lines file per day. Its dashboard
+  takes payments.
+- **Other dashboards pay by direct message** to it (`ygg-pay`). A message
+  says which node sent it, so a payment always comes from the sender's
+  own account. The keeper records it and sends both people's nodes their
+  new balance and history (`ygg-state`). Dashboards ask for news
+  (`ygg-ask`) when the Wallet page is open, and once an hour.
+- **A payment is taken once,** however often it's retried: each has an ID
+  chosen by the payer's dashboard.
+- **The limit below 0** (50,000 yggs, $50) only warns for now.
+- **Notes** are seen by the two people and the keeper. Balances are open to
+  the group.
+
+Not yet: storage earning yggs, wallet addresses and the ygg button, Open
+Payments, settling, and signed records.
 
 ## Build order, once approved
 

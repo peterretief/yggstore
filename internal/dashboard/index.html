@@ -45,6 +45,18 @@ nav.pages a.on { color: var(--info); border-bottom-color: var(--info); }
 .ticks { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
 .off { display: none !important; }
 .ticks label { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; white-space: nowrap; }
+.wallet { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 760px) { .wallet { grid-template-columns: 1fr; } }
+.wallet .bal { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.1; }
+.wallet .bal.neg { color: var(--bad); }
+.wallet .usd { color: var(--muted); font-size: 15px; margin-left: 6px; font-weight: 400; }
+.wallet form { display: grid; gap: 8px; }
+.wallet form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.wallet form input, .wallet form select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; }
+.wallet form button { justify-self: start; font-size: 14px; padding: 6px 16px; border-color: var(--info); background: var(--info); color: #fff; }
+.wallet table td, .wallet table th { padding: 6px 8px; }
+td.plus { color: var(--ok); }
+td.minus { color: var(--bad); }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
@@ -209,6 +221,43 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
   <section class="pagelinks" id="pagelinks"></section>
   </div>
   <section class="job" data-page="home files" id="job" hidden></section>
+
+  <div data-page="wallet">
+  <h2>Wallet</h2>
+  <div id="walletError" class="err"></div>
+  <section class="wallet" id="walletWrap" hidden>
+    <div class="card">
+      <div class="sub">Your balance<span id="walletWho"></span></div>
+      <div class="bal" id="walletBal">…</div>
+      <div class="sub" id="walletNote" style="margin-top:6px"></div>
+      <div id="walletLimit"></div>
+    </div>
+    <div class="card">
+      <form id="payForm">
+        <b>Pay a member</b>
+        <label>To <select id="payTo"></select></label>
+        <label>Yggs <span class="sub" id="payUsd"></span><input id="payAmount" type="number" min="1" max="1000000" step="1" placeholder="e.g. 500" inputmode="numeric"></label>
+        <label>Note (both of you see it) <input id="payNote" maxlength="200" placeholder="e.g. for holding my photos"></label>
+        <button id="payGo">Pay</button>
+        <div id="payMsg" class="sub"></div>
+      </form>
+    </div>
+    <div class="card" style="grid-column:1/-1" id="walletSentWrap" hidden>
+      <b>Sent, not yet in the ledger</b>
+      <table><tbody id="walletSent"></tbody></table>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <b>Your payments</b>
+      <table><thead><tr><th>When</th><th>With</th><th>Note</th><th style="text-align:right">Yggs</th></tr></thead><tbody id="walletHistory"></tbody></table>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <b>The group's balances</b> <span class="sub">· they always add up to 0: one person's plus is another's minus</span>
+      <table><tbody id="walletBalances"></tbody></table>
+    </div>
+  </section>
+  <p class="sub">A ygg is a tenth of a US cent ($0.001). Yggs are a record of who owes whom in the group, not money: nobody holds money for
+    anyone, and they can't be cashed out or passed on. Settling up in real money comes later (see <span class="mono">docs/ygg.md</span>).</p>
+  </div>
 
   <div data-page="admin">
   <div id="peopleWrap" hidden>
@@ -393,6 +442,7 @@ const PAGE_INFO = [
   ["web", "/web", "Website", "Your name, your address and your website"],
   ["messages", "/messages", "Messages", "Messages between the group's nodes"],
   ["mail", "/mail", "Mail", "Your inbox, and writing mail"],
+  ["wallet", "/wallet", "Wallet", "Your yggs: your balance, paying members, the group's balances"],
   ["admin", "/admin", "Admin", "The group, its nodes, people on this box and your devices"],
 ];
 const PAGE = (PAGE_INFO.find(x => x[1] === location.pathname) || PAGE_INFO[0])[0];
@@ -1698,6 +1748,73 @@ $("siteAdd").addEventListener("change", async () => {
   afterSend(name, await sendSite(name, fd, true, `${files.length} file${files.length > 1 ? "s" : ""}`));
 });
 if (PAGE === "web") { refreshSites(); setInterval(refreshSites, 10000); }
+
+// Wallet: your balance in yggs, paying other members, and the group's
+// balances, from the ledger the group's admin node keeps.
+const yggUsd = n => (n < 0 ? "-" : "") + "$" + (Math.round(Math.abs(n) / 10) / 100).toFixed(2);
+const yggNum = n => n.toLocaleString();
+let walletKey = "", walletLast = null;
+async function refreshWallet() {
+  let w;
+  try {
+    const r = await fetch("api/wallet", {cache: "no-store"});
+    if (!r.ok) throw new Error(await r.text());
+    w = await r.json();
+  } catch (e) { $("walletError").textContent = "Wallet: " + e.message; return; }
+  walletLast = w;
+  $("walletError").textContent = w.error || "";
+  $("walletWrap").hidden = !w.on;
+  const key = JSON.stringify(w);
+  if (!w.on || key === walletKey) return;
+  walletKey = key;
+  const known = w.keeping || w.at;
+  $("walletWho").textContent = ` (${w.account})`;
+  $("walletBal").className = "bal" + (w.balance < 0 ? " neg" : "");
+  $("walletBal").innerHTML = known ? `${yggNum(w.balance)} yggs<span class="usd">${yggUsd(w.balance)}</span>` : "…";
+  $("walletNote").textContent = w.keeping ? "This box keeps the group's ledger."
+    : `The ledger is kept by ${w.keeper}. ` + (w.at ? `It last told this box at ${new Date(w.at * 1000).toLocaleString()}.` : "Asking it for your balance…");
+  $("walletLimit").innerHTML = w.balance < -w.limit
+    ? `<p><span class="pill warn">over the limit</span> <span class="sub">The group's limit below 0 is ${yggNum(w.limit)} yggs (${yggUsd(w.limit)}).</span></p>`
+    : `<p class="sub">You can go ${yggNum(w.limit)} yggs (${yggUsd(w.limit)}) below 0.</p>`;
+  const sel = $("payTo"), keep = sel.value;
+  sel.innerHTML = w.payees.map(a => `<option>${esc(a)}</option>`).join("") || `<option value="">nobody else has an account yet</option>`;
+  if (w.payees.includes(keep)) sel.value = keep;
+  $("walletSentWrap").hidden = !w.sent.length;
+  $("walletSent").innerHTML = w.sent.map(p => `<tr><td>${esc(new Date(p.sent * 1000).toLocaleString())}</td><td>to ${esc(p.to)}</td>
+    <td>${esc(p.note || "")}</td><td class="num" style="text-align:right">${yggNum(p.amount)}</td>
+    <td>${p.status === "refused" ? `<span class="pill bad">refused</span> <span class="sub">${esc(p.why)}</span>` : `<span class="pill info">waiting for ${esc(w.keeper)}</span>`}</td></tr>`).join("");
+  $("walletHistory").innerHTML = w.history.map(p => {
+    const out = p.from === w.account;
+    return `<tr><td class="sub">${esc(new Date(p.at * 1000).toLocaleString())}</td><td>${out ? "to" : "from"} <b>${esc(out ? p.to : p.from)}</b></td>
+      <td>${esc(p.note || "")}</td><td class="num ${out ? "minus" : "plus"}" style="text-align:right">${out ? "−" : "+"}${yggNum(p.amount)}</td></tr>`;
+  }).join("") || `<tr><td colspan="4" class="sub">No payments yet.</td></tr>`;
+  $("walletBalances").innerHTML = w.balances.map(b => `<tr><td>${esc(b.account)}${b.me ? ` <span class="pill info">you</span>` : ""}</td>
+    <td class="num ${b.balance < 0 ? "minus" : b.balance > 0 ? "plus" : ""}" style="text-align:right">${yggNum(b.balance)} yggs</td>
+    <td class="num sub" style="text-align:right">${yggUsd(b.balance)}</td></tr>`).join("") || `<tr><td class="sub">Nobody has paid anyone yet.</td></tr>`;
+}
+$("payAmount").addEventListener("input", () => {
+  const n = parseInt($("payAmount").value, 10);
+  $("payUsd").textContent = n > 0 ? "= " + yggUsd(n) : "";
+});
+$("payForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const to = $("payTo").value, amount = parseInt($("payAmount").value, 10), note = $("payNote").value.trim();
+  if (!to || !(amount > 0)) { $("payMsg").textContent = "Choose who to pay, and how many yggs."; return; }
+  let ask = `Pay ${to} ${yggNum(amount)} yggs (${yggUsd(amount)})?`;
+  if (walletLast && walletLast.balance - amount < -walletLast.limit) ask += `\n\nThis takes you past the group's limit of ${yggNum(walletLast.limit)} yggs below 0.`;
+  if (!confirm(ask)) return;
+  $("payGo").disabled = true; $("payMsg").textContent = "Paying…";
+  try {
+    const r = await post("api/wallet/pay", {headers: {"Content-Type": "application/json"}, body: JSON.stringify({to, amount, note})});
+    if (!r.ok) throw new Error(await r.text());
+    const out = await r.json();
+    $("payMsg").textContent = out.status === "paid" ? "Paid." : "Sent. It shows above once the ledger has it.";
+    $("payAmount").value = ""; $("payNote").value = ""; $("payUsd").textContent = "";
+  } catch (e) { $("payMsg").textContent = "Not paid: " + e.message; }
+  $("payGo").disabled = false;
+  walletKey = ""; refreshWallet();
+});
+if (PAGE === "wallet") { refreshWallet(); setInterval(refreshWallet, 5000); }
 </script>
 </body>
 </html>

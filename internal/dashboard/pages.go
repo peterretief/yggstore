@@ -22,11 +22,12 @@ var PagePaths = map[string]string{
 	"/web":      "web",
 	"/messages": "messages",
 	"/mail":     "mail",
+	"/wallet":   "wallet",
 	"/admin":    "admin",
 }
 
 // pageNames are the pages as people read them.
-var pageNames = map[string]string{"files": "Files", "web": "Website", "messages": "Messages", "mail": "Mail", "admin": "Admin"}
+var pageNames = map[string]string{"files": "Files", "web": "Website", "messages": "Messages", "mail": "Mail", "wallet": "Wallet", "admin": "Admin"}
 
 // pageRoutes give each address the page it belongs to; an address is
 // matched exactly or as a folder.
@@ -42,6 +43,7 @@ var pageRoutes = []struct{ path, page string }{
 	{"/web", "web"}, {"/api/names", "web"}, {"/api/sites", "web"}, {"/api/me", "web"},
 	{"/messages", "messages"}, {"/api/msg", "messages"},
 	{"/mail", "mail"}, {"/api/mail", "mail"},
+	{"/wallet", "wallet"}, {"/api/wallet", "wallet"},
 }
 
 // pageOf is the page path belongs to: "" for the overview and the state

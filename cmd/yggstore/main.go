@@ -711,7 +711,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	cfg := dashboard.Config{HubState: *hubStatePath, HubPeople: filepath.Join(*hubPeople, "users"), PeersPath: *peersPath, StubDir: absStubs, SelfID: selfID, Interval: *interval, Client: c,
 		TestPeersPath: *testPeers, Identity: id, ContactsPath: *contactsPath, Name: *me, Listen: *listen,
 		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken,
-		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"),
+		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"), WalletDir: filepath.Join(yggstoreHome(), "ygg"),
 		SitesDir: filepath.Join(yggstoreHome(), "sites"), Home: yggstoreHome(), MePath: filepath.Join(yggstoreHome(), "me.name"), Version: versionString(),
 		CloudflareToken: filepath.Join(yggstoreHome(), "cloudflare-api.token"), TunnelToken: filepath.Join(yggstoreHome(), "group-sites.token")}
 	serveAddr := *listen

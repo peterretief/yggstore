@@ -38,6 +38,7 @@ import (
 	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/websites"
 	"github.com/peterretief/yggstore/internal/workcopy"
+	"github.com/peterretief/yggstore/internal/ygg"
 )
 
 //go:embed index.html
@@ -85,6 +86,13 @@ type Config struct {
 	// NamesPath keeps name requests: those made here, and on an admin
 	// dashboard those members sent (see names.go).
 	NamesPath string
+	// WalletDir keeps the wallet (see wallet.go): what the ledger's keeper
+	// last said about this account, and on the keeper, the ledger itself.
+	// "" for no wallet.
+	WalletDir string
+	// WalletLimit is how far below 0 a balance may go before the wallet
+	// warns, in yggs (DefaultWalletLimit if 0).
+	WalletLimit int64
 	// OwnSites, if set, serves the sites published here at SiteURL (this
 	// box's Yggdrasil address), and gives their files for download.
 	OwnSites *site.Own
@@ -236,6 +244,8 @@ type Dashboard struct {
 	took         map[string]string    // list hash@start time each node accepted last, used only by poll
 	logMu        sync.Mutex           // the activity log file
 	namesMu      sync.Mutex           // NamesPath, and the list while names change
+	walletMu     sync.Mutex           // the wallet file, and the ledger
+	yggLedger    *ygg.Ledger          // the ledger, if this dashboard keeps it
 	siteMu       sync.Mutex           // one website publish at a time
 	repair       func()               // asks for a repair pass now (see SetRepair)
 	noRoom       func() map[string]int
@@ -361,6 +371,8 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sites/download", d.handleSiteDownload)
 	mux.HandleFunc("GET /api/sites/files", d.handleSiteFiles)
 	mux.HandleFunc("POST /api/sites/{action}", d.handleSiteAction)
+	mux.HandleFunc("GET /api/wallet", d.handleWallet)
+	mux.HandleFunc("POST /api/wallet/pay", d.handleWalletPay)
 	mux.HandleFunc("GET /api/devices", d.handleDevices)
 	mux.HandleFunc("POST /api/devices/{action}", d.handleDeviceAction)
 	mux.HandleFunc("GET /network", d.handleNetworkPage)
@@ -695,6 +707,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 	if st.PeersError == "" {
 		d.syncLists(ctx, mainList, st.Peers, st.AdminEntry != "")
 		d.syncNames(ctx, mainList)
+		d.syncWallet(ctx, mainList)
 	}
 	st.Accounts = accounts(mainList, st.Peers, d.cfg.SelfID)
 

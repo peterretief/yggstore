@@ -31,7 +31,7 @@ const maxAsks = 10
 
 // newDevicePages are what a device let in from the dashboard may open
 // until you tick more.
-var newDevicePages = []string{"files", "web", "messages", "mail"}
+var newDevicePages = []string{"files", "web", "messages", "mail", "wallet"}
 
 // hadDevice reports whether addr was on the list before (so allowing it
 // again, to rename it, keeps its pages).
@@ -150,7 +150,7 @@ func (d *Dashboard) handleDeviceAction(w http.ResponseWriter, r *http.Request) {
 			_, err = devices.SetPages(d.cfg.Devices.Path(), dev.Addr, newDevicePages)
 		}
 		if err == nil {
-			d.event("ok", fmt.Sprintf("%s (%s) may open your dashboard now: files, website, messages and mail", name, req.Addr))
+			d.event("ok", fmt.Sprintf("%s (%s) may open your dashboard now: every page but Admin", name, req.Addr))
 		}
 	case "pages":
 		if remoteIP(r) == strings.Trim(req.Addr, "[]") && !slices.Contains(req.Pages, "admin") {

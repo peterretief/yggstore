@@ -32,7 +32,7 @@ type Device struct {
 }
 
 // Pages are the dashboard's pages, each let in on its own.
-var Pages = []string{"files", "web", "messages", "mail", "admin"}
+var Pages = []string{"files", "web", "messages", "mail", "wallet", "admin"}
 
 // Can reports whether the device may open page.
 func (d Device) Can(page string) bool {

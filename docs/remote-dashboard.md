@@ -129,6 +129,7 @@ menu at the top goes from one to another, and the overview at
 | Website | `/web` | your name, address and website |
 | Messages | `/messages` | messages between the group's nodes |
 | Mail | `/mail` | your inbox, and writing mail |
+| Wallet | `/wallet` | your balance in yggs, paying other members, the group's balances ([ygg](ygg.md)) |
 | Admin | `/admin` | the group, its nodes and invites, people on the box, your devices, the network page, activity |
 
 Each device is let in to the pages ticked for it under **Your devices**,
@@ -147,7 +148,7 @@ in to it. The machine the dashboard runs on opens every page.
 On the command line:
 
 ```sh
-yggstore devices pages "anna's phone" mail,messages   # of files, web, messages, mail, admin
+yggstore devices pages "anna's phone" mail,messages   # of files, web, messages, mail, wallet, admin
 ```
 
 ## Your files

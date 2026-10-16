@@ -67,7 +67,7 @@ func namePair(t *testing.T, extra func(*Config)) (ctx context.Context, admin, me
 		id, _ := share.LoadOrCreate(filepath.Join(sub, "me.key"))
 		cfg := Config{PeersPath: peersPath, StubDir: sub, SelfID: ip, Listen: "127.0.0.1:7480", Identity: id,
 			MsgAPI: api.Listener.Addr().String(), MsgTokenPath: tokenPath, MailDir: filepath.Join(sub, "mail"),
-			NamesPath: filepath.Join(sub, "names.json")}
+			NamesPath: filepath.Join(sub, "names.json"), WalletDir: filepath.Join(sub, "ygg")}
 		if ip == "200::2" && extra != nil {
 			extra(&cfg)
 		}

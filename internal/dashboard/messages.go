@@ -52,11 +52,12 @@ func (d *Dashboard) handleMsgState(w http.ResponseWriter, r *http.Request) {
 		if st, err = l.Status(ctx); err == nil {
 			out.Status = &st
 			out.Messages, err = l.Latest(ctx, "", 50)
-			// Mail notices and name requests between nodes are for the
-			// nodes, not people.
+			// Mail notices, name requests and the wallet's messages
+			// between nodes are for the nodes, not people.
 			keep := []msg.Stored{}
 			for _, m := range out.Messages {
-				if m.Type != "mail" && m.Type != "mail-got" && m.Type != typeNameClaim && m.Type != typeNameAnswer {
+				if m.Type != "mail" && m.Type != "mail-got" && m.Type != typeNameClaim && m.Type != typeNameAnswer &&
+					!strings.HasPrefix(m.Type, "ygg-") {
 					keep = append(keep, m)
 				}
 			}

@@ -18,7 +18,7 @@ const devicesUsage = `yggstore devices: the devices that may open your dashboard
   yggstore devices remove ADDR|NAME    stop allowing it
   yggstore devices pages ADDR|NAME PAGE,PAGE...
                                        the dashboard pages it may open, of
-                                       files, web, messages, mail, admin
+                                       files, web, messages, mail, wallet, admin
 
 Run these on the machine the dashboard runs on; it must be started with
 -remote. A device that isn't allowed is shown its address when it opens the
