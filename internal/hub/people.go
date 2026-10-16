@@ -169,6 +169,7 @@ func (s *HubState) Suspend(person string, on bool) error {
 		s.DropInvite(s.People[i].Name)
 	}
 	s.People[i].Suspended = on
+	s.PruneSessions(time.Now())
 	return nil
 }
 
@@ -182,6 +183,7 @@ func (s *HubState) RemovePerson(person string) error {
 	p := &s.People[i]
 	p.Removed, p.FilesDevices, p.Passkeys = true, nil, nil
 	s.DropInvite(p.Name)
+	s.PruneSessions(time.Now()) // their web sign-ins end at once
 	for j := range s.Users {
 		if s.Users[j].Person == p.Name {
 			s.Users[j].Remove = true
