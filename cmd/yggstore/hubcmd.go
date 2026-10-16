@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/hub"
+	"github.com/peterretief/yggstore/internal/light"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
@@ -338,6 +340,7 @@ func cmdHubControl(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("hub", flag.ExitOnError)
 	statePath := fs.String("state", hubState(), "the hub's list of devices and its switches")
 	dir := fs.String("dir", hubDir(), "where the devices' folders and websites are kept")
+	peersPath := fs.String("peers", defaultPeers(), "peer list, for invite links")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, hubUsage) }
 	fs.Parse(reorder(args))
 	cmd := fs.Arg(0)
@@ -597,6 +600,19 @@ func cmdHubControl(ctx context.Context, args []string) error {
 				if ip, err := t.LocalIP(); err == nil {
 					addr = ip.String()
 				}
+			}
+			list, _ := peers.Load(*peersPath)
+			if domain := peers.GroupDomain(list); domain != "" {
+				box := name
+				for _, p := range list {
+					if p.IP() == addr {
+						box = p.Name
+						break
+					}
+				}
+				fmt.Printf("Send %s this link. It works once, for a week, in any browser:\n  https://%s.%s%s?box=%s&t=%s\n", name, light.Host, domain, hub.JoinPath, url.QueryEscape(box), token)
+				fmt.Printf("Or, on a device with Yggdrasil:\n  http://[%s]:7490%s?t=%s\n", addr, hub.JoinPath, token)
+				return nil
 			}
 			fmt.Printf("Send %s this link. It works once, for a week, on a device with Yggdrasil:\n  http://[%s]:7490%s?t=%s\n", name, addr, hub.JoinPath, token)
 			return nil

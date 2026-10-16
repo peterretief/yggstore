@@ -1504,11 +1504,16 @@ async function refreshPeople() {
       : f.confirmed ? `<div>wants their mail forwarded to <b>${esc(f.to)}</b> (they confirmed it's theirs)
         <button data-pact="forward-allow" data-name="${esc(p.name)}">Allow</button> <button class="del" data-pact="forward-stop" data-name="${esc(p.name)}">Refuse</button></div>`
       : "";
-    const link = peopleLink && peopleLink.name === p.name ? `<div style="margin-top:6px">Send ${esc(p.name)} this link. It works once, for a week, on a device with
-      <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noreferrer">Yggdrasil</a>:
-      <div class="mono" style="user-select:all;margin-top:4px">${esc(peopleLink.link)}</div></div>` : "";
+    const web = peopleLink && peopleLink.link !== peopleLink.ygg_link;
+    const link = peopleLink && peopleLink.name === p.name ? `<div style="margin-top:6px">Send ${esc(p.name)} this link. It works once, for a week,
+      ${web ? "in any browser: they make a passkey and their files open" : `on a device with <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noreferrer">Yggdrasil</a>`}:
+      <div class="mono" style="user-select:all;margin-top:4px">${esc(peopleLink.link)}</div>
+      ${web ? `<details><summary class="sub">Advanced: the link for a device with Yggdrasil</summary><div class="mono" style="user-select:all">${esc(peopleLink.ygg_link)}</div></details>` : ""}</div>` : "";
+    const webLine = p.removed ? "" : `<div class="sub">${p.web_off ? `web access off <button data-pact="web-on" data-name="${esc(p.name)}">Turn on</button>`
+      : `${p.passkeys.length ? `passkeys: ${p.passkeys.map(k => esc(k.name)).join(", ")} · ${p.sessions} signed in through the web` : "no passkey yet"}
+        <button class="del" data-pact="web-off" data-name="${esc(p.name)}">Turn web access off</button>`}</div>`;
     return `<tr><td><b>${esc(p.name)}</b> ${state}${p.invite_until && !p.removed ? `<div class="sub">invite works until ${esc(new Date(p.invite_until * 1000).toLocaleDateString())}</div>` : ""}
-        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${site}${fwd}${link}</td>
+        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${webLine}${site}${fwd}${link}</td>
       <td class="num">${size(p.bytes)}${p.quota ? ` of ${size(p.quota)}` : ""}${over ? ` <span class="pill bad">over</span>` : ""}<div class="sub">${p.files} files</div></td>
       <td class="sub">${p.devices.length ? "last on " + esc(when(last)) : ""}</td>
       <td class="actions">${acts}${p.removed ? "" : `<details style="margin-top:6px"><summary class="sub">Limits</summary>
@@ -1544,7 +1549,7 @@ $("people").addEventListener("click", async ev => {
   const r = await post("api/box/people/" + act, {body: JSON.stringify(body)});
   if (!r.ok) { $("peopleMsg").textContent = (await r.text()).trim(); return; }
   const out = await r.json().catch(() => ({}));
-  peopleLink = out.link ? {name: name, link: out.link} : peopleLink;
+  peopleLink = out.link ? {name: name, link: out.link, ygg_link: out.ygg_link} : peopleLink;
   if (document.activeElement) document.activeElement.blur();
   peopleKey = ""; refreshPeople();
 });

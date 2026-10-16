@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Sign in to your files</title>
+<style>
+:root { --bg: #f6f7f9; --panel: #fff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea; --info: #3b6fd8; --bad: #d64545; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111418; --panel: #1a1e24; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038; --info: #79a2f2; --bad: #f07070; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 440px; margin: 0 auto; padding: 56px 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+p { margin: 8px 0; }
+.sub { color: var(--muted); font-size: 14px; }
+button { font: inherit; font-weight: 600; width: 100%; padding: 12px; margin-top: 16px; border-radius: 8px; border: 0; background: var(--info); color: #fff; cursor: pointer; }
+button:disabled { opacity: .6; }
+#msg { min-height: 1.5em; margin-top: 12px; color: var(--bad); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Your files</h1>
+    <p class="sub">Sign in with the passkey you made on this phone or computer: your fingerprint, face or screen lock. There's no password.</p>
+    <button id="go">Sign in</button>
+    <div id="msg" role="status"></div>
+  </div>
+  <p class="sub" style="margin-top:16px">First time? Open the invite link the box's owner sent you. Lost your passkey? Ask them for a new invite.</p>
+</main>
+<script>
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const unb64 = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+const base = "/files/light";
+async function signIn() {
+  const msg = document.getElementById("msg"), go = document.getElementById("go");
+  if (!window.PublicKeyCredential) { msg.textContent = "This browser can't use passkeys. Try an up-to-date Chrome, Safari, Edge or Firefox."; return; }
+  go.disabled = true; msg.textContent = "";
+  try {
+    const ch = await (await fetch(base + "/challenge", {cache: "no-store"})).json();
+    const cred = await navigator.credentials.get({publicKey: {challenge: unb64(ch.challenge), rpId: ch.rp, userVerification: "preferred", timeout: 120000}});
+    const r = await fetch(base + "/signin", {method: "POST", headers: {"Content-Type": "application/json", "X-Yggstore": "1"}, body: JSON.stringify({
+      challenge: ch.challenge, id: cred.id, client_data: b64(cred.response.clientDataJSON), auth_data: b64(cred.response.authenticatorData),
+      signature: b64(cred.response.signature), user_handle: cred.response.userHandle ? b64(cred.response.userHandle) : ""})});
+    if (!r.ok) throw new Error((await r.text()).trim() || "not signed in (" + r.status + ")");
+    location.href = "/files";
+  } catch (e) {
+    msg.textContent = e.name === "NotAllowedError" ? "Signing in was cancelled, or this device has no passkey for your files." : e.message;
+  }
+  go.disabled = false;
+}
+document.getElementById("go").addEventListener("click", signIn);
+</script>
+</body>
+</html>

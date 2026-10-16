@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/hub"
+	"github.com/peterretief/yggstore/internal/light"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -45,6 +47,16 @@ type boxPerson struct {
 	Asked    string  `json:"asked,omitempty"`
 	Declined string  `json:"declined,omitempty"`
 	Forward  *boxFwd `json:"forward,omitempty"`
+	// Through the web (see hub/light.go): their passkeys, the browsers
+	// signed in, and whether the admin turned web access off.
+	Passkeys []boxKey `json:"passkeys"`
+	Sessions int      `json:"sessions"`
+	WebOff   bool     `json:"web_off,omitempty"`
+}
+
+type boxKey struct {
+	Name string `json:"name"`
+	Used int64  `json:"used,omitempty"`
 }
 
 type boxFwd struct {
@@ -81,6 +93,17 @@ func (d *Dashboard) onBox() bool {
 	}
 	_, err := os.Stat(d.cfg.HubState)
 	return err == nil
+}
+
+// webInvite is an invite link that opens in any browser, through the
+// group's web nodes (see hub/light.go), or "" if the group has no domain.
+func (d *Dashboard) webInvite(token string) string {
+	list, _ := peers.Load(d.cfg.PeersPath)
+	box, ok := selfEntry(list, d.cfg.SelfID)
+	if domain := peers.GroupDomain(list); domain != "" && ok {
+		return "https://" + light.Host + "." + domain + hub.JoinPath + "?box=" + url.QueryEscape(box.Name) + "&t=" + url.QueryEscape(token)
+	}
+	return ""
 }
 
 // boxURL is where the box's people open their files, over Yggdrasil.
@@ -133,6 +156,11 @@ func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {
 		if f := p.Forward; f != nil {
 			bp.Forward = &boxFwd{To: f.To, Confirmed: f.Confirmed, Allowed: f.Allowed}
 		}
+		bp.Passkeys, bp.WebOff = []boxKey{}, p.WebOff
+		for _, k := range p.Passkeys {
+			bp.Passkeys = append(bp.Passkeys, boxKey{Name: k.Name, Used: k.Used})
+		}
+		bp.Sessions = len(st.SessionsOf(p.Name))
 		people = append(people, bp)
 	}
 	out["people"], out["files_at"], out["domain"] = people, d.boxURL()+hub.FilesPath, peers.GroupDomain(list)
@@ -206,6 +234,20 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 			on := action == "forward-allow"
 			done = req.Name + map[bool]string{true: "'s mail is forwarded now", false: "'s mail isn't forwarded any more"}[on]
 			return s.AllowForward(req.Name, on)
+		case "web-on", "web-off":
+			i := -1
+			for j, p := range s.People {
+				if strings.EqualFold(p.Name, req.Name) {
+					i = j
+				}
+			}
+			if i < 0 {
+				return fmt.Errorf("nobody called %q on this box", req.Name)
+			}
+			s.People[i].WebOff = action == "web-off"
+			s.PruneSessions(time.Now())
+			done = req.Name + map[bool]string{true: " can't open their files through the web now", false: " can open their files through the web again"}[s.People[i].WebOff]
+			return nil
 		case "device-remove":
 			who, dev, err := s.LetOut(req.Name, req.Addr)
 			done = fmt.Sprintf("%s can't open %s's files any more", dev.Name, who)
@@ -220,7 +262,10 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 	d.event("ok", "box: "+done)
 	out := map[string]string{}
 	if token != "" {
-		out["link"] = d.boxURL() + hub.JoinPath + "?t=" + token
+		out["link"], out["ygg_link"] = d.webInvite(token), d.boxURL()+hub.JoinPath+"?t="+token
+		if out["link"] == "" {
+			out["link"] = out["ygg_link"]
+		}
 	}
 	writeJSONResp(w, out)
 }

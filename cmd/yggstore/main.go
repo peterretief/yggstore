@@ -24,6 +24,7 @@ import (
 	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/files"
 	"github.com/peterretief/yggstore/internal/invite"
+	"github.com/peterretief/yggstore/internal/light"
 	"github.com/peterretief/yggstore/internal/localstore"
 	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/mailbridge"
@@ -382,7 +383,8 @@ func cmdServe(ctx context.Context, args []string) error {
 				return relay.SendOwn(ctx, mail.Draft{From: "yggstore@" + domain, Name: "yggstore", To: to, Subject: subject, Text: text})
 			}
 		}
-		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work}
+		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work,
+			Light: &light.Relay{Peers: live.List, Log: log.Printf}}
 		if mailNode.Token != "" {
 			web.Mail = mailNode
 		}

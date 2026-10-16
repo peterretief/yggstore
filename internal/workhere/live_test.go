@@ -199,3 +199,54 @@ func TestLive(t *testing.T) {
 		t.Fatalf("a change while another place has the files: %d", code)
 	}
 }
+
+// Through the web a big file comes in parts, appended in turn and put in
+// place with the last.
+func TestLiveParts(t *testing.T) {
+	out := t.TempDir()
+	os.MkdirAll(filepath.Join(out, "files"), 0o755)
+	var room []int64
+	l := &Live{Outbox: out, Client: client.New(), Room: func(n int64) error { room = append(room, n); return nil }}
+	put := func(body, part string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "/files?op=put", strings.NewReader(body))
+		r.Header.Set("X-Name", "video.mp4")
+		r.Header.Set("X-Part", part)
+		l.ServeHTTP(w, r)
+		return w
+	}
+	id := strings.Repeat("ab", 16)
+	dest := filepath.Join(out, "files", "video.mp4")
+	if w := put("aaaa", id+" 0 3 0 10"); w.Code != 200 || !strings.Contains(w.Body.String(), `"part":0`) {
+		t.Fatalf("part 0: %d %s", w.Code, w.Body)
+	}
+	if len(room) != 1 || room[0] != 10 {
+		t.Fatalf("room asked for %v, want the whole size once", room)
+	}
+	if _, err := os.Stat(dest); err == nil {
+		t.Fatal("the file is in place before its last part")
+	}
+	if w := put("cc", id+" 2 3 8 10"); w.Code != http.StatusConflict {
+		t.Fatalf("a part out of order: %d", w.Code)
+	}
+	if w := put("bbbb", id+" 1 3 4 10"); w.Code != 200 {
+		t.Fatalf("part 1: %d %s", w.Code, w.Body)
+	}
+	if w := put("bbbb", id+" 1 3 4 10"); w.Code != 200 {
+		t.Fatalf("part 1 again (its answer lost): %d %s", w.Code, w.Body)
+	}
+	if w := put("cc", id+" 2 3 8 10"); w.Code != 200 || !strings.Contains(w.Body.String(), "video.mp4") {
+		t.Fatalf("last part: %d %s", w.Code, w.Body)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "aaaabbbbcc" {
+		t.Fatalf("the file is %q", b)
+	}
+	if left, _ := filepath.Glob(filepath.Join(out, "files", ".uploading-*")); len(left) != 0 {
+		t.Fatalf("left behind: %v", left)
+	}
+	for _, bad := range []string{"nothex 0 1 0 1", id + " 3 3 0 1", id + " 0 0 0 1", id + " x"} {
+		if w := put("x", bad); w.Code != 400 {
+			t.Errorf("X-Part %q: %d", bad, w.Code)
+		}
+	}
+}

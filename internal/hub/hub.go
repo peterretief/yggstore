@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/client"
+	"github.com/peterretief/yggstore/internal/light"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -107,6 +108,7 @@ type State struct {
 	Sync     *Status    `json:"sync,omitempty"`     // pairing through Syncthing
 	LAN      []string   `json:"lan"`                // this box's addresses on the LAN
 	FilesAt  string     `json:"files_at,omitempty"` // where people open their files: the box's name, or its Yggdrasil address
+	WebAt    string     `json:"web_at,omitempty"`   // where light clients sign in, in any browser (see light.go)
 }
 
 // check asks every node in the group whether it is up, at most every few
@@ -132,6 +134,9 @@ func (h *Hub) check(ctx context.Context) State {
 		if !os.IsNotExist(err) {
 			st.Problem = "This box's member list can't be read: " + err.Error()
 		}
+	}
+	if d := peers.GroupDomain(list); d != "" && st.FilesAt != "" {
+		st.WebAt = "https://" + light.Host + "." + d
 	}
 	if name := peers.YggName(list, h.cfg.SelfAddr); st.FilesAt != "" && h.names.Points(name, h.cfg.SelfAddr) {
 		st.FilesAt = name // links by name survive email and chat

@@ -40,6 +40,9 @@ type Web struct {
 	// site served here (WorkPath; see package workhere).
 	Work http.Handler
 	Mail http.Handler
+	// Light, if set, serves my. and the group's domain: light clients'
+	// requests, relayed to their boxes (see package light).
+	Light http.Handler
 	// Deliver, if set, takes sites' contact forms: it stores a sealed
 	// message for a member's node to collect (mail.Node.Take).
 	Deliver func(ctx context.Context, node string, sealed []byte) (string, error)
@@ -344,6 +347,12 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		rw.Write([]byte("ok\n"))
 		return
 	}
+	if w.Light != nil {
+		if d := peers.GroupDomain(w.Peers()); d != "" && host == LightPrefix+d {
+			w.Light.ServeHTTP(rw, r)
+			return
+		}
+	}
 	if w.Mail != nil && (r.URL.Path == mail.IngestPath || r.URL.Path == mail.MailboxPath) {
 		w.Mail.ServeHTTP(rw, r)
 		return
@@ -378,6 +387,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	rw.Header().Set("Cache-Control", "public, max-age=300")
 	serveStatic(rw, r, root)
 }
+
+// LightPrefix is the label light clients' address takes under the group's
+// domain (package light's Host, and a dot).
+const LightPrefix = "my."
 
 // WorkPath is where a recovery link opens (package workhere's PagePath).
 const WorkPath = "/_yggstore/work"

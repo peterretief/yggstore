@@ -15,8 +15,8 @@ import (
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/devices"
+	"github.com/peterretief/yggstore/internal/passkey"
 	"github.com/peterretief/yggstore/internal/peers"
-	"github.com/peterretief/yggstore/internal/workhere"
 )
 
 // Each person on the box opens their own files in the browser, from their
@@ -181,6 +181,10 @@ type filesPage struct {
 	nameMu sync.Mutex
 	name   string // the box's name for self (see peers.YggNames)
 	nameAt time.Time
+	web    map[string]bool // the group's web nodes' addresses, for light clients (light.go)
+	webAt  time.Time
+
+	challenges passkey.Challenges
 
 	mu     sync.Mutex
 	seenAt map[string]time.Time // per device, when last written down
@@ -346,6 +350,10 @@ func (f *filesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the box only answers to its own address", http.StatusForbidden)
 		return
 	}
+	if f.relayed(r.Context(), r, remote) {
+		f.serveLight(w, r) // a light client, through a web node
+		return
+	}
 	st, err := Load(f.u.cfg.StatePath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -380,26 +388,11 @@ func (f *filesPage) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.seen(r, p.Name, remote)
-	switch r.URL.Path {
-	case FilesPath:
-		name := p.Name
-		live := &workhere.Live{Outbox: p.Path, Client: f.client, Holding: func() bool { return f.u.Holding(name) },
-			Devices: FilesPath + "/devices", Room: func(size int64) error { return f.room(p, size) }}
-		if f.u.cfg.People != nil {
-			live.Site = SitePath
-		}
-		live.ServeHTTP(w, r)
-	case FilesPath + "/devices":
+	if r.URL.Path == FilesPath+"/devices" {
 		f.devices(w, r, p, remote)
-	case SitePath:
-		if f.u.cfg.People == nil {
-			http.NotFound(w, r)
-			return
-		}
-		f.site(w, r, p)
-	default:
-		http.NotFound(w, r)
+		return
 	}
+	f.serveAs(w, r, p)
 }
 
 func (f *filesPage) ask(w http.ResponseWriter, r *http.Request, remote string) {

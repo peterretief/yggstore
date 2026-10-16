@@ -242,6 +242,26 @@ async function inParts(f, dir, replace, headers, progress) {
     throw e;
   }
 }
+// Through the web (https, by way of Cloudflare, which refuses a request
+// over 100 MB) the box's own page sends a big file in parts too, which the
+// box appends in turn and puts in place with the last.
+async function liveParts(f, headers, progress) {
+  const upload = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, "0")).join("");
+  const n = Math.ceil(f.size / PART);
+  for (let i = 0; i < n; i++) {
+    progress(Math.floor(i * 100 / n));
+    for (let tries = 1; ; tries++) {
+      try {
+        await send("put", f.slice(i * PART, (i + 1) * PART), {...headers, "X-Part": `${upload} ${i} ${n} ${i * PART} ${f.size}`});
+        break;
+      } catch (e) {
+        if (tries >= 4 || (e.status >= 400 && e.status < 500)) throw e;
+        await new Promise(ok => setTimeout(ok, tries * 5000));
+      }
+    }
+  }
+  progress(100);
+}
 // picked: [{file, rel}], rel being its path in what was picked ("a.txt",
 // or "Trip/day 1/a.txt" for a folder's file).
 async function upload(picked) {
@@ -271,7 +291,9 @@ async function upload(picked) {
     const dir = join(here, sub);
     const headers = {...H, "X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(dir), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"};
     try {
-      if (!live && f.size > PART) await inParts(f, dir, replace, headers, pct => $("upMsg").textContent = `Uploading ${p.rel}${of}: ${pct}%`);
+      const pct = n => $("upMsg").textContent = `Uploading ${p.rel}${of}: ${n}%`;
+      if (!live && f.size > PART) await inParts(f, dir, replace, headers, pct);
+      else if (live && f.size > PART && location.protocol === "https:") await liveParts(f, headers, pct);
       else await send("put", f, headers);
     } catch (e) { failed.push(p.rel + ": " + e.message); }
   }

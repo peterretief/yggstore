@@ -1,6 +1,6 @@
 # Light clients: people on a box, through the web
 
-Status: approved 2026-10-16; being built.
+Status: approved 2026-10-16. Steps 1 to 4 are built; writing mail (5) and the later steps are not.
 
 Most people on a box are **light clients**: they want files, a website and
 email, and nothing to install. Everything they do goes through their box,
@@ -48,8 +48,9 @@ flowchart LR
   box over Yggdrasil, and the answer back. It keeps nothing.
 - **The box does the signing in.** It keeps each person's passkeys (only
   the public half, in its state file), checks each sign-in, and gives the
-  browser a session cookie (`Secure`, `HttpOnly`, `SameSite=Strict`), good
-  for 30 days of use. The person sees their signed-in browsers under **Your
+  browser a session cookie (`Secure`, `HttpOnly`, `SameSite=Lax`, so the
+  link in an email still opens signed in; every action also needs a
+  header other sites can't send), good for 30 days of use. The person sees their signed-in browsers under **Your
   devices**, beside their Yggdrasil devices, and can sign any of them out.
 - **Which box:** the invite link names the box. The passkey carries the box
   and the person in its user handle, which the browser sends back when
@@ -107,7 +108,28 @@ On each person's row under People on this box:
   (Cloudflare's DNS makes that possible), so traffic at home stays at
   home.
 
-## Build order, once approved
+## How it's built
+
+- `internal/passkey`: checking passkeys with the standard library only.
+  The browser gives the public key in the usual form
+  (`getPublicKey()`), so no CBOR is needed; attestation isn't checked,
+  since only an invite can make a passkey. Challenges carry their time, so
+  a web node can make one a box will take, each good once for 5 minutes.
+- `internal/light`: the web node's relay (`Relay`, serving `my.` and the
+  domain for `site.Web`), and the sign-in and invite pages. A passkey's
+  user handle is the box's name and the person's, which is how a web node
+  routes a sign-in from a browser it hasn't seen.
+- `internal/hub/light.go`: on the box, requests with `X-Yggstore-Relay`
+  from one of the group's web nodes (by Yggdrasil address) are light
+  clients': `/files/join` makes a passkey with an invite, `/files/light/…`
+  signs in and out, and a session opens the same files page. Passkeys and
+  sessions are kept in the hub's state file.
+- Big uploads go in 32 MB parts (`X-Part`) when the page is on `https`.
+- For withcare.co.za, the domain's wildcard record already sends
+  `my.withcare.co.za` through the tunnel to the web nodes. A group without
+  one needs a record and tunnel route for `my.` added, as for a site.
+
+## Build order
 
 1. **The relay:** web nodes serve `my.` the group's domain and pass
    requests to a box over Yggdrasil. The box accepts relayed requests from

@@ -72,6 +72,18 @@ b.ui { font-weight: 600; background: var(--empty); padding: 0 5px; border-radius
 
   <h2>Your files</h2>
 
+  <div class="card" id="webCard" hidden>
+    <ol>
+      <li>Open the invite link the box's owner sent you, in any browser on your phone or computer. Nothing to install.</li>
+      <li>Make a <b>passkey</b> when it asks: your fingerprint, face or screen lock. There's no password.</li>
+      <li>From then on, open your files here, from home, work or anywhere: browse, download, upload, rename and delete,
+        and your website and messages if you have them.
+        <div class="copyrow"><pre id="webURL"></pre><button data-copy="webURL">Copy</button></div>
+        <p><a id="webLink" href="#" target="_blank" rel="noopener"><b>Open my files</b></a></p></li>
+    </ol>
+    <p class="note">Each person sees only their own files. They're stored encrypted on the group's machines; on the way, what you open or upload
+      passes through Cloudflare and one of the group's web nodes. For a direct route, see Yggdrasil under Advanced.</p>
+  </div>
   <div class="card" id="filesCard" hidden>
     <ol>
       <li>Install <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noopener">Yggdrasil</a> on your laptop or phone, once. It is how the box knows the device is yours, wherever it is.</li>
@@ -86,8 +98,10 @@ b.ui { font-weight: 600; background: var(--empty); padding: 0 5px; border-radius
     <p>Opening your files in the browser isn't switched on for this box: ask its owner. Until then, you can keep a folder in step with it through Syncthing (under <b>Advanced</b> below).</p>
   </div>
 
-  <details class="os adv" id="advanced" style="margin-top:16px"><summary>Advanced: keep a folder on your device in step with the box, with Syncthing
+  <details class="os adv" id="advanced" style="margin-top:16px"><summary>Advanced: directly over Yggdrasil, or a folder kept in step with Syncthing
       <span class="sub">(for working without a browser, or offline)</span></summary>
+    <div id="yggWrap" hidden><h3 style="font-size:15px;margin:8px 0">Directly, over Yggdrasil</h3><div id="yggSlot"></div></div>
+    <h3 style="font-size:15px;margin:16px 0 8px">Keeping a folder in step, with Syncthing</h3>
     <p>Syncthing is a free program that keeps a folder on your device the same as your folder on the box, so you work on your files with your own programs. It takes more setting up than the browser.</p>
     <div class="row" id="syncstate"></div>
 
@@ -242,6 +256,14 @@ async function refresh() {
   document.querySelectorAll('.boxname2').forEach(e => e.textContent = host);
   $('staddr').textContent = (st.lan || []).map(ip => 'tcp://' + (ip.includes(':') ? '[' + ip + ']' : ip) + ':22000').concat(['dynamic']).join(', ');
   showSync(st.sync);
+  // In any browser first; Yggdrasil, if the group has a web address, goes
+  // under Advanced.
+  $('webCard').hidden = !st.web_at;
+  if (st.web_at) {
+    $('webURL').textContent = st.web_at; $('webLink').href = st.web_at;
+    if ($('filesCard').parentNode !== $('yggSlot')) $('yggSlot').appendChild($('filesCard'));
+    $('yggWrap').hidden = !st.files_at;
+  }
   $('filesCard').hidden = !st.files_at;
   $('noFiles').hidden = !!st.files_at;
   if (st.files_at) {

@@ -180,7 +180,7 @@ func (s *HubState) RemovePerson(person string) error {
 		return fmt.Errorf("nobody called %q on this box", person)
 	}
 	p := &s.People[i]
-	p.Removed, p.FilesDevices = true, nil
+	p.Removed, p.FilesDevices, p.Passkeys = true, nil, nil
 	s.DropInvite(p.Name)
 	for j := range s.Users {
 		if s.Users[j].Person == p.Name {

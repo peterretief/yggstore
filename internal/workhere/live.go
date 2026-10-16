@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"io"
 	"mime"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/files"
@@ -294,8 +296,19 @@ func (l *Live) put(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if l.Room != nil {
-		if err := l.Room(r.ContentLength); err != nil {
+	// Through the web a file comes in parts (see livePart), each appended
+	// in turn; it's only put in place with the last.
+	part, err := livePart(r)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if l.Room != nil && part.first() {
+		size := r.ContentLength
+		if part.on {
+			size = part.size
+		}
+		if err := l.Room(size); err != nil {
 			jsonError(w, http.StatusRequestEntityTooLarge, err.Error())
 			return
 		}
@@ -307,8 +320,37 @@ func (l *Live) put(w http.ResponseWriter, r *http.Request) {
 	// Written beside it under a name the outbox ignores, then moved in
 	// whole, so it isn't stored half written.
 	tmp := filepath.Join(filepath.Dir(dest), ".uploading-"+newEntryID())
-	f, err := os.Create(tmp)
+	if part.on {
+		tmp = filepath.Join(filepath.Dir(dest), ".uploading-"+part.id)
+		if part.first() {
+			dropStaleUploads(filepath.Dir(dest))
+		}
+	}
+	var f *os.File
+	if !part.on || part.first() {
+		f, err = os.Create(tmp)
+	} else {
+		f, err = os.OpenFile(tmp, os.O_WRONLY, 0)
+		if err == nil {
+			var st os.FileInfo
+			if st, err = f.Stat(); err == nil && st.Size() == part.offset+r.ContentLength && r.ContentLength > 0 {
+				// This part came already; its answer was lost.
+				f.Close()
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]int64{"part": part.i})
+				return
+			} else if err == nil && st.Size() != part.offset {
+				f.Close()
+				jsonError(w, http.StatusConflict, "The upload's parts came out of order: start it again.")
+				return
+			}
+			_, err = f.Seek(part.offset, io.SeekStart)
+		}
+	}
 	if err != nil {
+		if f != nil {
+			f.Close()
+		}
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -319,6 +361,11 @@ func (l *Live) put(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		os.Remove(tmp)
 		jsonError(w, http.StatusBadRequest, "The upload stopped: "+err.Error())
+		return
+	}
+	if part.on && !part.last() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int64{"part": part.i})
 		return
 	}
 	if r.Header.Get("X-Replace") != "1" {
@@ -403,3 +450,43 @@ func (l *Live) change(w http.ResponseWriter, r *http.Request) {
 }
 
 func urlUnescape(s string) (string, error) { return url.PathUnescape(s) }
+
+// uploadPart is one part of a file sent in parts: X-Part is "ID I N
+// OFFSET SIZE", the upload's ID (hex), this part's number from 0 of N, where
+// it starts, and the whole file's size. Through Cloudflare a request may
+// carry at most 100 MB, so the page sends a big file this way.
+type uploadPart struct {
+	on           bool
+	id           string
+	i, n         int64
+	offset, size int64
+}
+
+func (p uploadPart) first() bool { return !p.on || p.i == 0 }
+func (p uploadPart) last() bool  { return !p.on || p.i == p.n-1 }
+
+func livePart(r *http.Request) (uploadPart, error) {
+	h := r.Header.Get("X-Part")
+	if h == "" {
+		return uploadPart{}, nil
+	}
+	p := uploadPart{on: true}
+	if _, err := fmt.Sscanf(h, "%s %d %d %d %d", &p.id, &p.i, &p.n, &p.offset, &p.size); err != nil ||
+		!validUpload.MatchString(p.id) || p.n < 1 || p.i < 0 || p.i >= p.n || p.offset < 0 || p.size < 0 {
+		return uploadPart{}, errors.New("bad X-Part")
+	}
+	return p, nil
+}
+
+// dropStaleUploads removes parts of uploads left unfinished for a day.
+func dropStaleUploads(dir string) {
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if !strings.HasPrefix(e.Name(), ".uploading-") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > 24*time.Hour {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+}

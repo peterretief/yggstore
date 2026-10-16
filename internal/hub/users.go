@@ -67,6 +67,10 @@ type Person struct {
 	// personsite.go). Forward is where they asked for that mail to go too.
 	Code    string   `json:"code,omitempty"`
 	Forward *Forward `json:"forward,omitempty"`
+	// Passkeys sign them in through the web, as a light client (see
+	// light.go); WebOff is the box's admin turning that off for them.
+	Passkeys []Passkey `json:"passkeys,omitempty"`
+	WebOff   bool      `json:"web_off,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.
@@ -88,6 +92,8 @@ type HubState struct {
 	Asks []DeviceAsk `json:"asks,omitempty"`
 	// Invites are the admin's links that let a person's first device in.
 	Invites []Invite `json:"invites,omitempty"`
+	// Sessions are browsers signed in through the web (light.go).
+	Sessions []Session `json:"sessions,omitempty"`
 }
 
 // Team is a folder several people work in, on this box: every device of
