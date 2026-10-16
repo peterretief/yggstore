@@ -27,8 +27,9 @@ import (
 // Passkey is one of a person's passkeys.
 type Passkey struct {
 	passkey.Key
-	RP    string `json:"rp,omitempty"` // the address it signs in at
-	Name  string `json:"name"`         // the device, as they named it
+	RP    string `json:"rp,omitempty"`   // the address it signs in at
+	Kind  string `json:"kind,omitempty"` // "" for a passkey, KindBrowser for a key kept by a browser
+	Name  string `json:"name"`           // the device, as they named it
 	Added int64  `json:"added"`
 	Used  int64  `json:"used,omitempty"`
 	Count uint32 `json:"count,omitempty"`
@@ -43,6 +44,11 @@ type Session struct {
 	Started int64  `json:"started"`
 	Used    int64  `json:"used"`
 }
+
+// KindBrowser marks a key a browser keeps (see passkey.VerifyBrowser), for
+// a device that can't make a passkey, such as a phone without a screen
+// lock.
+const KindBrowser = "browser"
 
 // SessionFor is how long a session lasts unused.
 const SessionFor = 30 * 24 * time.Hour
@@ -231,6 +237,7 @@ func jsonOK(w http.ResponseWriter, v any) {
 }
 
 type passkeyReq struct {
+	Kind       string `json:"kind"` // "" or KindBrowser
 	T          string `json:"t"`
 	Name       string `json:"name"`
 	Challenge  string `json:"challenge"`
@@ -349,7 +356,8 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 	}
 	dec := func(s string) []byte { b, _ := passkey.B64.DecodeString(s); return b }
 	clientData := dec(req.ClientData)
-	if passkey.ChallengeOf(clientData) != req.Challenge {
+	browser := req.Kind == KindBrowser
+	if !browser && passkey.ChallengeOf(clientData) != req.Challenge {
 		http.Error(w, "the challenge doesn't match", http.StatusBadRequest)
 		return
 	}
@@ -361,7 +369,17 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 	var who, device, token string
 	_, err := Update(r.Context(), f.u.cfg.StatePath, func(s *HubState) error {
 		if register {
-			k, err := passkey.Register(clientData, dec(req.AuthData), dec(req.SPKI), req.Alg, req.ID, req.Challenge, origin, rp)
+			var k passkey.Key
+			var err error
+			if browser {
+				if len(req.ID) < 16 || len(req.ID) > 64 {
+					return errors.New("the browser key has no proper ID")
+				}
+				err = passkey.VerifyBrowser(dec(req.SPKI), origin, req.Challenge, dec(req.Signature))
+				k = passkey.Key{ID: req.ID, SPKI: dec(req.SPKI), Alg: passkey.ES256}
+			} else {
+				k, err = passkey.Register(clientData, dec(req.AuthData), dec(req.SPKI), req.Alg, req.ID, req.Challenge, origin, rp)
+			}
 			if err != nil {
 				return err
 			}
@@ -375,7 +393,11 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 			if p, err := s.CheckInvite(req.T, now); err == nil && only != "" && !strings.EqualFold(p.Name, only) {
 				return errors.New("This invite is for someone else, not for " + rp + ".")
 			}
-			p, err := s.UseInviteWeb(req.T, Passkey{Key: k, RP: rp, Name: device}, now)
+			kind := ""
+			if browser {
+				kind = KindBrowser
+			}
+			p, err := s.UseInviteWeb(req.T, Passkey{Key: k, RP: rp, Kind: kind, Name: device}, now)
 			if err != nil {
 				return err
 			}
@@ -386,7 +408,19 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 				return errors.New("This passkey isn't one this box knows. Use the one you made with your invite, or ask the box's owner for a new invite.")
 			}
 			pk := &s.People[i].Passkeys[j]
-			count, err := pk.Verify(clientData, dec(req.AuthData), dec(req.Signature), req.Challenge, origin, rp)
+			if browser != (pk.Kind == KindBrowser) {
+				return errors.New("That key isn't the kind it says it is.")
+			}
+			var count uint32
+			var err error
+			if browser {
+				if pk.RP != "" && !strings.EqualFold(pk.RP, rp) {
+					return errors.New("This browser's key is for " + pk.RP + ".")
+				}
+				err = passkey.VerifyBrowser(pk.SPKI, origin, req.Challenge, dec(req.Signature))
+			} else {
+				count, err = pk.Verify(clientData, dec(req.AuthData), dec(req.Signature), req.Challenge, origin, rp)
+			}
 			if err != nil {
 				return err
 			}
@@ -412,6 +446,9 @@ func (f *filesPage) passkeyIn(w http.ResponseWriter, r *http.Request, rp, only, 
 	verb := "signed in"
 	if register {
 		verb = "made a passkey"
+		if browser {
+			verb = "made a browser key"
+		}
 	}
 	f.u.cfg.Logf("hub: %s %s through the web (%s, from %s)", who, verb, device, r.Header.Get("X-Forwarded-For"))
 	http.SetCookie(w, sessionCookie(token, int(SessionFor.Seconds())))
@@ -492,7 +529,7 @@ const when = t => t ? new Date(t * 1000).toLocaleString() : "never";
 const post = u => fetch(u, {method: "POST", headers: {"X-Yggstore": "1"}});
 async function load() {
   const d = await (await fetch("?op=list", {cache: "no-store"})).json();
-  document.getElementById("keys").innerHTML = d.passkeys.map(k => "<li><b>" + esc(k.name) + "</b>, made " + when(k.added) + ", last used " + when(k.used) +
+  document.getElementById("keys").innerHTML = d.passkeys.map(k => "<li><b>" + esc(k.name) + "</b>" + (k.kind === "browser" ? " (kept by that browser)" : "") + ", made " + when(k.added) + ", last used " + when(k.used) +
     (d.passkeys.length > 1 ? " <button data-forget='" + esc(k.id) + "'>Forget</button>" : "") + "</li>").join("");
   document.getElementById("sessions").innerHTML = d.sessions.map(s => "<li><b>" + esc(s.device) + "</b>" + (s.me ? " (this browser)" : "") +
     ", since " + when(s.started) + ", last used " + when(s.used) + " <button data-out='" + esc(s.hash) + "'>Sign out</button></li>").join("") || "<li>None</li>";

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 )
@@ -236,5 +237,39 @@ func (cs *Challenges) Use(c string, now time.Time) error {
 		return errors.New("the challenge was used already: try again")
 	}
 	cs.used[c] = now
+	return nil
+}
+
+// A browser key is the fallback for a device that can't make a passkey,
+// such as a phone without a screen lock: an ECDSA P-256 key the page makes
+// with WebCrypto and keeps in the browser (IndexedDB), where it can't be
+// copied out. It proves who someone is only by being in that browser: no
+// lock guards it.
+
+// BrowserMessage is what a browser key signs: the address it is used at
+// and the challenge, so a signature can't be used anywhere else.
+func BrowserMessage(origin, challenge string) []byte {
+	return []byte("yggstore browser key\n" + origin + "\n" + challenge)
+}
+
+// VerifyBrowser checks a browser key's signature (WebCrypto's form: r and
+// s, 32 bytes each) of BrowserMessage.
+func VerifyBrowser(spki []byte, origin, challenge string, sig []byte) error {
+	pub, err := x509.ParsePKIXPublicKey(spki)
+	if err != nil {
+		return fmt.Errorf("the browser key: %w", err)
+	}
+	pk, ok := pub.(*ecdsa.PublicKey)
+	if !ok || pk.Curve.Params().Name != "P-256" {
+		return errors.New("a browser key must be ECDSA P-256")
+	}
+	if len(sig) != 64 {
+		return errors.New("the browser key's signature is the wrong size")
+	}
+	h := sha256.Sum256(BrowserMessage(origin, challenge))
+	r, s := new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])
+	if !ecdsa.Verify(pk, h[:], r, s) {
+		return errors.New("the browser key's signature doesn't match")
+	}
 	return nil
 }

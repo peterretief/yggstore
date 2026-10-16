@@ -345,3 +345,88 @@ func TestLightOwnAddress(t *testing.T) {
 		t.Fatal("her passkey signed in at the shared address")
 	}
 }
+
+// A device that can't make a passkey keeps a key in the browser instead.
+func TestLightBrowserKey(t *testing.T) {
+	u, _, dir := setupUsers(t, 0)
+	statePath := filepath.Join(dir, "hub.json")
+	ctx := context.Background()
+	peersPath := filepath.Join(dir, "peers.json")
+	peers.Write(peersPath, []peers.Peer{
+		{Name: "desktop", Addr: "[" + webYgg + "]:7400", Admin: true, Domain: "example.org"},
+		{Name: "box", Addr: "[" + boxYgg + "]:7400"},
+	})
+	u.cfg.PeersPath = peersPath
+	u.cfg.WebNodes = func(context.Context) []string { return []string{"[" + webYgg + "]:7400"} }
+	var token string
+	Update(ctx, statePath, func(s *HubState) error {
+		s.AddPerson("kath", u.cfg.Dir)
+		token, _ = s.Invite("kath", time.Now())
+		return nil
+	})
+	h := (&Hub{cfg: Config{Files: u.FilesHandler(boxYgg)}}).Handler()
+	cookie := ""
+	do := func(path, body string) *httptest.ResponseRecorder {
+		hdr := map[string]string{"X-Yggstore": "1", light.RelayHeader: "1", "X-Forwarded-Host": rpHost}
+		if cookie != "" {
+			hdr["Cookie"] = light.SessionCookie + "=" + cookie
+		}
+		rec := filesReq(h, "POST", path, webYgg, body, hdr)
+		for _, c := range rec.Result().Cookies() {
+			if c.Name == light.SessionCookie {
+				cookie = c.Value
+			}
+		}
+		return rec
+	}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	sign := func(ch string) string {
+		hh := sha256.Sum256(passkey.BrowserMessage("https://"+rpHost, ch))
+		r, s, _ := ecdsa.Sign(rand.Reader, key, hh[:])
+		sig := make([]byte, 64)
+		r.FillBytes(sig[:32])
+		s.FillBytes(sig[32:])
+		return passkey.B64.EncodeToString(sig)
+	}
+	var b struct{ Challenge string }
+	json.Unmarshal(do(light.Base+"/begin", `{"t":"`+token+`"}`).Body.Bytes(), &b)
+	id := "browser-key-id-0001"
+	reg, _ := json.Marshal(map[string]any{"kind": KindBrowser, "t": token, "name": "kath's phone", "challenge": b.Challenge, "id": id,
+		"spki": passkey.B64.EncodeToString(spki), "signature": sign(b.Challenge)})
+	if rec := do(light.Base+"/register", string(reg)); rec.Code != 200 || cookie == "" {
+		t.Fatalf("register a browser key: %d %s", rec.Code, rec.Body)
+	}
+	st, _ := Load(statePath)
+	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].Kind != KindBrowser {
+		t.Fatalf("kept %+v", p.Passkeys)
+	}
+	cookie = ""
+	signin := func(kind, sig string) *httptest.ResponseRecorder {
+		ch := passkey.NewChallenge(time.Now())
+		if sig == "" {
+			sig = sign(ch)
+		}
+		body, _ := json.Marshal(map[string]string{"kind": kind, "challenge": ch, "id": id, "signature": sig})
+		return do(light.Base+"/signin", string(body))
+	}
+	if rec := signin("", ""); rec.Code == 200 {
+		t.Fatal("a browser key signed in as a passkey")
+	}
+	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	ch := passkey.NewChallenge(time.Now())
+	hh := sha256.Sum256(passkey.BrowserMessage("https://"+rpHost, ch))
+	r, s, _ := ecdsa.Sign(rand.Reader, other, hh[:])
+	bad := make([]byte, 64)
+	r.FillBytes(bad[:32])
+	s.FillBytes(bad[32:])
+	if rec := signin(KindBrowser, passkey.B64.EncodeToString(bad)); rec.Code == 200 {
+		t.Fatal("another key signed in")
+	}
+	if rec := signin(KindBrowser, ""); rec.Code != 200 || cookie == "" {
+		t.Fatalf("sign in with the browser key: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do("/files?op=list", `{"path":""}`); rec.Code != 200 {
+		t.Fatalf("files after signing in: %d", rec.Code)
+	}
+}

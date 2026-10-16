@@ -80,6 +80,25 @@ Their invite link uses it too. Decided 2026-10-16.
   signed in. That's fine for pages they wrote; it's a reason to be careful
   with scripts copied from elsewhere.
 
+## Without a screen lock: a key kept by the browser
+
+A phone makes a passkey only if it has a screen lock, and even a password
+manager may not get round that. For someone who doesn't want one, the
+invite page has **No screen lock? Keep the key in this browser instead**
+(added 2026-10-16):
+
+- The page makes an ECDSA P-256 key with WebCrypto that can't be copied
+  out of the browser, keeps it in the site's own storage (IndexedDB), and
+  signs the box's challenge with it, together with the address
+  (`passkey.BrowserMessage`). The box keeps the public half, marked as a
+  browser key.
+- The sign-in page finds the key by itself and signs in, with nothing to
+  type.
+- **What it costs:** no lock guards it, so anyone with the device can open
+  the files; it lives in that one browser, so clearing the browser's data
+  or changing device means a new invite from the box's owner. The page
+  says both before making it.
+
 ## What the box's owner sees
 
 On each person's row under People on this box:

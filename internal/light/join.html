@@ -19,6 +19,7 @@ label { display: block; font-size: 14px; color: var(--muted); margin-top: 16px; 
 input { display: block; width: 100%; font: inherit; padding: 10px 12px; margin-top: 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
 button { font: inherit; font-weight: 600; width: 100%; padding: 12px; margin-top: 16px; border-radius: 8px; border: 0; background: var(--info); color: #fff; cursor: pointer; }
 button:disabled { opacity: .6; }
+button.plain { background: none; color: var(--info); border: 1px solid var(--line); font-weight: 500; }
 #msg { min-height: 1.5em; margin-top: 12px; color: var(--bad); font-size: 14px; }
 </style>
 </head>
@@ -32,7 +33,10 @@ button:disabled { opacity: .6; }
     <label for="name">Name this device</label>
     <input id="name" maxlength="60" placeholder="e.g. my phone" autocomplete="off">
     <button id="go">Make a passkey and open my files</button>
+    <button id="nolock" class="plain">No screen lock? Keep the key in this browser instead</button>
     <div id="msg" role="status"></div>
+    <p class="sub" id="nolockNote" hidden>With the key kept in this browser, you're signed in whenever you open your files here, with nothing to type.
+      But anyone who has this phone or computer can open your files, and if you clear the browser's data or change device, ask the box's owner for a new invite.</p>
   </div>
   <p class="sub" style="margin-top:16px">Your files are stored encrypted on the group's machines. Over the web, what you open or upload passes through
     Cloudflare and one of the group's web nodes on its way to your box.</p>
@@ -67,6 +71,44 @@ async function join() {
   go.disabled = false;
 }
 document.getElementById("go").addEventListener("click", join);
+// A browser key (for a device that can't make a passkey) is kept here, in
+// this site's own storage, where it can't be copied out.
+function idb(mode, f) {
+  return new Promise((ok, bad) => {
+    const o = indexedDB.open("yggstore", 1);
+    o.onupgradeneeded = () => o.result.createObjectStore("keys");
+    o.onerror = () => bad(o.error);
+    o.onsuccess = () => {
+      const tx = o.result.transaction("keys", mode), r = f(tx.objectStore("keys"));
+      tx.oncomplete = () => ok(r && r.result); tx.onerror = () => bad(tx.error);
+    };
+  });
+}
+const keyMsg = ch => new TextEncoder().encode("yggstore browser key\n" + location.origin + "\n" + ch);
+async function joinBrowser() {
+  const msg = document.getElementById("msg"), btn = document.getElementById("nolock");
+  if (!confirm("Keep the key in this browser? Anyone who has this device can then open your files, and clearing the browser's data loses the key.")) return;
+  btn.disabled = true; msg.textContent = "";
+  try {
+    let r = await post("/begin", {t});
+    if (!r.ok) throw new Error((await r.text()).trim());
+    const b = await r.json();
+    const kp = await crypto.subtle.generateKey({name: "ECDSA", namedCurve: "P-256"}, false, ["sign", "verify"]);
+    const id = b64(crypto.getRandomValues(new Uint8Array(18)));
+    const spki = await crypto.subtle.exportKey("spki", kp.publicKey);
+    const sig = await crypto.subtle.sign({name: "ECDSA", hash: "SHA-256"}, kp.privateKey, keyMsg(b.challenge));
+    await idb("readwrite", s => s.put({id, key: kp.privateKey, user: b.user_id}, "me"));
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    r = await post("/register", {kind: "browser", t, name: document.getElementById("name").value.trim() || "a browser", challenge: b.challenge,
+      id, spki: b64(spki), signature: b64(sig)});
+    if (!r.ok) { await idb("readwrite", s => s.delete("me")); throw new Error((await r.text()).trim()); }
+    location.href = "/files";
+  } catch (e) { msg.textContent = e.message; }
+  btn.disabled = false;
+}
+document.getElementById("nolock").addEventListener("click", joinBrowser);
+document.getElementById("nolock").addEventListener("mouseenter", () => document.getElementById("nolockNote").hidden = false);
+document.getElementById("nolock").addEventListener("focus", () => document.getElementById("nolockNote").hidden = false);
 </script>
 </body>
 </html>
