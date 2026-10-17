@@ -139,9 +139,9 @@ On each person's row under People on this box:
 - **Uploads go in pieces** of up to 32 MB, as the recovery link's page
   already does, because Cloudflare refuses a single request over 100 MB.
   Any size still works.
-- **The box must be on.** Unlike the recovery link, which works from the
-  person's recovery copy, this is the box's own page. When the box is off
-  the page says so. (The recovery link stays, for when a box is gone.)
+- **The box must be on, for now.** When it's off the page says so. This
+  goes against what the group is for; see [Always on](#always-on), the
+  next step.
 - **It's for people on a box.** Members with their own node keep their
   dashboard, over Yggdrasil.
 - **At home too,** a light client uses `my.withcare.co.za`: the request
@@ -173,6 +173,46 @@ On each person's row under People on this box:
   `my.withcare.co.za` through the tunnel to the web nodes. A group without
   one needs a record and tunnel route for `my.` added, as for a site.
 
+## Always on
+
+The point of the group is that it's always there: no one machine being
+off should stop anyone signing in or reaching their files. Today a light
+client depends on their box for both. The files themselves already survive
+a machine being off (they're in pieces across the group); what only the
+box has is the sign-in details and the stubs that open the files. So:
+
+1. **Sign-in moves to the web nodes.** Every web node keeps each light
+   client's passkeys, browser keys and PIN hashes (public halves and slow
+   hashes only, so copying them is safe), checks sign-ins itself and keeps
+   the sessions. Boxes send their people's records to every web node when
+   they change, and the web nodes pass them among themselves, so a sign-in
+   works while any one web node is up. Wrong PINs are counted across the
+   web nodes. The web node then tells the box who is asking, in a note
+   signed with its own Yggdrasil key, and the box accepts notes only from
+   the group's web nodes.
+   - **Trade-off:** today the box checks every passkey itself, so a web
+     node that was broken into couldn't open anyone's files. After this it
+     could pass as anyone. The web nodes already see all web traffic, so
+     the group trusts them already, but it is a step.
+2. **Every light client gets a recovery copy**, on by default, with no
+   Syncthing ID needed: the box keeps one for each person with web access,
+   as it does for "work from anywhere" (see [recovery](recovery.md)).
+3. **A box that's off is served from the recovery copy.** When the box
+   doesn't answer, the web node opens the person's latest recovery copy and
+   shows the same files page, built on the recovery link's page: browse and
+   download from the group, upload, rename, move, delete. Changes wait on
+   the web nodes and are made in the box's folder when it's back, as they
+   already are for the recovery link. The page says "your box is off since
+   …; changes you make now are kept and reach it when it's back".
+   - **The copy's key** is in two halves, as for the recovery link: the web
+     nodes hold one, and the person's browser keeps the other, given to it
+     when it signs in while the box is on. A browser that has never signed
+     in while the box was on uses the recovery link from the person's
+     email. So the web nodes alone still can't open the copy.
+
+After these, losing any one machine (a box, a web node, a storage node)
+stops nobody. Mail (step 5 of the build order) should follow the same rule.
+
 ## Build order
 
 1. **The relay:** web nodes serve `my.` the group's domain and pass
@@ -186,8 +226,9 @@ On each person's row under People on this box:
 4. **Uploads in pieces** on the files page.
 5. **Writing mail:** write and reply from their own address, on their
    page, through the group's mail relay. This works over Yggdrasil too.
-6. **Later:** signing back in with a code by email; and a box that's off
-   showing the person their recovery copy instead.
+6. **Always on** (above): sign-in on the web nodes, a recovery copy for
+   every light client, and the web nodes serving it while the box is off.
+7. **Later:** signing back in with a code by email.
 
 ## Decided (2026-10-16)
 
