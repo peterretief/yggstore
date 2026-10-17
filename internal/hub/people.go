@@ -168,8 +168,7 @@ func (s *HubState) Suspend(person string, on bool) error {
 	if on {
 		s.DropInvite(s.People[i].Name)
 	}
-	s.People[i].Suspended = on
-	s.PruneSessions(time.Now())
+	s.People[i].Suspended = on // the web nodes end their sessions when the box tells them
 	return nil
 }
 
@@ -183,7 +182,7 @@ func (s *HubState) RemovePerson(person string) error {
 	p := &s.People[i]
 	p.Removed, p.FilesDevices, p.Passkeys = true, nil, nil
 	s.DropInvite(p.Name)
-	s.PruneSessions(time.Now()) // their web sign-ins end at once
+	// The web nodes end their sessions when the box tells them (pushLight).
 	for j := range s.Users {
 		if s.Users[j].Person == p.Name {
 			s.Users[j].Remove = true

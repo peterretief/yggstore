@@ -98,6 +98,11 @@ type Options struct {
 	Work interface {
 		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
 	}
+	// Light, if set, keeps light clients' sign-in details on a web node
+	// (/v1/light/…; see package light).
+	Light interface {
+		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
+	}
 	// Version is the node's yggstore, reported in its info.
 	Version string
 }
@@ -194,6 +199,9 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			return
 		}
 		if opts.Work != nil && opts.Work.Serve(w, r, caller) {
+			return
+		}
+		if opts.Light != nil && opts.Light.Serve(w, r, caller) {
 			return
 		}
 		switch {

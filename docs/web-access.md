@@ -181,15 +181,29 @@ client depends on their box for both. The files themselves already survive
 a machine being off (they're in pieces across the group); what only the
 box has is the sign-in details and the stubs that open the files. So:
 
-1. **Sign-in moves to the web nodes.** Every web node keeps each light
+1. **Sign-in moves to the web nodes** (built 2026-10-17). Every web node keeps each light
    client's passkeys, browser keys and PIN hashes (public halves and slow
    hashes only, so copying them is safe), checks sign-ins itself and keeps
    the sessions. Boxes send their people's records to every web node when
    they change, and the web nodes pass them among themselves, so a sign-in
    works while any one web node is up. Wrong PINs are counted across the
-   web nodes. The web node then tells the box who is asking, in a note
-   signed with its own Yggdrasil key, and the box accepts notes only from
-   the group's web nodes.
+   web nodes. The web node then names the person to the box
+   (`X-Yggstore-Person`), and the box takes that only over Yggdrasil from
+   the group's web nodes, whose addresses can't be forged there.
+   - **How:** the box's hub sends `PUT /v1/light/people` to every web
+     node's node API when its state changes (and every 10 minutes); a web
+     node takes a box's people only from that box's address
+     (`light.Store`). Web nodes share sessions (`/v1/light/session`), asking
+     the others for one they don't know, and wrong PINs
+     (`/v1/light/fails`); they tell the box of each key's use, wrong PINs
+     and a PIN chosen for a key made before PINs (`/files/light/seen`).
+     Using an invite still goes to the box, which holds the invites; the
+     web node that passed it on signs the person in with the new key.
+   - **Limits:** a passkey's signature counter isn't checked, since the
+     web nodes don't share one; a used challenge is remembered by the web
+     node that took it, so within its 5 minutes it could be replayed once at
+     the other (it's sent over https, so only someone who had broken that
+     could). Choosing a PIN for a key made before PINs needs the box on.
    - **Trade-off:** today the box checks every passkey itself, so a web
      node that was broken into couldn't open anyone's files. After this it
      could pass as anyone. The web nodes already see all web traffic, so

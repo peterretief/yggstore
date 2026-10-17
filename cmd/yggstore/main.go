@@ -368,6 +368,7 @@ func cmdServe(ctx context.Context, args []string) error {
 
 	var webStatus func() json.RawMessage
 	var work *workhere.Store
+	var signin *light.Store
 	if *webAddr != "" {
 		work = &workhere.Store{Dir: filepath.Join(*dataDir, "work"), Client: &http.Client{Timeout: 5 * time.Minute}, Log: log.Printf,
 			Shards: client.New(), Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },
@@ -383,8 +384,10 @@ func cmdServe(ctx context.Context, args []string) error {
 				return relay.SendOwn(ctx, mail.Draft{From: "yggstore@" + domain, Name: "yggstore", To: to, Subject: subject, Text: text})
 			}
 		}
+		signin = &light.Store{Dir: filepath.Join(*dataDir, "light"), Peers: live.List, Client: &http.Client{Timeout: 30 * time.Second}, Log: log.Printf,
+			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }}
 		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work,
-			Light: &light.Relay{Peers: live.List, Log: log.Printf}}
+			Light: &light.Relay{Peers: live.List, Signin: signin, Log: log.Printf}}
 		if mailNode.Token != "" {
 			web.Mail = mailNode
 		}
@@ -431,7 +434,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
-		MailOut: mailOutHandler(relay), Work: workOpt(work), Version: versionString(),
+		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), Version: versionString(),
 		Join: func(caller string, req invite.Request) (invite.Response, error) {
 			own := ""
 			if id, err := share.Load(*keyPath); err == nil {
@@ -917,6 +920,15 @@ func mailOutHandler(r *mail.Relay) interface {
 
 // workOpt is the node's recovery records, if it is a web node: a nil
 // *workhere.Store would be a non-nil interface.
+func lightOpt(s *light.Store) interface {
+	Serve(http.ResponseWriter, *http.Request, string) bool
+} {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
 func workOpt(w *workhere.Store) interface {
 	Serve(http.ResponseWriter, *http.Request, string) bool
 } {

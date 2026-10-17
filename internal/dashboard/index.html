@@ -1510,7 +1510,7 @@ async function refreshPeople() {
       <div class="mono" style="user-select:all;margin-top:4px">${esc(peopleLink.link)}</div>
       ${web ? `<details><summary class="sub">Advanced: the link for a device with Yggdrasil</summary><div class="mono" style="user-select:all">${esc(peopleLink.ygg_link)}</div></details>` : ""}</div>` : "";
     const webLine = p.removed ? "" : `<div class="sub">${p.web_off ? `web access off <button data-pact="web-on" data-name="${esc(p.name)}">Turn on</button>`
-      : `${p.passkeys.length ? `passkeys: ${p.passkeys.map(k => esc(k.name)).join(", ")} · ${p.sessions} signed in through the web` : "no passkey yet"}
+      : `${p.passkeys.length ? `passkeys: ${p.passkeys.map(k => esc(k.name) + (k.used ? ", last used " + new Date(k.used * 1000).toLocaleDateString() : "")).join("; ")}` : "no passkey yet"}
         <button class="del" data-pact="web-off" data-name="${esc(p.name)}">Turn web access off</button>`}</div>`;
     return `<tr><td><b>${esc(p.name)}</b> ${state}${p.invite_until && !p.removed ? `<div class="sub">invite works until ${esc(new Date(p.invite_until * 1000).toLocaleDateString())}</div>` : ""}
         ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${webLine}${site}${fwd}${link}</td>

@@ -65,11 +65,12 @@ func clientJSONAt(typ, challenge, host string) []byte {
 	return b
 }
 
-// browser talks to the relay as a browser at my.example.org would, keeping
-// its cookies.
+// browser talks to the relay as a browser at host (rpHost if "") would,
+// keeping its cookies.
 type browser struct {
 	t       *testing.T
 	relay   string
+	host    string
 	cookies map[string]string
 }
 
@@ -77,6 +78,9 @@ func (b *browser) do(method, path, body string) *http.Response {
 	b.t.Helper()
 	req, _ := http.NewRequest(method, b.relay+path, strings.NewReader(body))
 	req.Host = rpHost
+	if b.host != "" {
+		req.Host = b.host
+	}
 	req.Header.Set("X-Yggstore", "1")
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range b.cookies {
@@ -102,117 +106,206 @@ func text(r *http.Response) string {
 	return string(b)
 }
 
-func TestLightClient(t *testing.T) {
+// lightGroup is a box and a web node in front of it, as the group has them.
+type lightGroup struct {
+	u         *Users
+	statePath string
+	store     *light.Store
+	box       *httptest.Server
+	relay     string
+}
+
+func newLightGroup(t *testing.T, names ...peers.PersonName) *lightGroup {
 	u, _, dir := setupUsers(t, 0)
-	statePath := filepath.Join(dir, "hub.json")
-	ctx := context.Background()
-	peersPath := filepath.Join(dir, "peers.json")
+	g := &lightGroup{u: u, statePath: filepath.Join(dir, "hub.json")}
 	list := []peers.Peer{
 		{Name: "desktop", Addr: "[" + webYgg + "]:7400", Admin: true, Domain: "example.org"},
-		{Name: "box", Addr: "[" + boxYgg + "]:7400"},
+		{Name: "box", Addr: "[" + boxYgg + "]:7400", PeopleNames: names},
 	}
+	peersPath := filepath.Join(dir, "peers.json")
 	peers.Write(peersPath, list)
 	u.cfg.PeersPath = peersPath
 	u.cfg.WebNodes = func(context.Context) []string { return []string{"[" + webYgg + "]:7400"} }
+	// The box, reached over Yggdrasil from the web node.
+	h := (&Hub{cfg: Config{Files: u.FilesHandler(boxYgg)}}).Handler()
+	g.box = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.RemoteAddr, r.Host = "["+webYgg+"]:51000", "["+boxYgg+"]:7490"
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(g.box.Close)
+	g.store = &light.Store{Dir: filepath.Join(dir, "web-light"), Peers: func() []peers.Peer { return list }, Log: t.Logf}
+	relay := httptest.NewServer(&light.Relay{Peers: func() []peers.Peer { return list }, Signin: g.store,
+		BoxURL: func(string) string { return g.box.URL }, Log: t.Logf})
+	t.Cleanup(relay.Close)
+	g.relay = relay.URL
+	return g
+}
+
+// push sends the web node the box's people, as pushLight does.
+func (g *lightGroup) push(t *testing.T) {
+	st, err := Load(g.statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.store.SetPeople("box", st.LightPeople().People)
+}
+
+func (g *lightGroup) browser(t *testing.T, host string) *browser {
+	return &browser{t: t, relay: g.relay, host: host, cookies: map[string]string{}}
+}
+
+func (g *lightGroup) invite(t *testing.T, who string) string {
 	var token string
-	st, err := Update(ctx, statePath, func(s *HubState) error {
-		p, err := s.AddPerson("anna", u.cfg.Dir)
-		if err != nil {
-			return err
+	_, err := Update(context.Background(), g.statePath, func(s *HubState) error {
+		if _, ok := s.PersonNamed(who); !ok {
+			if _, err := s.AddPerson(who, g.u.cfg.Dir); err != nil {
+				return err
+			}
 		}
-		token, err = s.Invite(p.Name, time.Now())
+		var err error
+		token, err = s.Invite(who, time.Now())
 		return err
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return token
+}
+
+type beginAnswer struct {
+	Challenge, RP string
+	UserID        string `json:"user_id"`
+}
+
+func begin(t *testing.T, b *browser, path, token string) (beginAnswer, int) {
+	if path != "" {
+		b.do("GET", path, "")
+	}
+	r := b.do("POST", light.Base+"/begin", `{"t":"`+token+`"}`)
+	var a beginAnswer
+	if r.StatusCode == 200 {
+		json.NewDecoder(r.Body).Decode(&a)
+	}
+	r.Body.Close()
+	return a, r.StatusCode
+}
+
+// makePasskey makes ph's passkey with an invite.
+func makePasskey(b *browser, ph *phone, token string, a beginAnswer) *http.Response {
+	host := b.host
+	if host == "" {
+		host = rpHost
+	}
+	ph.user, _ = passkey.B64.DecodeString(a.UserID)
+	spki, _ := x509.MarshalPKIXPublicKey(&ph.key.PublicKey)
+	reg, _ := json.Marshal(map[string]any{"t": token, "name": "phone", "challenge": a.Challenge, "id": passkey.B64.EncodeToString(ph.id),
+		"client_data": passkey.B64.EncodeToString(clientJSONAt("webauthn.create", a.Challenge, host)),
+		"auth_data":   passkey.B64.EncodeToString(ph.authData(true)), "spki": passkey.B64.EncodeToString(spki), "alg": passkey.ES256})
+	return b.do("POST", light.Base+"/register", string(reg))
+}
+
+// signInPasskey signs in with ph's passkey at b's host.
+func signInPasskey(b *browser, ph *phone) *http.Response {
+	host := b.host
+	if host == "" {
+		host = rpHost
+	}
+	r := b.do("GET", light.Base+"/challenge", "")
+	var ch struct{ Challenge string }
+	json.NewDecoder(r.Body).Decode(&ch)
+	r.Body.Close()
+	return signInWith(b, ph, ch.Challenge, host)
+}
+
+func signInWith(b *browser, ph *phone, challenge, host string) *http.Response {
+	ph.count++
+	cj, auth := clientJSONAt("webauthn.get", challenge, host), ph.authData(false)
+	hc := sha256.Sum256(cj)
+	digest := sha256.Sum256(append(append([]byte{}, auth...), hc[:]...))
+	sig, _ := ecdsa.SignASN1(rand.Reader, ph.key, digest[:])
+	body, _ := json.Marshal(map[string]string{"challenge": challenge, "id": passkey.B64.EncodeToString(ph.id),
+		"client_data": passkey.B64.EncodeToString(cj), "auth_data": passkey.B64.EncodeToString(auth),
+		"signature": passkey.B64.EncodeToString(sig), "user_handle": passkey.B64.EncodeToString(ph.user)})
+	return b.do("POST", light.Base+"/signin", string(body))
+}
+
+func TestLightClient(t *testing.T) {
+	g := newLightGroup(t)
+	token := g.invite(t, "anna")
+	st, _ := Load(g.statePath)
 	anna, _ := st.PersonNamed("anna")
 	os.MkdirAll(filepath.Join(anna.Path, "files"), 0o755)
 	os.WriteFile(filepath.Join(anna.Path, "files", "hers.txt"), []byte("hers"), 0o644)
 
-	// The box, reached over Yggdrasil from the web node.
-	h := (&Hub{cfg: Config{Files: u.FilesHandler(boxYgg)}}).Handler()
-	box := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.RemoteAddr, r.Host = "["+webYgg+"]:51000", "["+boxYgg+"]:7490"
-		h.ServeHTTP(w, r)
-	}))
-	defer box.Close()
-	relay := httptest.NewServer(&light.Relay{Peers: func() []peers.Peer { return list }, BoxURL: func(string) string { return box.URL }, Log: t.Logf})
-	defer relay.Close()
-
 	// The invite, in a fresh browser.
-	b := &browser{t: t, relay: relay.URL, cookies: map[string]string{}}
+	b := g.browser(t, "")
 	if r := b.do("GET", "/files/join?box=box&t="+token, ""); r.StatusCode != 200 || !strings.Contains(text(r), "Make a passkey") || b.cookies[light.BoxCookie] != "box" {
 		t.Fatalf("invite page: %d, cookies %v", r.StatusCode, b.cookies)
 	}
-	r := b.do("POST", light.Base+"/begin", `{"t":"`+token+`"}`)
-	var begin struct {
-		Challenge, RP string
-		UserID        string `json:"user_id"`
-	}
-	json.NewDecoder(r.Body).Decode(&begin)
-	if r.StatusCode != 200 || begin.RP != rpHost {
-		t.Fatalf("begin: %d %+v", r.StatusCode, begin)
+	a, code := begin(t, b, "", token)
+	if code != 200 || a.RP != rpHost {
+		t.Fatalf("begin: %d %+v", code, a)
 	}
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	ph := &phone{key: key, id: []byte("anna-phone-1")}
-	ph.user, _ = passkey.B64.DecodeString(begin.UserID)
+	if r := makePasskey(b, ph, token, a); r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" {
+		t.Fatalf("register: %d %s", r.StatusCode, text(r))
+	}
 	if light.BoxOf(ph.user) != "box" {
 		t.Fatalf("user handle %q", ph.user)
 	}
-	spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	reg, _ := json.Marshal(map[string]any{"t": token, "name": "anna's phone", "challenge": begin.Challenge, "id": passkey.B64.EncodeToString(ph.id),
-		"client_data": passkey.B64.EncodeToString(clientJSON("webauthn.create", begin.Challenge)),
-		"auth_data":   passkey.B64.EncodeToString(ph.authData(true)), "spki": passkey.B64.EncodeToString(spki), "alg": passkey.ES256})
-	if r := b.do("POST", light.Base+"/register", string(reg)); r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" {
-		t.Fatalf("register: %d %s", r.StatusCode, text(r))
-	}
-	if r := b.do("POST", light.Base+"/register", string(reg)); r.StatusCode == 200 {
+	if r := makePasskey(b, ph, token, a); r.StatusCode == 200 {
 		t.Fatal("the invite worked twice")
 	}
 
 	// Signed in: Anna's own files.
-	r = b.do("POST", "/files?op=list", `{"path":""}`)
+	r := b.do("POST", "/files?op=list", `{"path":""}`)
 	if body := text(r); r.StatusCode != 200 || !strings.Contains(body, "hers.txt") {
 		t.Fatalf("list: %d %s", r.StatusCode, body)
 	}
-	if r := b.do("GET", "/files/devices?op=list", ""); !strings.Contains(text(r), "anna's phone") {
+	if r := b.do("GET", "/files/devices?op=list", ""); !strings.Contains(text(r), `"phone"`) {
 		t.Fatal("devices list")
 	}
 
-	// A new browser signs in with the passkey: the relay learns the box
-	// from it.
-	b2 := &browser{t: t, relay: relay.URL, cookies: map[string]string{}}
+	// A new browser signs in with the passkey: the web node checks it.
+	b2 := g.browser(t, "")
 	if r := b2.do("GET", "/", ""); r.StatusCode != 200 || !strings.Contains(text(r), "Sign in") {
 		t.Fatal("no sign-in page for a new browser")
 	}
 	r = b2.do("GET", light.Base+"/challenge", "")
 	var ch struct{ Challenge, RP string }
 	json.NewDecoder(r.Body).Decode(&ch)
+	r.Body.Close()
 	if ch.RP != rpHost {
 		t.Fatalf("challenge %+v", ch)
 	}
-	signIn := func(b *browser, challenge string) *http.Response {
-		ph.count++
-		cj, auth := clientJSON("webauthn.get", challenge), ph.authData(false)
-		hc := sha256.Sum256(cj)
-		digest := sha256.Sum256(append(append([]byte{}, auth...), hc[:]...))
-		sig, _ := ecdsa.SignASN1(rand.Reader, key, digest[:])
-		body, _ := json.Marshal(map[string]string{"challenge": challenge, "id": passkey.B64.EncodeToString(ph.id),
-			"client_data": passkey.B64.EncodeToString(cj), "auth_data": passkey.B64.EncodeToString(auth),
-			"signature": passkey.B64.EncodeToString(sig), "user_handle": passkey.B64.EncodeToString(ph.user)})
-		return b.do("POST", light.Base+"/signin", string(body))
-	}
-	if r := signIn(b2, ch.Challenge); r.StatusCode != 200 || b2.cookies[light.BoxCookie] != "box" || b2.cookies[light.SessionCookie] == "" {
+	if r := signInWith(b2, ph, ch.Challenge, rpHost); r.StatusCode != 200 || b2.cookies[light.SessionCookie] == "" {
 		t.Fatalf("sign in: %d %s %v", r.StatusCode, text(r), b2.cookies)
 	}
 	if r := b2.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
 		t.Fatalf("list after signing in: %d", r.StatusCode)
 	}
-	b3 := &browser{t: t, relay: relay.URL, cookies: map[string]string{}}
-	if r := signIn(b3, ch.Challenge); r.StatusCode == 200 {
+	if r := signInWith(g.browser(t, ""), ph, ch.Challenge, rpHost); r.StatusCode == 200 {
 		t.Fatal("a used challenge signed in again")
 	}
+
+	// With the box off, signing in still works; the files wait for it.
+	on := g.box.Config.Handler
+	g.box.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, _, _ := w.(http.Hijacker).Hijack()
+		c.Close()
+	})
+	b4 := g.browser(t, "")
+	if r := signInPasskey(b4, ph); r.StatusCode != 200 {
+		t.Fatalf("sign in with the box off: %d %s", r.StatusCode, text(r))
+	}
+	if r := b4.do("GET", "/files", ""); r.StatusCode != http.StatusBadGateway {
+		t.Fatalf("files with the box off: %d", r.StatusCode)
+	}
+	if r := b4.do("GET", "/files/devices?op=list", ""); r.StatusCode != 200 || !strings.Contains(text(r), `"phone"`) {
+		t.Fatal("the devices list with the box off")
+	}
+	g.box.Config.Handler = on
 
 	// Signed out, or never in: the sign-in page, and nothing else.
 	b2.do("POST", light.Base+"/signout", "")
@@ -223,18 +316,80 @@ func TestLightClient(t *testing.T) {
 		t.Fatal("no sign-in page after signing out")
 	}
 
-	// Web access off: the session no longer works.
-	Update(ctx, statePath, func(s *HubState) error { s.People[s.person("anna")].WebOff = true; return nil })
+	// Web access off: once the box tells the web node, the session ends.
+	Update(context.Background(), g.statePath, func(s *HubState) error { s.People[s.person("anna")].WebOff = true; return nil })
+	g.push(t)
 	if r := b.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("list with web access off: %d", r.StatusCode)
 	}
+	if r := signInPasskey(g.browser(t, ""), ph); r.StatusCode == 200 {
+		t.Fatal("signed in with web access off")
+	}
 
-	// Only web nodes may relay: the header from anywhere else counts for
-	// nothing.
+	// Only web nodes may name the person: the headers from anywhere else
+	// count for nothing.
+	Update(context.Background(), g.statePath, func(s *HubState) error { s.People[s.person("anna")].WebOff = false; return nil })
+	h := (&Hub{cfg: Config{Files: g.u.FilesHandler(boxYgg)}}).Handler()
 	rec := filesReq(h, "POST", "/files?op=list", benYgg, `{}`, map[string]string{"X-Yggstore": "1", light.RelayHeader: "1",
-		"X-Forwarded-Host": rpHost, "Cookie": light.SessionCookie + "=" + b.cookies[light.SessionCookie]})
+		"X-Forwarded-Host": rpHost, light.PersonHeader: "anna"})
 	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "hers") {
 		t.Fatalf("a relay header from a member's device: %d %s", rec.Code, rec.Body)
+	}
+	// And a browser can't name them through the web node.
+	b5 := g.browser(t, "")
+	b5.cookies[light.BoxCookie] = "box"
+	req, _ := http.NewRequest("POST", g.relay+"/files?op=list", strings.NewReader(`{"path":""}`))
+	req.Host = rpHost
+	req.Header.Set("X-Yggstore", "1")
+	req.Header.Set(light.PersonHeader, "anna")
+	req.AddCookie(&http.Cookie{Name: light.BoxCookie, Value: "box"})
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a browser naming the person: %v %v", resp, err)
+	}
+}
+
+// The box sends the web nodes its people when they change.
+func TestPushLight(t *testing.T) {
+	u, _, dir := setupUsers(t, 0)
+	got := make(chan light.People, 8)
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var ps light.People
+		if r.Method != http.MethodPut || r.URL.Path != "/v1/light/people" || json.NewDecoder(r.Body).Decode(&ps) != nil {
+			t.Errorf("%s %s", r.Method, r.URL)
+		}
+		got <- ps
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer node.Close()
+	u.cfg.WebNodes = func(context.Context) []string { return []string{strings.TrimPrefix(node.URL, "http://")} }
+	u.cfg.Client.HTTP = http.DefaultClient
+	statePath := filepath.Join(dir, "hub.json")
+	Update(context.Background(), statePath, func(s *HubState) error {
+		s.AddPerson("anna", u.cfg.Dir)
+		s.People[s.person("anna")].Passkeys = []Passkey{{Key: passkey.Key{ID: "k1"}, Name: "phone", Kind: KindBrowser, PIN: "pbkdf2-sha256$x$y"}}
+		s.AddPerson("ben", u.cfg.Dir) // no key: not sent
+		return nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go u.pushLight(ctx)
+	wait := func() light.People {
+		select {
+		case ps := <-got:
+			return ps
+		case <-time.After(5 * time.Second):
+			t.Fatal("the web node wasn't sent the box's people")
+		}
+		return light.People{}
+	}
+	if ps := wait(); len(ps.People) != 1 || ps.People[0].Name != "anna" || !ps.People[0].Web || ps.People[0].Keys[0].PIN == "" {
+		t.Fatalf("sent %+v", ps)
+	}
+	time.Sleep(10 * time.Millisecond) // a new modification time
+	Update(context.Background(), statePath, func(s *HubState) error { return s.Suspend("anna", true) })
+	u.lightChanged()
+	if ps := wait(); len(ps.People) != 1 || ps.People[0].Web {
+		t.Fatalf("after suspending: %+v", ps)
 	}
 }
 
@@ -265,120 +420,51 @@ func TestLightClientStored(t *testing.T) {
 
 // Someone with a name signs in at their own address, and only they can.
 func TestLightOwnAddress(t *testing.T) {
-	u, _, dir := setupUsers(t, 0)
-	statePath := filepath.Join(dir, "hub.json")
-	ctx := context.Background()
-	peersPath := filepath.Join(dir, "peers.json")
-	peers.Write(peersPath, []peers.Peer{
-		{Name: "desktop", Addr: "[" + webYgg + "]:7400", Admin: true, Domain: "example.org"},
-		{Name: "box", Addr: "[" + boxYgg + "]:7400", PeopleNames: []peers.PersonName{{Name: "anna.example.org", Person: "anna", Code: "ys1annaannaanna"}}},
-	})
-	u.cfg.PeersPath = peersPath
-	u.cfg.WebNodes = func(context.Context) []string { return []string{"[" + webYgg + "]:7400"} }
-	tokens := map[string]string{}
-	Update(ctx, statePath, func(s *HubState) error {
-		for _, who := range []string{"anna", "ben"} {
-			s.AddPerson(who, u.cfg.Dir)
-			tokens[who], _ = s.Invite(who, time.Now())
-		}
-		return nil
-	})
-	h := (&Hub{cfg: Config{Files: u.FilesHandler(boxYgg)}}).Handler()
-	cookies := map[string]string{}
-	do := func(host, path, body string) *httptest.ResponseRecorder {
-		hdr := map[string]string{"X-Yggstore": "1", light.RelayHeader: "1", "X-Forwarded-Host": host}
-		var c []string
-		for k, v := range cookies {
-			c = append(c, k+"="+v)
-		}
-		if len(c) > 0 {
-			hdr["Cookie"] = strings.Join(c, "; ")
-		}
-		rec := filesReq(h, "POST", path, webYgg, body, hdr)
-		for _, ck := range rec.Result().Cookies() {
-			cookies[ck.Name] = ck.Value
-		}
-		return rec
-	}
-	begin := func(host, token string) (string, int) {
-		rec := do(host, light.Base+"/begin", `{"t":"`+token+`"}`)
-		var b struct{ Challenge string }
-		json.Unmarshal(rec.Body.Bytes(), &b)
-		return b.Challenge, rec.Code
-	}
-	if _, code := begin("anna.example.org", tokens["ben"]); code != http.StatusForbidden {
+	g := newLightGroup(t, peers.PersonName{Name: "anna.example.org", Person: "anna", Code: "ys1annaannaanna"})
+	tokens := map[string]string{"anna": g.invite(t, "anna"), "ben": g.invite(t, "ben")}
+	at := func(host string) *browser { return g.browser(t, host) }
+	if _, code := begin(t, at("anna.example.org"), "", tokens["ben"]); code != http.StatusForbidden {
 		t.Fatalf("ben's invite at anna's address: %d", code)
 	}
-	if _, code := begin("evil.example.org", tokens["anna"]); code != http.StatusForbidden {
+	if _, code := begin(t, at("evil.example.org"), "", tokens["anna"]); code == 200 {
 		t.Fatalf("an address that isn't anyone's: %d", code)
 	}
-	ch, code := begin("anna.example.org", tokens["anna"])
-	if code != 200 {
-		t.Fatalf("anna's invite at her address: %d", code)
+	b := at("anna.example.org")
+	a, code := begin(t, b, "", tokens["anna"])
+	if code != 200 || a.RP != "anna.example.org" {
+		t.Fatalf("anna's invite at her address: %d %+v", code, a)
 	}
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	ph := &phone{rp: "anna.example.org", key: key, id: []byte("anna-key")}
-	spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	reg, _ := json.Marshal(map[string]any{"t": tokens["anna"], "name": "phone", "challenge": ch, "id": passkey.B64.EncodeToString(ph.id),
-		"client_data": passkey.B64.EncodeToString(clientJSONAt("webauthn.create", ch, "anna.example.org")),
-		"auth_data":   passkey.B64.EncodeToString(ph.authData(true)), "spki": passkey.B64.EncodeToString(spki), "alg": passkey.ES256})
-	if rec := do("anna.example.org", light.Base+"/register", string(reg)); rec.Code != 200 {
-		t.Fatalf("register at her address: %d %s", rec.Code, rec.Body)
+	if r := makePasskey(b, ph, tokens["anna"], a); r.StatusCode != 200 {
+		t.Fatalf("register at her address: %d %s", r.StatusCode, text(r))
 	}
-	if rec := do("anna.example.org", "/files?op=list", `{"path":""}`); rec.Code != 200 {
-		t.Fatalf("her files at her address: %d %s", rec.Code, rec.Body)
+	if r := b.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
+		t.Fatalf("her files at her address: %d %s", r.StatusCode, text(r))
 	}
 	// The same session at the shared address counts for nothing.
-	if rec := do(rpHost, "/files?op=list", `{"path":""}`); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("her session at the shared address: %d", rec.Code)
+	shared := at(rpHost)
+	shared.cookies = b.cookies
+	if r := shared.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("her session at the shared address: %d", r.StatusCode)
 	}
 	// And her passkey doesn't sign in there either.
-	ch2 := passkey.NewChallenge(time.Now())
-	ph.count++
-	cj, auth := clientJSONAt("webauthn.get", ch2, rpHost), ph.authData(false)
-	hc := sha256.Sum256(cj)
-	digest := sha256.Sum256(append(append([]byte{}, auth...), hc[:]...))
-	sig, _ := ecdsa.SignASN1(rand.Reader, key, digest[:])
-	body, _ := json.Marshal(map[string]string{"challenge": ch2, "id": passkey.B64.EncodeToString(ph.id),
-		"client_data": passkey.B64.EncodeToString(cj), "auth_data": passkey.B64.EncodeToString(auth), "signature": passkey.B64.EncodeToString(sig)})
-	if rec := do(rpHost, light.Base+"/signin", string(body)); rec.Code == 200 {
+	if r := signInWith(at(rpHost), ph, passkey.NewChallenge(time.Now()), rpHost); r.StatusCode == 200 {
 		t.Fatal("her passkey signed in at the shared address")
+	}
+	// Signing in again at her address works.
+	if r := signInPasskey(at("anna.example.org"), ph); r.StatusCode != 200 {
+		t.Fatalf("signing in at her address: %d %s", r.StatusCode, text(r))
 	}
 }
 
-// A device that can't make a passkey keeps a key in the browser instead.
+// A device that can't make a passkey keeps a key in the browser instead,
+// with a PIN the web node checks and counts.
 func TestLightBrowserKey(t *testing.T) {
-	u, _, dir := setupUsers(t, 0)
-	statePath := filepath.Join(dir, "hub.json")
-	ctx := context.Background()
-	peersPath := filepath.Join(dir, "peers.json")
-	peers.Write(peersPath, []peers.Peer{
-		{Name: "desktop", Addr: "[" + webYgg + "]:7400", Admin: true, Domain: "example.org"},
-		{Name: "box", Addr: "[" + boxYgg + "]:7400"},
-	})
-	u.cfg.PeersPath = peersPath
-	u.cfg.WebNodes = func(context.Context) []string { return []string{"[" + webYgg + "]:7400"} }
-	var token string
-	Update(ctx, statePath, func(s *HubState) error {
-		s.AddPerson("kath", u.cfg.Dir)
-		token, _ = s.Invite("kath", time.Now())
-		return nil
-	})
-	h := (&Hub{cfg: Config{Files: u.FilesHandler(boxYgg)}}).Handler()
-	cookie := ""
-	do := func(path, body string) *httptest.ResponseRecorder {
-		hdr := map[string]string{"X-Yggstore": "1", light.RelayHeader: "1", "X-Forwarded-Host": rpHost}
-		if cookie != "" {
-			hdr["Cookie"] = light.SessionCookie + "=" + cookie
-		}
-		rec := filesReq(h, "POST", path, webYgg, body, hdr)
-		for _, c := range rec.Result().Cookies() {
-			if c.Name == light.SessionCookie {
-				cookie = c.Value
-			}
-		}
-		return rec
-	}
+	g := newLightGroup(t)
+	token := g.invite(t, "kath")
+	b := g.browser(t, "")
+	a, _ := begin(t, b, "/files/join?box=box&t="+token, token)
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	sign := func(ch string) string {
@@ -389,108 +475,126 @@ func TestLightBrowserKey(t *testing.T) {
 		s.FillBytes(sig[32:])
 		return passkey.B64.EncodeToString(sig)
 	}
-	var b struct{ Challenge string }
-	json.Unmarshal(do(light.Base+"/begin", `{"t":"`+token+`"}`).Body.Bytes(), &b)
 	id := "browser-key-id-0001"
-	reg, _ := json.Marshal(map[string]any{"kind": KindBrowser, "t": token, "name": "kath's phone", "challenge": b.Challenge, "id": id,
-		"spki": passkey.B64.EncodeToString(spki), "signature": sign(b.Challenge), "pin": "111111"})
-	if rec := do(light.Base+"/register", string(reg)); rec.Code == 200 {
+	register := func(pin string) *http.Response {
+		reg, _ := json.Marshal(map[string]any{"kind": KindBrowser, "t": token, "name": "kath's phone", "challenge": a.Challenge, "id": id,
+			"spki": passkey.B64.EncodeToString(spki), "signature": sign(a.Challenge), "pin": pin})
+		return b.do("POST", light.Base+"/register", string(reg))
+	}
+	if r := register("111111"); r.StatusCode == 200 {
 		t.Fatal("registered with a PIN that's too easy")
 	}
-	json.Unmarshal(do(light.Base+"/begin", `{"t":"`+token+`"}`).Body.Bytes(), &b)
-	reg, _ = json.Marshal(map[string]any{"kind": KindBrowser, "t": token, "name": "kath's phone", "challenge": b.Challenge, "id": id,
-		"spki": passkey.B64.EncodeToString(spki), "signature": sign(b.Challenge), "pin": "482913"})
-	if rec := do(light.Base+"/register", string(reg)); rec.Code != 200 || cookie == "" {
-		t.Fatalf("register a browser key: %d %s", rec.Code, rec.Body)
+	a, _ = begin(t, b, "", token)
+	if r := register("482913"); r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" {
+		t.Fatalf("register a browser key: %d %s", r.StatusCode, text(r))
 	}
-	st, _ := Load(statePath)
-	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].Kind != KindBrowser || !pinMatches(p.Passkeys[0].PIN, "482913") {
+	st, _ := Load(g.statePath)
+	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].Kind != KindBrowser || !passkey.PINMatches(p.Passkeys[0].PIN, "482913") {
 		t.Fatalf("kept %+v", p.Passkeys)
 	}
-	if len(st.Sessions) != 1 || !st.Sessions[0].Short {
-		t.Fatalf("a browser key's session isn't short: %+v", st.Sessions)
-	}
-	if rec := do("/files/devices?op=list", ""); strings.Contains(rec.Body.String(), "pbkdf2") {
+	if r := b.do("GET", "/files/devices?op=list", ""); strings.Contains(text(r), "pbkdf2") {
 		t.Fatal("the devices list shows the PIN's hash")
 	}
-	cookie = ""
+	g.push(t)
+
 	pin := "482913"
-	signin := func(kind, sig string) *httptest.ResponseRecorder {
+	b2 := g.browser(t, "")
+	signin := func(kind, sig string, extra map[string]string) *http.Response {
 		ch := passkey.NewChallenge(time.Now())
 		if sig == "" {
 			sig = sign(ch)
 		}
-		body, _ := json.Marshal(map[string]string{"kind": kind, "challenge": ch, "id": id, "signature": sig, "pin": pin})
-		return do(light.Base+"/signin", string(body))
+		body := map[string]string{"kind": kind, "challenge": ch, "id": id, "signature": sig, "pin": pin}
+		for k, v := range extra {
+			body[k] = v
+		}
+		bb, _ := json.Marshal(body)
+		delete(b2.cookies, light.SessionCookie)
+		return b2.do("POST", light.Base+"/signin", string(bb))
 	}
-	if rec := signin("", ""); rec.Code == 200 {
+	if r := signin("", "", nil); r.StatusCode == 200 {
 		t.Fatal("a browser key signed in as a passkey")
 	}
 	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	ch := passkey.NewChallenge(time.Now())
 	hh := sha256.Sum256(passkey.BrowserMessage("https://"+rpHost, ch))
-	r, s, _ := ecdsa.Sign(rand.Reader, other, hh[:])
+	r1, s1, _ := ecdsa.Sign(rand.Reader, other, hh[:])
 	bad := make([]byte, 64)
-	r.FillBytes(bad[:32])
-	s.FillBytes(bad[32:])
-	if rec := signin(KindBrowser, passkey.B64.EncodeToString(bad)); rec.Code == 200 {
+	r1.FillBytes(bad[:32])
+	s1.FillBytes(bad[32:])
+	if r := signin(KindBrowser, passkey.B64.EncodeToString(bad), nil); r.StatusCode == 200 {
 		t.Fatal("another key signed in")
 	}
-	// Wrong PINs are counted; a right one starts again.
+	// Wrong PINs are counted, and the box hears of them; a right one
+	// starts again.
 	pin = "000001"
-	for i := 0; i < MaxPINFails-1; i++ {
-		if rec := signin(KindBrowser, ""); rec.Code != 403 || cookie != "" {
-			t.Fatalf("wrong PIN %d: %d %s", i, rec.Code, rec.Body)
+	for i := 0; i < passkey.MaxPINFails-1; i++ {
+		if r := signin(KindBrowser, "", nil); r.StatusCode != 403 || b2.cookies[light.SessionCookie] != "" {
+			t.Fatalf("wrong PIN %d: %d %s", i, r.StatusCode, text(r))
 		}
 	}
+	waitFor(t, func() bool {
+		st, _ := Load(g.statePath)
+		p, _ := st.PersonNamed("kath")
+		return p.Passkeys[0].PINFails == passkey.MaxPINFails-1
+	}, "the box to hear of the wrong PINs")
 	pin = "482913"
-	if rec := signin(KindBrowser, ""); rec.Code != 200 || cookie == "" {
-		t.Fatalf("sign in with the browser key: %d %s", rec.Code, rec.Body)
+	if r := signin(KindBrowser, "", nil); r.StatusCode != 200 || b2.cookies[light.SessionCookie] == "" {
+		t.Fatalf("sign in with the browser key: %d %s", r.StatusCode, text(r))
 	}
-	if rec := do("/files?op=list", `{"path":""}`); rec.Code != 200 {
-		t.Fatalf("files after signing in: %d", rec.Code)
+	if r := b2.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
+		t.Fatalf("files after signing in: %d", r.StatusCode)
 	}
-	// MaxPINFails wrong PINs in a row lock the key, even to the right PIN.
-	cookie = ""
+	if r := b2.do("GET", "/files/devices?op=list", ""); !strings.Contains(text(r), `"short":true`) {
+		t.Fatal("a browser key's session isn't short")
+	}
+	// MaxPINFails wrong PINs in a row lock the key, even to the right PIN,
+	// and even once the box has said it again.
 	pin = "000001"
-	for i := 0; i < MaxPINFails; i++ {
-		signin(KindBrowser, "")
+	for i := 0; i < passkey.MaxPINFails; i++ {
+		signin(KindBrowser, "", nil)
 	}
+	waitFor(t, func() bool {
+		st, _ := Load(g.statePath)
+		p, _ := st.PersonNamed("kath")
+		return p.Passkeys[0].PINFails == passkey.MaxPINFails
+	}, "the box to hear of the lock")
+	g.push(t)
 	pin = "482913"
-	if rec := signin(KindBrowser, ""); rec.Code != 403 || !strings.Contains(rec.Body.String(), "locked") {
-		t.Fatalf("a locked key: %d %s", rec.Code, rec.Body)
+	if r := signin(KindBrowser, "", nil); r.StatusCode != 403 || !strings.Contains(text(r), "locked") {
+		t.Fatalf("a locked key: %d", r.StatusCode)
 	}
-	// A key made before PINs: the box asks for one to be chosen.
-	Update(ctx, statePath, func(s *HubState) error {
+	// A key made before PINs: the web node asks for one to be chosen, and
+	// the box keeps it.
+	Update(context.Background(), g.statePath, func(s *HubState) error {
 		k := &s.People[s.person("kath")].Passkeys[0]
 		k.PIN, k.PINFails = "", 0
 		return nil
 	})
-	if rec := signin(KindBrowser, ""); rec.Code != http.StatusPreconditionRequired || cookie != "" {
-		t.Fatalf("no PIN yet: %d %s", rec.Code, rec.Body)
+	g.push(t)
+	if r := signin(KindBrowser, "", nil); r.StatusCode != http.StatusPreconditionRequired || b2.cookies[light.SessionCookie] != "" {
+		t.Fatalf("no PIN yet: %d %s", r.StatusCode, text(r))
 	}
-	ch = passkey.NewChallenge(time.Now())
-	body, _ := json.Marshal(map[string]string{"kind": KindBrowser, "challenge": ch, "id": id, "signature": sign(ch), "new_pin": "735102"})
-	if rec := do(light.Base+"/signin", string(body)); rec.Code != 200 || cookie == "" {
-		t.Fatalf("choose a PIN: %d %s", rec.Code, rec.Body)
+	if r := signin(KindBrowser, "", map[string]string{"new_pin": "735102"}); r.StatusCode != 200 || b2.cookies[light.SessionCookie] == "" {
+		t.Fatalf("choose a PIN: %d %s", r.StatusCode, text(r))
 	}
-	cookie, pin = "", "735102"
-	if rec := signin(KindBrowser, ""); rec.Code != 200 {
-		t.Fatalf("sign in with the chosen PIN: %d %s", rec.Code, rec.Body)
+	st, _ = Load(g.statePath)
+	if p, _ := st.PersonNamed("kath"); !passkey.PINMatches(p.Passkeys[0].PIN, "735102") {
+		t.Fatal("the box didn't keep the chosen PIN")
+	}
+	pin = "735102"
+	if r := signin(KindBrowser, "", nil); r.StatusCode != 200 {
+		t.Fatalf("sign in with the chosen PIN: %d %s", r.StatusCode, text(r))
 	}
 }
 
-func TestPIN(t *testing.T) {
-	for _, bad := range []string{"", "12345", "111111", "123456", "987654", "4567890"} {
-		if pinOK(bad) == nil {
-			t.Errorf("%q passed as a PIN", bad)
+func waitFor(t *testing.T, ok func() bool, what string) {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		if ok() {
+			return
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if err := pinOK("482913"); err != nil {
-		t.Error(err)
-	}
-	h := pinHash("482913")
-	if !pinMatches(h, "482913") || pinMatches(h, "482914") || pinMatches("", "") || h == pinHash("482913") {
-		t.Error("pinHash/pinMatches")
-	}
+	t.Fatalf("waited for %s", what)
 }

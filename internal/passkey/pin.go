@@ -1,4 +1,4 @@
-package hub
+package passkey
 
 import (
 	"crypto/pbkdf2"
@@ -11,20 +11,26 @@ import (
 	"strings"
 )
 
-// A browser key's PIN. The box checks it, not the browser, so someone who
-// takes the device apart can't try PINs without the box counting them
-// (MaxPINFails). The box keeps only a salted, slow hash.
+// A browser key's PIN. The group checks it (the web nodes, and the box),
+// not the browser, so someone who takes the device apart can't try PINs
+// without them being counted (MaxPINFails). Only a salted, slow hash is
+// kept.
 
 const pinRounds = 100_000
 
+// MaxPINFails wrong PINs in a row lock a browser key.
+const MaxPINFails = 5
+
 var (
-	errNeedPIN   = errors.New("Choose a PIN for this browser's key.")
-	errPINLocked = errors.New("This browser's key is locked after too many wrong PINs. Ask the box's owner for a new invite.")
+	// ErrNeedPIN: the browser key has no PIN yet, so one must be chosen.
+	ErrNeedPIN   = errors.New("Choose a PIN for this browser's key.")
+	ErrPINLocked = errors.New("This browser's key is locked after too many wrong PINs. Ask the box's owner for a new invite.")
 )
 
-func errWrongPIN(left int) error {
+// WrongPIN is the answer to a wrong PIN, with left tries before the lock.
+func WrongPIN(left int) error {
 	if left <= 0 {
-		return errPINLocked
+		return ErrPINLocked
 	}
 	if left == 1 {
 		return errors.New("That PIN is wrong. One more wrong try locks this browser's key.")
@@ -32,8 +38,8 @@ func errWrongPIN(left int) error {
 	return fmt.Errorf("That PIN is wrong. %d more wrong tries lock this browser's key.", left)
 }
 
-// pinOK says what's wrong with pin as a new PIN, if anything.
-func pinOK(pin string) error {
+// PINOK says what's wrong with pin as a new PIN, if anything.
+func PINOK(pin string) error {
 	if len(pin) < 6 {
 		return errors.New("Choose a PIN of at least 6 digits or letters.")
 	}
@@ -51,14 +57,15 @@ func pinKey(pin string, salt []byte) []byte {
 	return k
 }
 
-// pinHash is how the box keeps pin: "pbkdf2-sha256$<salt>$<key>".
-func pinHash(pin string) string {
+// PINHash is how the box keeps pin: "pbkdf2-sha256$<salt>$<key>".
+func PINHash(pin string) string {
 	salt := make([]byte, 16)
 	rand.Read(salt)
 	return "pbkdf2-sha256$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(pinKey(pin, salt))
 }
 
-func pinMatches(hash, pin string) bool {
+// PINMatches is whether pin is the one hash was made from.
+func PINMatches(hash, pin string) bool {
 	parts := strings.Split(hash, "$")
 	if len(parts) != 3 || parts[0] != "pbkdf2-sha256" {
 		return false

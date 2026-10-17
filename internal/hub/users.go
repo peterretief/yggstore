@@ -92,8 +92,6 @@ type HubState struct {
 	Asks []DeviceAsk `json:"asks,omitempty"`
 	// Invites are the admin's links that let a person's first device in.
 	Invites []Invite `json:"invites,omitempty"`
-	// Sessions are browsers signed in through the web (light.go).
-	Sessions []Session `json:"sessions,omitempty"`
 }
 
 // Team is a folder several people work in, on this box: every device of
@@ -232,15 +230,17 @@ type Users struct {
 	myID     string
 	err      string // the last problem talking to Syncthing
 	watchers map[string]context.CancelFunc
-	shared   map[string]string // per folder: the devices last shared with, and paused
-	places   map[string]*place // people working through the box, by name
+	// lightKick asks pushLight to send the web nodes the box's people.
+	lightKick chan struct{}
+	shared    map[string]string // per folder: the devices last shared with, and paused
+	places    map[string]*place // people working through the box, by name
 }
 
 func NewUsers(cfg UsersConfig) *Users {
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
 	}
-	return &Users{cfg: cfg, watchers: map[string]context.CancelFunc{}, shared: map[string]string{}}
+	return &Users{cfg: cfg, watchers: map[string]context.CancelFunc{}, shared: map[string]string{}, lightKick: make(chan struct{}, 1)}
 }
 
 // Status is what the hub page shows of pairing.
@@ -297,6 +297,7 @@ func (u *Users) Status() Status {
 func (u *Users) Run(ctx context.Context) {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
+	go u.pushLight(ctx)
 	setup := false
 	if st, err := Load(u.cfg.StatePath); err == nil {
 		for _, p := range st.People {

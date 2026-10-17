@@ -47,10 +47,9 @@ type boxPerson struct {
 	Asked    string  `json:"asked,omitempty"`
 	Declined string  `json:"declined,omitempty"`
 	Forward  *boxFwd `json:"forward,omitempty"`
-	// Through the web (see hub/light.go): their passkeys, the browsers
-	// signed in, and whether the admin turned web access off.
+	// Through the web (see hub/light.go): their passkeys, and whether the
+	// admin turned web access off.
 	Passkeys []boxKey `json:"passkeys"`
-	Sessions int      `json:"sessions"`
 	WebOff   bool     `json:"web_off,omitempty"`
 }
 
@@ -164,7 +163,6 @@ func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {
 		for _, k := range p.Passkeys {
 			bp.Passkeys = append(bp.Passkeys, boxKey{Name: k.Name, Used: k.Used})
 		}
-		bp.Sessions = len(st.SessionsOf(p.Name))
 		people = append(people, bp)
 	}
 	out["people"], out["files_at"], out["domain"] = people, d.boxURL()+hub.FilesPath, peers.GroupDomain(list)
@@ -248,8 +246,7 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 			if i < 0 {
 				return fmt.Errorf("nobody called %q on this box", req.Name)
 			}
-			s.People[i].WebOff = action == "web-off"
-			s.PruneSessions(time.Now())
+			s.People[i].WebOff = action == "web-off" // the box tells the web nodes, which end their sessions
 			done = req.Name + map[bool]string{true: " can't open their files through the web now", false: " can open their files through the web again"}[s.People[i].WebOff]
 			return nil
 		case "device-remove":
