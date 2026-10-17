@@ -300,6 +300,14 @@ For a form in the site's own design, put one on any page instead:
   address every ten minutes, and 100 a day per site on each web node.
   Posts from forms on other sites are refused.
 
+**Sending them on**: under Websites on the dashboard, *Also send its
+messages to* an ordinary email address: a code goes there, and once it's
+typed in beside the site, each new message from that site's form is also
+sent there through the group's [relay](mail.md#sending), from your address,
+with the visitor as Reply-To. It's per site, so a site you run for someone
+else can send its messages to them while the rest of your mail stays here.
+*Stop* ends it. Messages that came before it was confirmed stay here only.
+
 The message shows the visitor's address and the page the form was on. The
 web node sees the form as it arrives, as Cloudflare does; from then on only
 you can read it. `yggstore site contact example.org off` turns it off.

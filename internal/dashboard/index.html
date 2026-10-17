@@ -1598,13 +1598,25 @@ async function refreshSites() {
         <span class="sub" data-site-msg="${n}"></span>
       </div>
       <div data-editor="${n}"></div>
-      ${c && s.contact ? `<div class="sub">Visitors can write to you at <a href="https://${n}/_yggstore/contact" target="_blank" rel="noopener">${n}/_yggstore/contact</a>; it arrives in Mail. Your home page has a Contact link to it at the bottom (unless it linked to the form already); add the same link to other pages if you like.</div>` : ""}
+      ${c && s.contact ? `<div class="sub">Visitors can write to you at <a href="https://${n}/_yggstore/contact" target="_blank" rel="noopener">${n}/_yggstore/contact</a>; it arrives in Mail. Your home page has a Contact link to it at the bottom (unless it linked to the form already); add the same link to other pages if you like.</div>
+      <div class="sub" style="margin-top:4px">${siteForward(s)}</div>` : ""}
     </div>`;
   }).join("") + `<div class="sub" style="margin-top:8px"><b>Edit</b> changes pages here, adds pictures and other files, and deletes them; each save is a new version.
     Or replace the whole site with a folder (or zip) holding its <span class="mono">index.html</span>. Every version is kept, so you can go back.</div>`
     + (st.site_url && st.default ? `<div class="sub" style="margin-top:6px">Over Yggdrasil this box shows ${esc(st.default)} at
       <a href="${esc(st.site_url)}" target="_blank" rel="noopener" class="mono">${esc(st.site_url)}</a></div>` : "")
     + siteFolders(st);
+}
+// siteForward: where the site's contact messages go besides Mail. An
+// address starts with a code sent to it, typed here.
+function siteForward(s) {
+  const n = esc(s.site), f = s.forward;
+  if (f && f.confirmed) return `Its messages also go to <b>${esc(f.to)}</b>. <button class="plain" data-fwd-act="forward-off" data-site="${n}">Stop</button>`;
+  if (f) return `A code went to <b>${esc(f.to)}</b>: type it here to have the messages sent there too.
+    <input data-fwd-code="${n}" placeholder="123456" size="8" autocomplete="one-time-code" inputmode="numeric">
+    <button data-fwd-act="forward-confirm" data-site="${n}">Confirm</button> <button class="plain" data-fwd-act="forward-off" data-site="${n}">Cancel</button>`;
+  return `Also send its messages to <input data-fwd-to="${n}" type="email" placeholder="someone@example.org" size="24">
+    <button data-fwd-act="forward" data-site="${n}">Send a code</button>`;
 }
 // siteFolders: the outbox's websites/ folder, and why any site in it isn't
 // published (the same as the note beside its folder).
@@ -1734,6 +1746,19 @@ $("sites").addEventListener("click", async ev => {
   const r = await post("api/sites/" + act.dataset.siteAct, {body: JSON.stringify({site: name})});
   if (!r.ok) { siteMsg(name, await r.text(), true); return; }
   if (editSite === name) closeEditor(); else { sitesKey = ""; refreshSites(); }
+});
+$("sites").addEventListener("click", async ev => {
+  const b = ev.target.closest("[data-fwd-act]");
+  if (!b) return;
+  const name = b.dataset.site, act = b.dataset.fwdAct, q = s => document.querySelector(`[${s}="${CSS.escape(name)}"]`);
+  const body = {site: name};
+  if (act === "forward") body.to = (q("data-fwd-to") || {}).value || "";
+  if (act === "forward-confirm") body.code = (q("data-fwd-code") || {}).value || "";
+  siteMsg(name, act === "forward" ? "Sending a code…" : "…");
+  const r = await post("api/sites/" + act, {body: JSON.stringify(body)});
+  if (!r.ok) { siteMsg(name, await r.text(), true); return; }
+  sitesKey = ""; await refreshSites();
+  siteMsg(name, act === "forward" ? "A code is on its way: it may take a minute." : act === "forward-confirm" ? "Done: its messages go there too now." : "Its messages stay here only.");
 });
 $("sites").addEventListener("change", async ev => {
   const box = ev.target.closest("input[data-site-act=contact]");

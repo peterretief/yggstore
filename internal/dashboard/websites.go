@@ -47,6 +47,7 @@ type websiteInfo struct {
 	Current  *site.Version `json:"current,omitempty"`
 	Previous bool          `json:"previous,omitempty"` // an earlier version to go back to
 	Contact  bool          `json:"contact,omitempty"`
+	Forward  *forwardInfo  `json:"forward,omitempty"` // where its contact messages go too
 	Served   []string      `json:"served"`            // web nodes serving the current version
 	Waiting  []string      `json:"waiting,omitempty"` // web nodes still fetching it, or failing to
 }
@@ -139,6 +140,9 @@ func (d *Dashboard) handleSites(w http.ResponseWriter, r *http.Request) {
 	names, all := d.mySites(pub)
 	for _, s := range all {
 		info := websiteInfo{Site: s, Name: names[s], Served: []string{}, Contact: pub.Contact(s) != ""}
+		if f := d.loadForward(s); f != nil {
+			info.Forward = &forwardInfo{To: f.To, Confirmed: f.Confirmed}
+		}
 		vs, _ := pub.Versions(s)
 		info.Versions = len(vs)
 		for i, v := range vs {
@@ -455,6 +459,8 @@ func (d *Dashboard) handleSiteAction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Site string `json:"site"`
 		On   bool   `json:"on"`
+		To   string `json:"to"`   // forward: the address
+		Code string `json:"code"` // forward-confirm: the code sent to it
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -489,6 +495,14 @@ func (d *Dashboard) handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 		if err = pub.SetContact(ctx, name, code); err == nil {
 			err = d.contactLink(ctx, pub, name, req.On)
+		}
+	case "forward":
+		err = d.sendForwardCode(ctx, name, req.To)
+	case "forward-confirm":
+		err = d.confirmForward(name, req.Code, time.Now())
+	case "forward-off":
+		if err = d.saveForward(name, nil); err == nil {
+			d.event("info", "website "+name+": its contact form's messages stay here only")
 		}
 	case "remove":
 		if err = pub.Remove(ctx, name); err == nil {

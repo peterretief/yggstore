@@ -238,6 +238,7 @@ type Dashboard struct {
 	boxList      []BoxChoice       // members running a hub, found at boxesAt
 	boxesAt      time.Time
 	box          *mail.Box
+	fwdErr       map[string]string // the last problem forwarding each site's messages
 	state        State
 	history      map[string][]float64
 	seen         map[string]int64
@@ -291,6 +292,7 @@ func (d *Dashboard) Run(ctx context.Context) {
 	d.event("info", "dashboard started, watching "+d.cfg.StubDir)
 	go d.runWebsites(ctx)
 	go d.runRecovery(ctx)
+	go d.runForwards(ctx)
 	t := time.NewTicker(d.cfg.Interval)
 	defer t.Stop()
 	for {
