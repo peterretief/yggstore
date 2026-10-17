@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -59,8 +60,25 @@ func (rl *Relay) init() {
 		},
 		Transport:     rl.Transport,
 		FlushInterval: -1, // pass downloads and uploads on as they come
+		ModifyResponse: func(resp *http.Response) error {
+			// The box's key half goes to the browser, which keeps it.
+			v := resp.Header.Get(CopyHeader)
+			resp.Header.Del(CopyHeader)
+			if validCopy(v) {
+				if c, err := resp.Request.Cookie(CopyCookie); err != nil || c.Value != v {
+					resp.Header.Add("Set-Cookie", copyCookie(v, copyCookieFor).String())
+				}
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			rl.logf("light: %s: %v", r.Context().Value(targetKey{}), err)
+			// The box is off: its files page opens the recovery copy.
+			if c, cerr := r.Cookie(CopyCookie); cerr == nil && validCopy(c.Value) && r.Method == http.MethodGet && r.URL.Path == "/files" {
+				w.Header().Set("Cache-Control", "no-store")
+				http.Redirect(w, r, WorkPath+"?off=1#"+c.Value, http.StatusFound)
+				return
+			}
 			boxOff(w)
 		},
 	}
@@ -124,6 +142,19 @@ func setBox(w http.ResponseWriter, name string) {
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 }
 
+// copyCookieFor is how long a browser keeps the key half: as long as
+// browsers allow, renewed whenever the box is on.
+const copyCookieFor = 400 * 24 * 60 * 60
+
+var copyValue = regexp.MustCompile(`^[A-Za-z0-9_-]{16,64}\.[A-Za-z0-9_-]{16,128}$`)
+
+func validCopy(v string) bool { return copyValue.MatchString(v) }
+
+func copyCookie(v string, maxAge int) *http.Cookie {
+	return &http.Cookie{Name: CopyCookie, Value: v, Path: "/", MaxAge: maxAge,
+		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}
+}
+
 func sessionCookie(token string, maxAge int) *http.Cookie {
 	return &http.Cookie{Name: SessionCookie, Value: token, Path: "/", MaxAge: maxAge,
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode}
@@ -184,6 +215,7 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			rl.Signin.end(tokenHash(c.Value), true)
 		}
 		http.SetCookie(w, sessionCookie("", -1))
+		http.SetCookie(w, copyCookie("", -1)) // this browser no longer opens the copy
 		w.WriteHeader(http.StatusNoContent)
 		return
 	case p == JoinPath || p == Base+"/begin" || p == Base+"/register":

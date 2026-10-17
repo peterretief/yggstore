@@ -155,4 +155,11 @@ func TestCopiesForLightClients(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(store.Dir, kath.RecoveryID+".json")); err != nil {
 		t.Fatalf("no record on the web node: %v", err)
 	}
+	// Her browser is given the link's half, to open the copy with the box off.
+	if v := u.copyLink("kath"); !strings.HasPrefix(v, kath.RecoveryID+".") || len(v) < len(kath.RecoveryID)+20 {
+		t.Fatalf("the half for her browser: %q", v)
+	}
+	if v := u.copyLink("bob"); v != "" {
+		t.Fatalf("bob has no copies, but his browser gets %q", v)
+	}
 }

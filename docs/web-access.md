@@ -1,6 +1,6 @@
 # Light clients: people on a box, through the web
 
-Status: approved 2026-10-16. Steps 1 to 4 are built, and always on steps 1 and 2; writing mail (5) and the rest are not.
+Status: approved 2026-10-16. Steps 1 to 4 are built, and always on (6); writing mail (5) and the rest are not.
 
 Most people on a box are **light clients**: they want files, a website and
 email, and nothing to install. Everything they do goes through their box,
@@ -139,9 +139,9 @@ On each person's row under People on this box:
 - **Uploads go in pieces** of up to 32 MB, as the recovery link's page
   already does, because Cloudflare refuses a single request over 100 MB.
   Any size still works.
-- **The box must be on, for now.** When it's off the page says so. This
-  goes against what the group is for; see [Always on](#always-on), the
-  next step.
+- **With the box off,** signing in works and files open from the latest
+  recovery copy, with changes waiting for the box (see
+  [Always on](#always-on)).
 - **It's for people on a box.** Members with their own node keep their
   dashboard, over Yggdrasil.
 - **At home too,** a light client uses `my.withcare.co.za`: the request
@@ -216,18 +216,31 @@ box has is the sign-in details and the stubs that open the files. So:
    with their keys. If it can't start (the group's messaging or nodes
    unreachable), it tries again every 10 minutes. No link is emailed: the
    key half for the browser comes in step 3.
-3. **A box that's off is served from the recovery copy.** When the box
-   doesn't answer, the web node opens the person's latest recovery copy and
-   shows the same files page, built on the recovery link's page: browse and
-   download from the group, upload, rename, move, delete. Changes wait on
-   the web nodes and are made in the box's folder when it's back, as they
-   already are for the recovery link. The page says "your box is off since
-   …; changes you make now are kept and reach it when it's back".
+3. **A box that's off is served from the recovery copy** (built
+   2026-10-17). When the box doesn't answer, the web node sends the
+   browser to the recovery link's page (`/_yggstore/work`, on `my.` or the
+   person's own address) with the key half it keeps, and the page says
+   "Your box is off right now… changes you make here are kept, and reach
+   your box when it's back". It's the same page as the recovery link:
+   browse and download from the group, upload, new folder, rename, move,
+   delete. Changes wait on the web nodes and the box makes them in the
+   person's folder within 20 seconds of being back.
    - **The copy's key** is in two halves, as for the recovery link: the web
-     nodes hold one, and the person's browser keeps the other, given to it
-     when it signs in while the box is on. A browser that has never signed
-     in while the box was on uses the recovery link from the person's
-     email. So the web nodes alone still can't open the copy.
+     nodes hold one, and the person's browser keeps the other. While the box
+     is on, opening `/files` gives the browser its half (`X-Yggstore-Copy`
+     from the box, which the web node turns into the `ygg_copy` cookie:
+     `Secure`, `HttpOnly`, so no page script can read it, even on the
+     person's own website). Signing out removes it. So the web nodes alone
+     still can't open the copy at rest, though they see the half as it
+     passes, as they see the recovery link's.
+   - **Limits:** a browser that has never opened its files while the box
+     was on has no half, and gets "Your box isn't answering" (there's no
+     recovery email for light clients yet). The copy is as the box last
+     saved it, a couple of minutes after a change. Moving the folder to
+     another device through Syncthing is hidden on that page, since it
+     needs the box. The page doesn't ask for a sign-in itself: like the
+     recovery link, holding the half is enough, but only a signed-in
+     browser is sent there.
 
 After these, losing any one machine (a box, a web node, a storage node)
 stops nobody. Mail (step 5 of the build order) should follow the same rule.

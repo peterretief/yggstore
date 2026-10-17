@@ -348,7 +348,7 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if w.Light != nil {
-		if d := peers.GroupDomain(w.Peers()); d != "" && host == LightPrefix+d {
+		if d := peers.GroupDomain(w.Peers()); d != "" && host == LightPrefix+d && !(w.Work != nil && r.URL.Path == WorkPath) {
 			w.Light.ServeHTTP(rw, r)
 			return
 		}

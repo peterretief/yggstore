@@ -231,6 +231,22 @@ func (u *Users) Anywhere(ctx context.Context, device, email string) (string, err
 	return "Done: your link is on its way to " + email + ". Keep that email: open the link on any device to work there.", nil
 }
 
+// copyLink is the person's recovery ID and the link's half of its key
+// ("ID.half"), once the box keeps copies for them; "" before.
+func (u *Users) copyLink(person string) string {
+	u.mu.Lock()
+	pl := u.places[person]
+	u.mu.Unlock()
+	if pl == nil {
+		return ""
+	}
+	ks := pl.keeper.Keys()
+	if ks.ID == "" || ks.LinkHalf == "" || len(ks.Sealed) == 0 {
+		return ""
+	}
+	return ks.ID + "." + ks.LinkHalf
+}
+
 // startCopies starts keeping recovery copies of a person's folder, with
 // their record on the web nodes: it makes them a sharing key if they have
 // none, saves a first copy and notes their recovery ID in the state file.

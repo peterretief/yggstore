@@ -23,6 +23,14 @@ const (
 	SessionCookie = "ygg_session"
 	// Base is where signing in happens, on the box's files page.
 	Base = "/files/light"
+	// CopyHeader is how a box gives the relay the person's recovery ID
+	// and the browser's half of its key ("ID.half"), on their files page.
+	// The relay keeps it in CopyCookie, in the browser, so it can open
+	// their recovery copy while the box is off.
+	CopyHeader = "X-Yggstore-Copy"
+	CopyCookie = "ygg_copy"
+	// WorkPath is the recovery copy's page (package workhere's PagePath).
+	WorkPath = "/_yggstore/work"
 )
 
 var (

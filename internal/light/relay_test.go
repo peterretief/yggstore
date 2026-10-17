@@ -224,3 +224,61 @@ func waitUntil(t *testing.T, ok func() bool, what string) {
 	}
 	t.Fatalf("waited for %s", what)
 }
+
+// The box gives the browser its half of the recovery copy's key while it's
+// on; with the box off, the files page opens the copy with it.
+func TestRelayBoxOff(t *testing.T) {
+	const half = "yKTBM4Go0vXeL9v1bj9wAg.0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
+	box := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(CopyHeader, half)
+		w.Write([]byte("from the box"))
+	}))
+	list := []peers.Peer{{Name: "box", Addr: "[201::4]:7400"}}
+	store := &Store{Dir: t.TempDir(), Peers: func() []peers.Peer { return list }}
+	rl := &Relay{Peers: func() []peers.Peer { return list }, Signin: store, BoxURL: func(string) string { return box.URL }}
+	token := signedIn(t, store, "my.example.org")
+	do := func(method, target string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, target, nil)
+		r.Host = "my.example.org"
+		r.Header.Set("X-Yggstore", "1")
+		r.AddCookie(&http.Cookie{Name: SessionCookie, Value: token})
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		rl.ServeHTTP(w, r)
+		return w
+	}
+	w := do("GET", "/files")
+	var kept *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == CopyCookie {
+			kept = c
+		}
+	}
+	if kept == nil || kept.Value != half || !kept.HttpOnly || !kept.Secure || w.Header().Get(CopyHeader) != "" {
+		t.Fatalf("the browser was given %+v, header %q", kept, w.Header().Get(CopyHeader))
+	}
+	if w := do("GET", "/files", kept); len(w.Result().Cookies()) != 0 {
+		t.Fatal("a browser that has the half was given it again")
+	}
+
+	box.Close()
+	if w := do("GET", "/files", kept); w.Code != http.StatusFound || w.Header().Get("Location") != WorkPath+"?off=1#"+half {
+		t.Fatalf("box off, with the half: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	if w := do("GET", "/files"); w.Code != http.StatusBadGateway {
+		t.Fatalf("box off, without it: %d", w.Code)
+	}
+	if w := do("POST", "/files?op=list", kept); w.Code != http.StatusBadGateway {
+		t.Fatalf("box off, an action: %d", w.Code)
+	}
+	// Signed out, the browser forgets it.
+	w = do("POST", Base+"/signout", kept)
+	for _, c := range w.Result().Cookies() {
+		if c.Name == CopyCookie && c.MaxAge < 0 {
+			return
+		}
+	}
+	t.Fatal("signing out left the half in the browser")
+}

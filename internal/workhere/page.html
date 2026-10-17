@@ -52,6 +52,8 @@ a { color: var(--accent); }
 <main>
   <h1>Your files</h1>
   <div class="sub" id="saved"></div>
+  <div class="card" id="off" hidden><b>Your box is off right now,</b> so these are your files as it last saved them.
+    Changes you make here are kept, and reach your box when it's back. <a href="/files">Try your box again</a></div>
 
   <div class="card" id="browser" hidden>
     <div class="bar"><div class="crumbs" id="crumbs"></div>
@@ -117,6 +119,8 @@ if (live) {
   const site = document.documentElement.dataset.site;
   if (site) { const a = document.createElement("a"); a.href = site; a.textContent = "Your website and messages"; $("saved").append(" · ", a); }
 } else if (!id || !link) { $("bad").hidden = false; $("stepsWrap").hidden = true; }
+// off: the web node sent a light client here because their box is off.
+if (!live && new URLSearchParams(location.search).get("off") === "1") { $("off").hidden = false; $("stepsWrap").hidden = true; }
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const size = n => n >= 1 << 30 ? (n / (1 << 30)).toFixed(1) + " GB" : n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB"

@@ -351,3 +351,23 @@ func TestGroupNamesBelongToTheirNode(t *testing.T) {
 		t.Fatalf("a name taken back is still served: %d", code)
 	}
 }
+
+// my. is the light clients', but the recovery copy's page opens there too,
+// for a light client whose box is off.
+func TestLightAddressServesWorkPage(t *testing.T) {
+	nodes := []peers.Peer{{Name: "admin", Admin: true, Domain: "example.org"}}
+	served := ""
+	handler := func(name string) http.Handler {
+		return http.HandlerFunc(func(http.ResponseWriter, *http.Request) { served = name })
+	}
+	web := &Web{Dir: t.TempDir(), Peers: func() []peers.Peer { return nodes }, Light: handler("light"), Work: handler("work")}
+	for path, want := range map[string]string{"/files": "light", WorkPath: "work", "/": "light"} {
+		served = ""
+		r := httptest.NewRequest("GET", path, nil)
+		r.Host = "my.example.org"
+		web.ServeHTTP(httptest.NewRecorder(), r)
+		if served != want {
+			t.Errorf("my.example.org%s went to %q, not %q", path, served, want)
+		}
+	}
+}
