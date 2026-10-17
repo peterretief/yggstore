@@ -298,6 +298,7 @@ func (u *Users) Run(ctx context.Context) {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 	go u.pushLight(ctx)
+	go u.keepCopies(ctx)
 	setup := false
 	if st, err := Load(u.cfg.StatePath); err == nil {
 		for _, p := range st.People {

@@ -188,21 +188,10 @@ func (u *Users) Anywhere(ctx context.Context, device, email string) (string, err
 	if !found {
 		return "", errors.New("that device isn't paired with this box: add the box in Syncthing first (above), then try again")
 	}
-	if _, err := share.LoadOrCreate(filepath.Join(homeOf(person), "sharing.key")); err != nil {
-		return "", fmt.Errorf("making %s a sharing key: %w", person.Name, err)
-	}
-	pl, err := u.startPlace(ctx, person)
+	pl, err := u.startCopies(ctx, person)
 	if err != nil {
 		return "", err
 	}
-	pl.tracker.Step(ctx) // claims the working copy if nobody holds it yet
-	if !pl.tracker.Holding() {
-		return "", fmt.Errorf("%s's files are being worked on at %s: open your link there, or move them here with it", person.Name, pl.tracker.State().Holder)
-	}
-	if _, err := pl.keeper.SaveNow(ctx); err != nil {
-		return "", fmt.Errorf("saving a copy of your folder: %w", err)
-	}
-	u.keepRecord(ctx, person, pl.keeper)
 	ks := pl.keeper.Keys()
 	host := ""
 	if u.cfg.LinkHost != nil {
@@ -240,6 +229,72 @@ func (u *Users) Anywhere(ctx context.Context, device, email string) (string, err
 	}
 	u.cfg.Logf("hub: %s can work from anywhere now; their link went to %s", person.Name, email)
 	return "Done: your link is on its way to " + email + ". Keep that email: open the link on any device to work there.", nil
+}
+
+// startCopies starts keeping recovery copies of a person's folder, with
+// their record on the web nodes: it makes them a sharing key if they have
+// none, saves a first copy and notes their recovery ID in the state file.
+func (u *Users) startCopies(ctx context.Context, person Person) (*place, error) {
+	if _, err := share.LoadOrCreate(filepath.Join(homeOf(person), "sharing.key")); err != nil {
+		return nil, fmt.Errorf("making %s a sharing key: %w", person.Name, err)
+	}
+	pl, err := u.startPlace(ctx, person)
+	if err != nil {
+		return nil, err
+	}
+	pl.tracker.Step(ctx) // claims the working copy if nobody holds it yet
+	if !pl.tracker.Holding() {
+		return nil, fmt.Errorf("%s's files are being worked on at %s: open your link there, or move them here with it", person.Name, pl.tracker.State().Holder)
+	}
+	if _, err := pl.keeper.SaveNow(ctx); err != nil {
+		return nil, fmt.Errorf("saving a copy of your folder: %w", err)
+	}
+	u.keepRecord(ctx, person, pl.keeper)
+	id := pl.keeper.Keys().ID
+	if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
+		for i := range s.People {
+			if s.People[i].Name == person.Name {
+				s.People[i].RecoveryID = id
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return pl, nil
+}
+
+// CopiesRetry is how long the box waits to try again to start a person's
+// recovery copies, after it couldn't.
+var CopiesRetry = 10 * time.Minute
+
+// keepCopies starts recovery copies for everyone who signs in through the
+// web, with no device ID or email needed, so the web nodes can open their
+// files while the box is off (docs/web-access.md, always on).
+func (u *Users) keepCopies(ctx context.Context) {
+	tried := map[string]time.Time{}
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		if st, err := Load(u.cfg.StatePath); err == nil {
+			for _, p := range st.People {
+				if p.RecoveryID != "" || !p.WebAccess() || len(p.Passkeys) == 0 || time.Since(tried[p.Name]) < CopiesRetry {
+					continue
+				}
+				tried[p.Name] = time.Now()
+				if _, err := u.startCopies(ctx, p); err != nil {
+					u.cfg.Logf("hub: %s: recovery copies: %v (trying again in %v)", p.Name, err, CopiesRetry)
+					continue
+				}
+				u.cfg.Logf("hub: %s: keeping recovery copies, for their files with the box off", p.Name)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 // collectUploads makes what the person uploaded and changed on their link

@@ -1,6 +1,6 @@
 # Light clients: people on a box, through the web
 
-Status: approved 2026-10-16. Steps 1 to 4 are built; writing mail (5) and the later steps are not.
+Status: approved 2026-10-16. Steps 1 to 4 are built, and always on steps 1 and 2; writing mail (5) and the rest are not.
 
 Most people on a box are **light clients**: they want files, a website and
 email, and nothing to install. Everything they do goes through their box,
@@ -208,9 +208,14 @@ box has is the sign-in details and the stubs that open the files. So:
      node that was broken into couldn't open anyone's files. After this it
      could pass as anyone. The web nodes already see all web traffic, so
      the group trusts them already, but it is a step.
-2. **Every light client gets a recovery copy**, on by default, with no
-   Syncthing ID needed: the box keeps one for each person with web access,
-   as it does for "work from anywhere" (see [recovery](recovery.md)).
+2. **Every light client gets a recovery copy** (built 2026-10-17), on by
+   default, with no Syncthing ID or email needed: once someone with web
+   access has a key, the box makes them a sharing key, saves a first copy
+   and keeps their record on the web nodes, as for "work from anywhere"
+   (see [recovery](recovery.md)). It tells the web nodes their recovery ID
+   with their keys. If it can't start (the group's messaging or nodes
+   unreachable), it tries again every 10 minutes. No link is emailed: the
+   key half for the browser comes in step 3.
 3. **A box that's off is served from the recovery copy.** When the box
    doesn't answer, the web node opens the person's latest recovery copy and
    shows the same files page, built on the recovery link's page: browse and

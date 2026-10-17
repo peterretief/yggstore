@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/peers"
@@ -95,5 +96,63 @@ func TestAnywhereFromTheBoxPage(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(p.Path, "files", "late.txt.ystub")); err != nil {
 		t.Fatal("moving to another device lost a stub stored after the last copy")
+	}
+}
+
+// Someone who signs in through the web gets recovery copies by
+// themselves, with no device ID or email, and the web nodes are told
+// where their record is.
+func TestCopiesForLightClients(t *testing.T) {
+	u, _, _ := setupUsers(t, 0)
+	d := newDesktop(t)
+	u.cfg.Client = client.New()
+	u.cfg.Bus = func() (workcopy.Bus, error) { return &bus{}, nil }
+	u.cfg.Online = func(context.Context) ([]peers.Peer, error) { return d.nodes, nil }
+	store := &workhere.Store{Dir: t.TempDir()}
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !store.Serve(w, r, "200::1") {
+			http.NotFound(w, r)
+		}
+	}))
+	defer web.Close()
+	u.cfg.WebNodes = func(context.Context) []string { return []string{strings.TrimPrefix(web.URL, "http://")} }
+	u.cfg.SelfAddr = "[200::3]:7400"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
+		for _, n := range []string{"kath", "bob"} {
+			s.People = append(s.People, Person{Name: n, Folder: "yggstore-p-" + n, Path: filepath.Join(u.cfg.Dir, n)})
+		}
+		s.People[0].Passkeys = []Passkey{{Name: "phone"}} // bob has no key yet
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(u.cfg.Dir, "kath", "files"), 0o755)
+	os.WriteFile(filepath.Join(u.cfg.Dir, "kath", "files", "notes.txt.ystub"), []byte(`{"n":1}`), 0o644)
+
+	go u.keepCopies(ctx)
+	var kath Person
+	for i := 0; ; i++ {
+		st, _ := Load(u.cfg.StatePath)
+		kath, _ = st.PersonNamedOK("kath")
+		if kath.RecoveryID != "" {
+			if bob, _ := st.PersonNamedOK("bob"); bob.RecoveryID != "" {
+				t.Fatal("copies started for someone with no key")
+			}
+			lp := st.LightPeople()
+			if len(lp.People) != 1 || lp.People[0].Recovery != kath.RecoveryID {
+				t.Fatalf("the web nodes are told %+v", lp)
+			}
+			break
+		}
+		if i == 300 {
+			t.Fatal("no recovery copies for someone on the web")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(store.Dir, kath.RecoveryID+".json")); err != nil {
+		t.Fatalf("no record on the web node: %v", err)
 	}
 }

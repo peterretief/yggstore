@@ -437,7 +437,7 @@ func (s HubState) LightPeople() light.People {
 		if len(p.Passkeys) == 0 {
 			continue
 		}
-		lp := light.Person{Name: p.Name, Web: p.WebAccess()}
+		lp := light.Person{Name: p.Name, Web: p.WebAccess(), Recovery: p.RecoveryID}
 		for _, k := range p.Passkeys {
 			lp.Keys = append(lp.Keys, k.light())
 		}

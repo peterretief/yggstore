@@ -64,6 +64,9 @@ type Person struct {
 	Name string `json:"name"`
 	Web  bool   `json:"web"` // may sign in on the web now
 	Keys []Key  `json:"keys"`
+	// Recovery is their recovery ID: the web nodes' record of their
+	// latest recovery copy, for their files while the box is off.
+	Recovery string `json:"recovery,omitempty"`
 }
 
 // People is what a box sends the web nodes: everyone on it with a key.
