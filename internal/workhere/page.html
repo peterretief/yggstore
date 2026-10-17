@@ -131,6 +131,8 @@ async function list(dir) {
   try {
     const r = await fetch(location.pathname + "?op=list", {method: "POST", headers: {...H, "Content-Type": "application/json"},
       body: JSON.stringify({id, link, path: dir})});
+    // On the web, the box stopped answering: reloading opens the saved copy.
+    if (live && r.status === 502 && location.protocol === "https:") { location.href = "/files"; return; }
     const out = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(out.error || "Something went wrong (" + r.status + ")");
     here = out.path;

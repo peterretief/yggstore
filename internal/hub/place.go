@@ -309,6 +309,7 @@ func (u *Users) keepCopies(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		case <-u.copiesKick:
 		}
 	}
 }

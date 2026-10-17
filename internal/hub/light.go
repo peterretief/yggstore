@@ -224,7 +224,7 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 	case FilesPath + "/devices":
 		f.lightDevices(w, r, p)
 	default:
-		if r.Method == http.MethodGet && r.URL.Path == FilesPath {
+		if r.Method == http.MethodGet {
 			if v := f.u.copyLink(p.Name); v != "" {
 				w.Header().Set(light.CopyHeader, v)
 			}
@@ -455,6 +455,10 @@ func (s HubState) LightPeople() light.People {
 func (u *Users) lightChanged() {
 	select {
 	case u.lightKick <- struct{}{}:
+	default:
+	}
+	select {
+	case u.copiesKick <- struct{}{}: // a new key: start their copies now
 	default:
 	}
 }

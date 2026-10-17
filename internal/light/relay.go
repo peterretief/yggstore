@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/passkey"
@@ -43,6 +44,98 @@ type Relay struct {
 	Log    func(format string, args ...any)
 
 	proxy *httputil.ReverseProxy
+	mu    sync.Mutex
+	down  map[string]bool      // boxes that didn't answer, by address, until they do
+	heard map[string]time.Time // when each box last answered
+}
+
+// QuietFor is how long a box may go unheard before the relay checks it's
+// there (within CheckWait) before passing a request on, so that a box
+// that's off is found at once, not after a long wait for it.
+var QuietFor, CheckWait = time.Minute, 4 * time.Second
+
+func (rl *Relay) answered(ip string) {
+	rl.mu.Lock()
+	if rl.heard == nil {
+		rl.heard = map[string]time.Time{}
+	}
+	rl.heard[ip] = time.Now()
+	rl.mu.Unlock()
+}
+
+// there is whether the box at ip answers: at once if it has lately.
+func (rl *Relay) there(ctx context.Context, ip string) bool {
+	rl.mu.Lock()
+	quiet := time.Since(rl.heard[ip]) > QuietFor
+	rl.mu.Unlock()
+	if !quiet {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(ctx, CheckWait)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, rl.boxURL(ip)+Base+"/ping", nil)
+	resp, err := rl.client().Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	rl.answered(ip)
+	return true
+}
+
+// ProbeEvery is how often the relay asks a box that didn't answer whether
+// it's back. Until then, its people's requests don't wait for it.
+var ProbeEvery = 10 * time.Second
+
+type ipKey struct{}
+
+func (rl *Relay) isDown(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	return rl.down[ip]
+}
+
+// markDown notes that the box at ip didn't answer, and asks it every
+// ProbeEvery until it does.
+func (rl *Relay) markDown(ip string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if rl.down[ip] {
+		return
+	}
+	if rl.down == nil {
+		rl.down = map[string]bool{}
+	}
+	rl.down[ip] = true
+	go func() {
+		c := rl.client()
+		c.Timeout = 5 * time.Second
+		for {
+			time.Sleep(ProbeEvery)
+			if resp, err := c.Get(rl.boxURL(ip) + Base + "/ping"); err == nil {
+				resp.Body.Close()
+				rl.answered(ip)
+				rl.mu.Lock()
+				delete(rl.down, ip)
+				rl.mu.Unlock()
+				rl.logf("light: the box at %s answers again", ip)
+				return
+			}
+		}
+	}()
+}
+
+// offline answers for a box that's off: a browser opening a page with the
+// key half goes to the recovery copy's page; anything else is told the box
+// isn't answering (the files page then reloads, and so goes there too).
+func (rl *Relay) offline(w http.ResponseWriter, r *http.Request) {
+	nav := r.Method == http.MethodGet && (r.URL.Path == "/files" || r.Header.Get("Sec-Fetch-Mode") == "navigate")
+	if c, err := r.Cookie(CopyCookie); err == nil && validCopy(c.Value) && nav {
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, WorkPath+"?off=1#"+c.Value, http.StatusFound)
+		return
+	}
+	boxOff(w)
 }
 
 type targetKey struct{}
@@ -61,6 +154,7 @@ func (rl *Relay) init() {
 		Transport:     rl.Transport,
 		FlushInterval: -1, // pass downloads and uploads on as they come
 		ModifyResponse: func(resp *http.Response) error {
+			rl.answered(resp.Request.Context().Value(ipKey{}).(string))
 			// The box's key half goes to the browser, which keeps it.
 			v := resp.Header.Get(CopyHeader)
 			resp.Header.Del(CopyHeader)
@@ -73,13 +167,10 @@ func (rl *Relay) init() {
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			rl.logf("light: %s: %v", r.Context().Value(targetKey{}), err)
-			// The box is off: its files page opens the recovery copy.
-			if c, cerr := r.Cookie(CopyCookie); cerr == nil && validCopy(c.Value) && r.Method == http.MethodGet && r.URL.Path == "/files" {
-				w.Header().Set("Cache-Control", "no-store")
-				http.Redirect(w, r, WorkPath+"?off=1#"+c.Value, http.StatusFound)
-				return
+			if r.Context().Err() == nil { // not the browser giving up
+				rl.markDown(r.Context().Value(ipKey{}).(string))
 			}
-			boxOff(w)
+			rl.offline(w, r)
 		},
 	}
 }
@@ -557,7 +648,20 @@ func (rl *Relay) forward(w http.ResponseWriter, r *http.Request, ip string) {
 		http.Error(w, html.EscapeString(err.Error()), http.StatusInternalServerError)
 		return
 	}
-	rl.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), targetKey{}, target)))
+	if rl.isDown(ip) {
+		rl.offline(w, r)
+		return
+	}
+	if !rl.there(r.Context(), ip) {
+		if r.Context().Err() == nil { // not the browser giving up
+			rl.logf("light: the box at %s doesn't answer", ip)
+			rl.markDown(ip)
+		}
+		rl.offline(w, r)
+		return
+	}
+	ctx := context.WithValue(context.WithValue(r.Context(), targetKey{}, target), ipKey{}, ip)
+	rl.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
 func hostOnly(h string) string {

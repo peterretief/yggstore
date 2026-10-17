@@ -232,15 +232,17 @@ type Users struct {
 	watchers map[string]context.CancelFunc
 	// lightKick asks pushLight to send the web nodes the box's people.
 	lightKick chan struct{}
-	shared    map[string]string // per folder: the devices last shared with, and paused
-	places    map[string]*place // people working through the box, by name
+	// copiesKick asks keepCopies to look for people who need copies.
+	copiesKick chan struct{}
+	shared     map[string]string // per folder: the devices last shared with, and paused
+	places     map[string]*place // people working through the box, by name
 }
 
 func NewUsers(cfg UsersConfig) *Users {
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
 	}
-	return &Users{cfg: cfg, watchers: map[string]context.CancelFunc{}, shared: map[string]string{}, lightKick: make(chan struct{}, 1)}
+	return &Users{cfg: cfg, watchers: map[string]context.CancelFunc{}, shared: map[string]string{}, lightKick: make(chan struct{}, 1), copiesKick: make(chan struct{}, 1)}
 }
 
 // Status is what the hub page shows of pairing.

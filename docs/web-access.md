@@ -233,6 +233,14 @@ box has is the sign-in details and the stubs that open the files. So:
      person's own website). Signing out removes it. So the web nodes alone
      still can't open the copy at rest, though they see the half as it
      passes, as they see the recovery link's.
+   - **Finding the box off quickly:** a web node checks a box it hasn't
+     heard from for a minute (4 seconds at most) before passing a request
+     on, and once a box hasn't answered it doesn't wait for it again, but
+     asks it every 10 seconds until it's back. While it's off, any page a
+     browser opens under `/files` (a link on the page included) goes to
+     the copy, and the files page reloads itself when the box stops
+     answering, so it goes there too. The box gives the half on any page
+     or listing, and starts a new key's copies at once.
    - **Limits:** a browser that has never opened its files while the box
      was on has no half, and gets "Your box isn't answering" (there's no
      recovery email for light clients yet). The copy is as the box last

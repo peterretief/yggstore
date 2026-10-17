@@ -273,6 +273,20 @@ func TestRelayBoxOff(t *testing.T) {
 	if w := do("POST", "/files?op=list", kept); w.Code != http.StatusBadGateway {
 		t.Fatalf("box off, an action: %d", w.Code)
 	}
+	if !rl.isDown("201::4") {
+		t.Fatal("the box that didn't answer isn't marked off")
+	}
+	// A link on the page, such as Your devices, opens the copy too.
+	r := httptest.NewRequest("GET", "/files/devices", nil)
+	r.Host = "my.example.org"
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	r.AddCookie(&http.Cookie{Name: SessionCookie, Value: token})
+	r.AddCookie(kept)
+	w = httptest.NewRecorder()
+	rl.ServeHTTP(w, r)
+	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), WorkPath) {
+		t.Fatalf("box off, a link on the page: %d %q", w.Code, w.Header().Get("Location"))
+	}
 	// Signed out, the browser forgets it.
 	w = do("POST", Base+"/signout", kept)
 	for _, c := range w.Result().Cookies() {
