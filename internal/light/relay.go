@@ -277,6 +277,9 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
 	// Someone's own address: their box, and only them.
 	own, only, isOwn := personHost(rl.Peers(), host)
+	if !isOwn && rl.serveLogin(w, r, host) {
+		return
+	}
 	if !isOwn && (p == "/" || p == "") {
 		if _, ok := rl.signedIn(w, r, host, ""); ok {
 			http.Redirect(w, r, "/files", http.StatusFound)
@@ -295,6 +298,9 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case isOwn && p == backPath && r.Method == http.MethodGet:
+		rl.loginBack(w, r, host, only, own)
+		return
 	case p == Base+"/challenge":
 		jsonOK(w, map[string]string{"challenge": passkey.NewChallenge(time.Now()), "rp": host})
 		return
@@ -339,6 +345,10 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ss, ok := rl.signedIn(w, r, host, only)
 	if !ok {
 		if r.Method == http.MethodGet && (p == "/files" || p == "/files/") && r.URL.RawQuery == "" {
+			// At their own address, my. may know them already.
+			if isOwn && rl.startLogin(w, r, host) {
+				return
+			}
 			ServeSignIn(w, http.StatusOK)
 			return
 		}
@@ -452,10 +462,13 @@ func (rl *Relay) signIn(w http.ResponseWriter, r *http.Request, host, only strin
 	go rl.tellBox(f.Box, host, f.Person.Name, Seen{Key: f.Key.ID, Used: true})
 	rl.logf("light: %s on %s signed in at %s (%s)", f.Person.Name, f.Box, host, f.Key.Name)
 	http.SetCookie(w, sessionCookie(token, int(ss.For().Seconds())))
+	answer := map[string]string{"person": f.Person.Name}
 	if !own(rl.Peers(), host) {
 		setBox(w, f.Box)
+	} else if next := rl.adoptLink(ss, host); next != "" {
+		answer["next"] = next // signed in at my. too
 	}
-	jsonOK(w, map[string]string{"person": f.Person.Name})
+	jsonOK(w, answer)
 }
 
 func own(list []peers.Peer, host string) bool { _, _, ok := personHost(list, host); return ok }
@@ -603,7 +616,13 @@ func (rl *Relay) register(w http.ResponseWriter, r *http.Request, host string, b
 	token, ss := rl.Signin.newSession(f, host, time.Now())
 	rl.logf("light: %s on %s made a key at %s (%s)", reg.Person, box.Name, host, reg.Key.Name)
 	http.SetCookie(w, sessionCookie(token, int(ss.For().Seconds())))
-	jsonOK(w, map[string]string{"person": reg.Person})
+	reply := map[string]string{"person": reg.Person}
+	if own(rl.Peers(), host) {
+		if next := rl.adoptLink(ss, host); next != "" {
+			reply["next"] = next
+		}
+	}
+	jsonOK(w, reply)
 }
 
 // devices answers what the web node knows of the person's devices: the
@@ -615,11 +634,27 @@ func (rl *Relay) devices(w http.ResponseWriter, r *http.Request, me Session) boo
 		f, _ := rl.Signin.key(me.Key)
 		type sess struct {
 			Session
-			Me bool `json:"me,omitempty"`
+			Me     bool     `json:"me,omitempty"`
+			Places []string `json:"places"` // the addresses it's signed in at
 		}
+		// One per browser: a session at another address that came from
+		// one at my. is a place of that one.
+		all := rl.Signin.sessionsOf(me.Box, me.Person)
+		at := map[string]int{}
 		ss := []sess{}
-		for _, s := range rl.Signin.sessionsOf(me.Box, me.Person) {
-			ss = append(ss, sess{s, s.Hash == me.Hash})
+		for _, s := range all {
+			if s.Via == "" {
+				at[s.Hash] = len(ss)
+				ss = append(ss, sess{s, s.Hash == me.Hash, []string{s.Host}})
+			}
+		}
+		for _, s := range all {
+			if i, ok := at[s.Via]; ok {
+				ss[i].Places = append(ss[i].Places, s.Host)
+				ss[i].Me = ss[i].Me || s.Hash == me.Hash
+			} else if s.Via != "" {
+				ss = append(ss, sess{s, s.Hash == me.Hash, []string{s.Host}})
+			}
 		}
 		keys := []Key{}
 		for _, k := range f.Person.Keys {

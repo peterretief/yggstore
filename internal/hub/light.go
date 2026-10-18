@@ -395,6 +395,7 @@ async function load() {
   document.getElementById("keys").innerHTML = d.passkeys.map(k => "<li><b>" + esc(k.name) + "</b>" + (k.kind === "browser" ? " (kept by that browser)" : "") + ", made " + when(k.added) + ", last used " + when(k.used) +
     (d.passkeys.length > 1 ? " <button data-forget='" + esc(k.id) + "'>Forget</button>" : "") + "</li>").join("");
   document.getElementById("sessions").innerHTML = d.sessions.map(s => "<li><b>" + esc(s.device) + "</b>" + (s.me ? " (this browser)" : "") +
+    (s.places && s.places.length ? ", at " + s.places.map(esc).join(", ") : "") +
     ", since " + when(s.started) + ", last used " + when(s.used) + " <button data-out='" + esc(s.hash) + "'>Sign out</button></li>").join("") || "<li>None</li>";
 }
 document.addEventListener("click", async ev => {

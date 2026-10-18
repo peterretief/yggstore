@@ -72,7 +72,7 @@ async function join() {
     r = await post("/register", {t, name: document.getElementById("name").value.trim(), challenge: b.challenge, id: cred.id,
       client_data: b64(res.clientDataJSON), auth_data: b64(res.getAuthenticatorData()), spki: b64(res.getPublicKey()), alg: res.getPublicKeyAlgorithm()});
     if (!r.ok) throw new Error((await r.text()).trim());
-    location.href = "/files";
+    location.href = (await r.json()).next || "/files"; // next: signed in at my. too
   } catch (e) {
     msg.textContent = e.name === "NotAllowedError" ? "Making the passkey was cancelled. Press the button to try again." : e.message;
   }
@@ -113,7 +113,7 @@ async function joinBrowser() {
     r = await post("/register", {kind: "browser", t, name: document.getElementById("name").value.trim() || "a browser", challenge: b.challenge,
       id, spki: b64(spki), signature: b64(sig), pin});
     if (!r.ok) { await idb("readwrite", s => s.delete("me")); throw new Error((await r.text()).trim()); }
-    location.href = "/files";
+    location.href = (await r.json()).next || "/files";
   } catch (e) { msg.textContent = e.message; }
   btn.disabled = false;
 }

@@ -1,6 +1,6 @@
 # One login for the group
 
-Status: proposed 2026-10-17, not approved.
+Status: approved 2026-10-18; step 1 built (see [What's built](#whats-built)).
 
 Everyone in the group, whether a member with their own node or someone on a
 box, gets **one login that works everywhere in the group**:
@@ -112,3 +112,35 @@ address; only signing in moves.
    dashboard gets "make a passkey for the group login".
 3. **Apps**: the admin adds an app (name, address); the ygg page and writing
    mail use it as they're built.
+
+## What's built
+
+Step 1, on every web node (`internal/light/login.go`):
+
+| Address on `my.` | What it is |
+|---|---|
+| `/.well-known/openid-configuration` | discovery |
+| `/login/authorize` | the hand-off: a code for a group address, or the sign-in page first |
+| `/login/token` | a code and its PKCE verifier for an ID token and an access token (1 hour) |
+| `/login/userinfo` | who an access token is for |
+| `/login/keys` | every web node's public signing key (ES256) |
+| `/login/signout` | signs this browser out at `my.` and at every address it came to from there |
+| `/login/adopt` | after signing in at their own address, signs the browser in at `my.` too |
+
+- **At someone's own address**, `/files` signed out goes to `my.` with
+  `prompt=none`. Signed in there as that person, it comes straight back
+  signed in. Otherwise, or as someone else, it shows the address's own
+  sign-in page, as before, and signing in there signs the browser in at `my.`
+  as well.
+- **Codes and sessions are shared** between the web nodes; a code works once,
+  on whichever node it reaches, within a minute. Used codes and ended
+  sessions are remembered for a while, so word of them arriving late from
+  the other node doesn't bring them back.
+- **Who may ask:** `client_id` is a group address under the domain (not
+  `my.` itself), and `redirect_uri` an `https` address at that host. PKCE
+  (S256) is required. There are no client secrets yet: apps the admin adds
+  (step 3) will have them.
+- **Claims:** `sub` (`box/person`), `name`, `preferred_username`, `box`, and
+  `email` (`label@domain`) for someone with a name under the group's domain.
+- **Your devices** shows one sign-in per browser, with the addresses it's
+  signed in at.

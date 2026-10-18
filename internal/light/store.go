@@ -85,6 +85,9 @@ type Session struct {
 	Started int64  `json:"started"`
 	Used    int64  `json:"used"`
 	Short   bool   `json:"short,omitempty"` // started with a browser key
+	// Via is the session at my. that this one at another address came
+	// from (docs/login.md): signing out there signs this out too.
+	Via string `json:"via,omitempty"`
 }
 
 // For is how long the session lasts unused.
@@ -117,6 +120,10 @@ type Store struct {
 	webMu sync.Mutex
 	web   map[string]bool // the other web nodes' addresses
 	webAt time.Time
+
+	keyMu  sync.Mutex
+	signer *signer   // this web node's login signing key
+	keysAt time.Time // when the other web nodes' keys were last asked for
 }
 
 type storeState struct {
@@ -125,6 +132,14 @@ type storeState struct {
 	// Fails are wrong PINs in a row, per key ID, as the web nodes saw
 	// them since the box last said.
 	Fails map[string]int `json:"fails,omitempty"`
+	// Tickets are the login's codes, not yet used (see login.go).
+	Tickets []Ticket `json:"tickets,omitempty"`
+	// Gone are codes used up and sessions ended, by hash, until when
+	// they're remembered: word of one arriving late from another web node
+	// doesn't bring it back.
+	Gone map[string]int64 `json:"gone,omitempty"`
+	// LoginKeys are the other web nodes' signing keys, by key ID.
+	LoginKeys map[string]JWK `json:"login_keys,omitempty"`
 }
 
 func (s *Store) logf(format string, args ...any) {
@@ -152,6 +167,12 @@ func (s *Store) lock() {
 	}
 	if s.st.Fails == nil {
 		s.st.Fails = map[string]int{}
+	}
+	if s.st.Gone == nil {
+		s.st.Gone = map[string]int64{}
+	}
+	if s.st.LoginKeys == nil {
+		s.st.LoginKeys = map[string]JWK{}
 	}
 }
 
@@ -241,11 +262,16 @@ func tokenHash(token string) string {
 // newSession signs f's person in with f's key, at host. It gives the
 // cookie's token, which only the browser keeps.
 func (s *Store) newSession(f found, host string, now time.Time) (string, Session) {
+	return s.startSession(Session{Box: f.Box, Person: f.Person.Name, Key: f.Key.ID, Device: f.Key.Name, Host: host,
+		Started: now.Unix(), Short: f.Key.Kind == KindBrowser}, now)
+}
+
+// startSession starts ss, as a new session with its own cookie.
+func (s *Store) startSession(ss Session, now time.Time) (string, Session) {
 	b := make([]byte, 32)
 	rand.Read(b)
 	token := passkey.B64.EncodeToString(b)
-	ss := Session{Hash: tokenHash(token), Box: f.Box, Person: f.Person.Name, Key: f.Key.ID, Device: f.Key.Name, Host: host,
-		Started: now.Unix(), Used: now.Unix(), Short: f.Key.Kind == KindBrowser}
+	ss.Hash, ss.Used = tokenHash(token), now.Unix()
 	s.lock()
 	s.pruneLocked(now)
 	s.st.Sessions = append(s.st.Sessions, ss)
@@ -258,9 +284,15 @@ func (s *Store) newSession(f found, host string, now time.Time) (string, Session
 // addLocked keeps a session another web node started, or the later use of
 // one it has.
 func (s *Store) addLocked(ss Session) {
+	if s.goneLocked(ss.Hash) {
+		return
+	}
 	for i := range s.st.Sessions {
 		if s.st.Sessions[i].Hash == ss.Hash {
 			s.st.Sessions[i].Used = max(s.st.Sessions[i].Used, ss.Used)
+			if ss.Via != "" {
+				s.st.Sessions[i].Via = ss.Via
+			}
 			return
 		}
 	}
@@ -274,12 +306,17 @@ func (s *Store) session(ctx context.Context, token, host string, now time.Time) 
 	if token == "" {
 		return Session{}, false
 	}
-	h := tokenHash(token)
+	return s.sessionByHash(ctx, tokenHash(token), host, now)
+}
+
+// sessionByHash is the session whose cookie's token hashes to h, at host
+// ("" for any address).
+func (s *Store) sessionByHash(ctx context.Context, h, host string, now time.Time) (Session, bool) {
 	get := func() (Session, bool) {
 		s.lock()
 		defer s.mu.Unlock()
 		for _, ss := range s.st.Sessions {
-			if ss.Hash == h && ss.live(now) && strings.EqualFold(ss.Host, host) && s.allowedLocked(ss) {
+			if ss.Hash == h && ss.live(now) && (host == "" || strings.EqualFold(ss.Host, host)) && s.allowedLocked(ss) {
 				return ss, true
 			}
 		}
@@ -323,16 +360,35 @@ func (s *Store) end(hash string, tell bool) {
 	s.lock()
 	kept := s.st.Sessions[:0]
 	for _, ss := range s.st.Sessions {
-		if ss.Hash != hash {
+		if ss.Hash != hash && ss.Via != hash { // and those at other addresses that came from it
 			kept = append(kept, ss)
+		} else {
+			s.forgetLocked(ss.Hash, time.Hour)
 		}
 	}
+	s.forgetLocked(hash, time.Hour)
 	s.st.Sessions = kept
 	s.saveLocked()
 	s.mu.Unlock()
 	if tell {
 		go s.tellOthers(http.MethodDelete, "/v1/light/session/"+hash, nil)
 	}
+}
+
+// forgetLocked remembers that hash is gone, for a while.
+func (s *Store) forgetLocked(hash string, d time.Duration) {
+	now := time.Now()
+	for h, until := range s.st.Gone {
+		if until < now.Unix() {
+			delete(s.st.Gone, h)
+		}
+	}
+	s.st.Gone[hash] = now.Add(d).Unix()
+}
+
+func (s *Store) goneLocked(hash string) bool {
+	until, ok := s.st.Gone[hash]
+	return ok && until >= time.Now().Unix()
 }
 
 // sessionsOf are a person's sessions.
@@ -544,6 +600,31 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 	case isSession && r.Method == http.MethodDelete:
 		s.end(hash, false)
 		w.WriteHeader(http.StatusNoContent)
+	case path == "ticket" && r.Method == http.MethodPut:
+		var t Ticket
+		if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&t); err != nil || len(t.Hash) != 64 {
+			http.Error(w, "bad ticket", http.StatusBadRequest)
+			return true
+		}
+		s.keepTicket(t)
+		w.WriteHeader(http.StatusNoContent)
+	case strings.HasPrefix(path, "ticket/") && r.Method == http.MethodDelete:
+		s.dropTicket(strings.TrimPrefix(path, "ticket/"))
+		w.WriteHeader(http.StatusNoContent)
+	case strings.HasPrefix(path, "ticket/") && r.Method == http.MethodPost: // taken: used up here too
+		t, ok := s.dropTicket(strings.TrimPrefix(path, "ticket/"))
+		if !ok {
+			http.NotFound(w, r)
+			return true
+		}
+		jsonOK(w, t)
+	case path == "login-key" && r.Method == http.MethodGet:
+		sg, err := s.loginSigner()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return true
+		}
+		jsonOK(w, sg.jwk)
 	case path == "fails" && r.Method == http.MethodPost:
 		var req struct {
 			Key   string `json:"key"`

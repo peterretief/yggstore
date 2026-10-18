@@ -46,6 +46,9 @@ button.plain { background: none; color: var(--info); border: 1px solid var(--lin
 const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const unb64 = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
 const base = "/files/light";
+// Signed in: on to my. as well (next), back to the app that asked (the
+// group's login page), or the files.
+const done = d => { location.href = d.next || (location.pathname.startsWith("/login/") ? location.href : "/files"); };
 async function signIn() {
   const msg = document.getElementById("msg"), go = document.getElementById("go");
   if (!window.PublicKeyCredential) { msg.textContent = "This browser can't use passkeys. Try an up-to-date Chrome, Safari, Edge or Firefox."; return; }
@@ -57,7 +60,7 @@ async function signIn() {
       challenge: ch.challenge, id: cred.id, client_data: b64(cred.response.clientDataJSON), auth_data: b64(cred.response.authenticatorData),
       signature: b64(cred.response.signature), user_handle: cred.response.userHandle ? b64(cred.response.userHandle) : ""})});
     if (!r.ok) throw new Error((await r.text()).trim() || "not signed in (" + r.status + ")");
-    location.href = "/files";
+    done(await r.json());
   } catch (e) {
     msg.textContent = e.name === "NotAllowedError" ? "Signing in was cancelled, or this device has no passkey for your files." : e.message;
   }
@@ -105,7 +108,7 @@ async function keySignIn() {
     } else if (!r.ok) {
       throw new Error((await r.text()).trim());
     } else {
-      location.href = "/files";
+      done(await r.json());
       return;
     }
   } catch (e) { msg.style.color = ""; msg.textContent = e.message; document.getElementById("pin").value = ""; }
