@@ -101,6 +101,19 @@ a { color: var(--accent); }
   </div>
 </main>
 <script>
+// copyText copies to the clipboard. Browsers give pages navigator.clipboard
+// only over https or on localhost, and these pages are plain http over
+// Yggdrasil, so it falls back to the older way, which works there.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const t = document.createElement("textarea");
+  t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+  document.body.appendChild(t); t.select();
+  const ok = document.execCommand("copy");
+  t.remove();
+  if (!ok) throw new Error("couldn't copy");
+}
+
 const $ = id => document.getElementById(id);
 const frag = location.hash.slice(1);
 const dot = frag.indexOf(".");
@@ -365,7 +378,7 @@ async function open(move) {
 $("go").onclick = () => open(false);
 $("move").onclick = () => open(true);
 $("copy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("boxid").textContent); $("copy").textContent = "Copied"; }
+  try { await copyText($("boxid").textContent); $("copy").textContent = "Copied"; }
   catch { $("copy").textContent = "Select it above and copy it"; }
 };
 </script>

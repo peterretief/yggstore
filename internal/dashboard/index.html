@@ -446,6 +446,19 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
 </main>
 
 <script>
+// copyText copies to the clipboard. Browsers give pages navigator.clipboard
+// only over https or on localhost, and these pages are plain http over
+// Yggdrasil, so it falls back to the older way, which works there.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const t = document.createElement("textarea");
+  t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+  document.body.appendChild(t); t.select();
+  const ok = document.execCommand("copy");
+  t.remove();
+  if (!ok) throw new Error("couldn't copy");
+}
+
 const $ = id => document.getElementById(id);
 // Every action carries this header; the dashboard refuses actions without it,
 // which keeps other web pages from pressing buttons here.
@@ -894,7 +907,7 @@ $("restoreReset").onclick = () => setRestoreDir("");
 $("restoreRecent").onclick = async ev => {
   const c = ev.target.closest("button[data-copy]");
   if (c) {
-    try { await navigator.clipboard.writeText(c.dataset.copy); c.textContent = "Copied"; }
+    try { await copyText(c.dataset.copy); c.textContent = "Copied"; }
     catch { c.textContent = "Select it above"; }
     setTimeout(() => c.textContent = "Copy path", 1500);
     return;
@@ -1026,7 +1039,7 @@ async function refresh() {
 document.addEventListener("click", async ev => {
   const cp = ev.target.closest("button[data-copy]");
   if (cp) {
-    try { await navigator.clipboard.writeText($(cp.dataset.copy).textContent); cp.textContent = "Copied"; }
+    try { await copyText($(cp.dataset.copy).textContent); cp.textContent = "Copied"; }
     catch { getSelection().selectAllChildren($(cp.dataset.copy)); cp.textContent = "Press Ctrl+C"; }
     setTimeout(() => cp.textContent = "Copy", 1500);
     return;

@@ -102,6 +102,19 @@ label.show { display: inline-flex; gap: 6px; align-items: center; color: var(--m
 </main>
 <div class="toast" id="toast"></div>
 <script>
+// copyText copies to the clipboard. Browsers give pages navigator.clipboard
+// only over https or on localhost, and these pages are plain http over
+// Yggdrasil, so it falls back to the older way, which works there.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const t = document.createElement("textarea");
+  t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+  document.body.appendChild(t); t.select();
+  const ok = document.execCommand("copy");
+  t.remove();
+  if (!ok) throw new Error("couldn't copy");
+}
+
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const cp = s => `<span class="copy mono" data-copy="${esc(s)}">${esc(s)}</span>`;
@@ -172,7 +185,7 @@ $("showTest").addEventListener("change", () => { try { localStorage.setItem("net
 document.addEventListener("click", async ev => {
   const c = ev.target.closest("[data-copy]");
   if (!c) return;
-  try { await navigator.clipboard.writeText(c.dataset.copy); $("toast").textContent = "Copied"; }
+  try { await copyText(c.dataset.copy); $("toast").textContent = "Copied"; }
   catch (e) { $("toast").textContent = "Couldn't copy"; }
   $("toast").classList.add("on"); setTimeout(() => $("toast").classList.remove("on"), 1200);
 });

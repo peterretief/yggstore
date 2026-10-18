@@ -218,6 +218,19 @@ b.ui { font-weight: 600; background: var(--empty); padding: 0 5px; border-radius
   </details>
 </main>
 <script>
+// copyText copies to the clipboard. Browsers give pages navigator.clipboard
+// only over https or on localhost, and these pages are plain http over
+// Yggdrasil, so it falls back to the older way, which works there.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const t = document.createElement("textarea");
+  t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+  document.body.appendChild(t); t.select();
+  const ok = document.execCommand("copy");
+  t.remove();
+  if (!ok) throw new Error("couldn't copy");
+}
+
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function size(n) {
@@ -318,7 +331,7 @@ document.addEventListener('click', async ev => {
   const id = ev.target.dataset && ev.target.dataset.copy;
   if (!id) return;
   const b = ev.target, text = $(id).textContent;
-  try { await navigator.clipboard.writeText(text); b.textContent = 'Copied'; }
+  try { await copyText(text); b.textContent = 'Copied'; }
   catch (e) { getSelection().selectAllChildren($(id)); b.textContent = 'Press Ctrl+C'; }
   setTimeout(() => b.textContent = 'Copy', 2000);
 });
@@ -345,7 +358,7 @@ $('invite').addEventListener('input', () => {
   if (ok) $('cmd').textContent = cmd();
 });
 $('copy').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(cmd()); $('copy').textContent = 'Copied'; }
+  try { await copyText(cmd()); $('copy').textContent = 'Copied'; }
   catch (e) { getSelection().selectAllChildren($('cmd')); $('copy').textContent = 'Press Ctrl+C'; }
   setTimeout(() => $('copy').textContent = 'Copy', 2000);
 });
