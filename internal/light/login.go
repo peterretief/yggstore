@@ -159,30 +159,16 @@ func (s *Store) loginKeys(ctx context.Context) []JWK {
 	}
 	s.keyMu.Unlock()
 	if ask {
-		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		for _, n := range s.others(ctx) {
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+n+"/v1/light/login-key", nil)
-			if err != nil {
-				continue
-			}
-			resp, err := s.Client.Do(req)
-			if err != nil {
-				continue
-			}
-			var k JWK
-			if resp.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&k) == nil && k.Kid != "" {
-				if _, ok := k.public(); ok {
-					s.lock()
-					if s.st.LoginKeys[k.Kid] != k {
-						s.st.LoginKeys[k.Kid] = k
-						s.saveLocked()
-					}
-					s.mu.Unlock()
-				}
-			}
-			resp.Body.Close()
+		// Finding the other web nodes takes a while: wait only if none of
+		// their keys is known yet.
+		s.lock()
+		none := len(s.st.LoginKeys) == 0
+		s.mu.Unlock()
+		if none {
+			s.askKeys()
+		} else {
+			go s.askKeys()
 		}
-		cancel()
 	}
 	s.lock()
 	for _, k := range s.st.LoginKeys {
@@ -192,6 +178,34 @@ func (s *Store) loginKeys(ctx context.Context) []JWK {
 	}
 	s.mu.Unlock()
 	return out
+}
+
+// askKeys asks the other web nodes for their signing keys, and keeps them.
+func (s *Store) askKeys() {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	for _, n := range s.others(ctx) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+n+"/v1/light/login-key", nil)
+		if err != nil {
+			continue
+		}
+		resp, err := s.Client.Do(req)
+		if err != nil {
+			continue
+		}
+		var k JWK
+		if resp.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&k) == nil && k.Kid != "" {
+			if _, ok := k.public(); ok {
+				s.lock()
+				if s.st.LoginKeys[k.Kid] != k {
+					s.st.LoginKeys[k.Kid] = k
+					s.saveLocked()
+				}
+				s.mu.Unlock()
+			}
+		}
+		resp.Body.Close()
+	}
 }
 
 // newTicket makes a code for t, here and on the other web nodes.
