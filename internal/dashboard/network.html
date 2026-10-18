@@ -106,6 +106,10 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const cp = s => `<span class="copy mono" data-copy="${esc(s)}">${esc(s)}</span>`;
 const gb = b => b >= 1 << 30 ? (b / (1 << 30)).toFixed(1) + " GB" : (b / (1 << 20)).toFixed(0) + " MB";
+// set replaces what an element holds only when it changed: rebuilding the
+// tables every few seconds would swallow a click on a link being replaced.
+const shown = {};
+const set = (id, html) => { if (shown[id] !== html) $(id).innerHTML = shown[id] = html; };
 const portName = {7400: "node", 7401: "2nd node", 7480: "dashboard", 7481: "2nd dashboard", 7490: "hub", 8480: "websites", 22000: "Syncthing", 22: "SSH"};
 let st;
 try { $("showTest").checked = localStorage.getItem("net.test") === "1"; } catch (e) {}
@@ -127,10 +131,10 @@ function nodeRow(n) {
 function render() {
   const test = $("showTest").checked;
   const nodes = st.nodes.filter(n => test || !n.test);
-  $("nodes").innerHTML = nodes.map(nodeRow).join("") || `<tr><td colspan="8" class="sub">No nodes.</td></tr>`;
+  set("nodes", nodes.map(nodeRow).join("") || `<tr><td colspan="8" class="sub">No nodes.</td></tr>`);
   const testIPs = new Set(st.nodes.filter(n => n.test).map(n => n.ip));
   const realIPs = new Set(st.nodes.filter(n => !n.test).map(n => n.ip));
-  $("machines").innerHTML = st.machines.filter(m => test || realIPs.has(m.ip) || !testIPs.has(m.ip)).map(m => {
+  set("machines", st.machines.filter(m => test || realIPs.has(m.ip) || !testIPs.has(m.ip)).map(m => {
     const open = !m.known ? `<span class="sub">checking…</span>` : m.open.length ? m.open.map(p => `<span class="pill up">${p} ${portName[p] || ""}</span>`).join("")
       : `<span class="pill down">nothing answers</span>`;
     const dash = st.nodes.filter(n => n.ip === m.ip && n.dashboard).map(n => `<a href="${esc(n.dashboard)}" target="_blank" rel="noopener">${esc(n.name)} dashboard</a>`);
@@ -138,16 +142,16 @@ function render() {
     const name = !m.ygg_name ? "" : m.in_dns ? `${cp(m.ygg_name)}<br>`
       : `<span class="mono">${esc(m.ygg_name)}</span> <span class="pill warn">not in DNS yet</span><br>`;
     return `<tr><td><b>${esc(m.name)}</b></td><td>${name}${cp(m.ip)}</td><td>${open}</td><td>${dash.join(" · ") || "—"}</td></tr>`;
-  }).join("");
+  }).join(""));
   const missing = st.machines.filter(m => m.ygg_name && !m.in_dns && m.known && (test || realIPs.has(m.ip) || !testIPs.has(m.ip)));
   $("dnsWrap").hidden = !missing.length;
-  $("dns").innerHTML = missing.map(m => `<tr><td>${cp(m.ygg_name)}</td><td class="mono">AAAA</td><td>${cp(m.ip)}</td></tr>`).join("");
-  $("names").innerHTML = st.names.map(x => {
+  set("dns", missing.map(m => `<tr><td>${cp(m.ygg_name)}</td><td class="mono">AAAA</td><td>${cp(m.ip)}</td></tr>`).join(""));
+  set("names", st.names.map(x => {
     const ans = !x.checked ? `<span class="sub">checking…</span>` : x.status >= 200 && x.status < 400 ? `<span class="pill up">${x.status}</span> online`
       : x.status ? `<span class="pill warn">${x.status}</span> ${x.status === 404 ? "no site published" : ""}` : `<span class="pill down">no answer</span> <span class="sub">${esc(x.problem)}</span>`;
     return `<tr><td><a href="https://${esc(x.name)}/" target="_blank" rel="noopener">${esc(x.name)}</a></td><td>${x.mail ? cp(x.mail) : "—"}</td>
       <td>${esc(x.node)}${x.person ? ` <span class="sub">for ${esc(x.person)}</span>` : ""}</td><td>${ans}</td></tr>`;
-  }).join("") || `<tr><td colspan="4" class="sub">No names yet${st.domain ? "" : ": the group has no domain"}.</td></tr>`;
+  }).join("") || `<tr><td colspan="4" class="sub">No names yet${st.domain ? "" : ": the group has no domain"}.</td></tr>`);
   $("mx").textContent = st.domain ? `Mail for ${st.domain} arrives at: ${st.mx.length ? st.mx.join(", ") : "(no MX records found yet)"}` : "";
   $("updated").textContent = "updated " + new Date(st.at * 1000).toLocaleTimeString();
 }
@@ -157,9 +161,13 @@ async function load() {
     const r = await fetch("/api/network", {cache: "no-store"});
     if (!r.ok) throw new Error((await r.text()).trim());
     st = await r.json();
-    render();
+    // not under the pointer: a link about to be clicked must stay put
+    if (document.querySelector("tbody a:hover")) $("updated").dataset.later = "1"; else render();
   } catch (e) { $("updated").textContent = "not answering: " + e.message; }
 }
+document.addEventListener("mouseout", ev => {
+  if ($("updated").dataset.later && ev.target.closest("tbody a")) { delete $("updated").dataset.later; render(); }
+});
 $("showTest").addEventListener("change", () => { try { localStorage.setItem("net.test", $("showTest").checked ? "1" : "0"); } catch (e) {} if (st) render(); });
 document.addEventListener("click", async ev => {
   const c = ev.target.closest("[data-copy]");
