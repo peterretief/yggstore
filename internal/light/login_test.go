@@ -149,6 +149,12 @@ func TestLoginAtOwnAddress(t *testing.T) {
 		t.Fatalf("signed out everywhere: %s %d", back, w.Code)
 	}
 
+	// Her key is my.'s: from her address's sign-in page, to my.'s.
+	w = g.do(0, "GET", "https://anna.example.org/files/login/start", nil, nil)
+	if loc := w.Header().Get("Location"); w.Code != http.StatusFound || !strings.HasPrefix(loc, "https://my.example.org/login/authorize?") || strings.Contains(loc, "prompt=") {
+		t.Fatalf("to sign in at my.: %d %s", w.Code, loc)
+	}
+
 	// Signing out at my. signs her out at her address too, on both nodes.
 	g.do(1, "GET", "https://my.example.org/login/signout", map[string]string{SessionCookie: my}, nil)
 	time.Sleep(200 * time.Millisecond) // the other node hears

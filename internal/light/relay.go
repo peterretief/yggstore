@@ -301,6 +301,11 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case isOwn && p == backPath && r.Method == http.MethodGet:
 		rl.loginBack(w, r, host, only, own)
 		return
+	case isOwn && p == backPath+"/start" && r.Method == http.MethodGet:
+		if !rl.startLogin(w, r, host, false) {
+			http.Redirect(w, r, "/files", http.StatusFound)
+		}
+		return
 	case p == Base+"/challenge":
 		jsonOK(w, map[string]string{"challenge": passkey.NewChallenge(time.Now()), "rp": host})
 		return
@@ -346,7 +351,7 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		if r.Method == http.MethodGet && (p == "/files" || p == "/files/") && r.URL.RawQuery == "" {
 			// At their own address, my. may know them already.
-			if isOwn && rl.startLogin(w, r, host) {
+			if isOwn && rl.startLogin(w, r, host, true) {
 				return
 			}
 			ServeSignIn(w, http.StatusOK)

@@ -656,10 +656,11 @@ func (rl *Relay) adoptLink(ss Session, host string) string {
 }
 
 // startLogin sends a browser that isn't signed in at someone's own
-// address to my., asking without a sign-in page: if it's signed in there
+// address to my. Quietly, without a sign-in page: if it's signed in there
 // as that person, it comes straight back signed in; if not, it comes back
-// to the address's own sign-in page.
-func (rl *Relay) startLogin(w http.ResponseWriter, r *http.Request, host string) bool {
+// to the address's own sign-in page. Not quietly (their key is my.'s), my.
+// asks them to sign in.
+func (rl *Relay) startLogin(w http.ResponseWriter, r *http.Request, host string, quiet bool) bool {
 	iss := rl.issuer()
 	if iss == "" || !rl.groupAddress(host) {
 		return false
@@ -671,7 +672,10 @@ func (rl *Relay) startLogin(w http.ResponseWriter, r *http.Request, host string)
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	h := sha256.Sum256([]byte(verifier))
 	q := url.Values{"client_id": {host}, "redirect_uri": {"https://" + host + backPath}, "response_type": {"code"}, "scope": {"openid"},
-		"state": {state}, "code_challenge": {passkey.B64.EncodeToString(h[:])}, "code_challenge_method": {"S256"}, "prompt": {"none"}}
+		"state": {state}, "code_challenge": {passkey.B64.EncodeToString(h[:])}, "code_challenge_method": {"S256"}}
+	if quiet {
+		q.Set("prompt", "none")
+	}
 	http.Redirect(w, r, iss+authorizePath+"?"+q.Encode(), http.StatusFound)
 	return true
 }

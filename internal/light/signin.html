@@ -39,6 +39,7 @@ button.plain { background: none; color: var(--info); border: 1px solid var(--lin
     </div>
     <button id="go">Sign in</button>
     <div id="msg" role="status"></div>
+    <div id="groupBox" hidden><button class="plain" id="group">Made your passkey at <span id="groupHost">the group's login</span>? Sign in there</button></div>
   </div>
   <p class="sub" style="margin-top:16px">First time? Open the invite link the box's owner sent you. Lost your passkey? Ask them for a new invite.</p>
 </main>
@@ -67,6 +68,14 @@ async function signIn() {
   go.disabled = false;
 }
 document.getElementById("go").addEventListener("click", signIn);
+// At someone's own address, after my. said it doesn't know this browser:
+// a passkey made at my. signs in there instead.
+if (location.pathname.startsWith("/files/login")) {
+  const iss = new URLSearchParams(location.search).get("iss");
+  if (iss) document.getElementById("groupHost").textContent = iss.replace(/^https:\/\//, "");
+  document.getElementById("groupBox").hidden = false;
+  document.getElementById("group").addEventListener("click", () => { location.href = "/files/login/start"; });
+}
 // A browser key (for a device that can't make a passkey) is kept here, in
 // this site's own storage, where it can't be copied out.
 function idb(mode, f) {
