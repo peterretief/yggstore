@@ -196,6 +196,9 @@ func (h *Hub) Handler() http.Handler {
 		json.NewEncoder(w).Encode(st)
 	})
 	mux.HandleFunc("GET /install.sh", h.handleInstall)
+	mux.HandleFunc("GET /connect.sh", h.handleConnect(connectSh, "text/x-shellscript; charset=utf-8"))
+	mux.HandleFunc("GET /connect.ps1", h.handleConnect(connectPs1, "text/plain; charset=utf-8"))
+	mux.HandleFunc("GET /api/connect/folders", h.handleConnectFolders)
 	mux.HandleFunc("POST /api/join", h.handleJoin)
 	mux.HandleFunc("POST /api/anywhere", h.handleAnywhere)
 	mux.HandleFunc("GET /bin/{platform}", func(w http.ResponseWriter, r *http.Request) {

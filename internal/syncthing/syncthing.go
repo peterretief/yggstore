@@ -164,6 +164,30 @@ func (c Client) FolderIDs(ctx context.Context) (map[string]bool, error) {
 	return out, nil
 }
 
+// FolderShare is a folder and the devices it is shared with.
+type FolderShare struct {
+	ID      string         `json:"id"`
+	Label   string         `json:"label"`
+	Devices []FolderDevice `json:"devices"`
+}
+
+// Shared reports whether the folder is shared with a device.
+func (f FolderShare) Shared(device string) bool {
+	for _, d := range f.Devices {
+		if d.DeviceID == device {
+			return true
+		}
+	}
+	return false
+}
+
+// Folders lists the folders Syncthing has, with whom each is shared.
+func (c Client) Folders(ctx context.Context) ([]FolderShare, error) {
+	var list []FolderShare
+	err := c.do(ctx, "GET", "/rest/config/folders", nil, &list)
+	return list, err
+}
+
 // PauseFolder pauses or resumes a folder.
 func (c Client) PauseFolder(ctx context.Context, id string, paused bool) error {
 	return c.do(ctx, "PATCH", "/rest/config/folders/"+url.PathEscape(id), map[string]bool{"paused": paused}, nil)

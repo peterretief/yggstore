@@ -102,75 +102,73 @@ b.ui { font-weight: 600; background: var(--empty); padding: 0 5px; border-radius
       <span class="sub">(for working without a browser, or offline)</span></summary>
     <div id="yggWrap" hidden><h3 style="font-size:15px;margin:8px 0">Directly, over Yggdrasil</h3><div id="yggSlot"></div></div>
     <h3 style="font-size:15px;margin:16px 0 8px">Keeping a folder in step, with Syncthing</h3>
-    <p>Syncthing is a free program that keeps a folder on your device the same as your folder on the box, so you work on your files with your own programs. It takes more setting up than the browser.</p>
+    <p>Syncthing is a free program that keeps a folder on your device the same as your folder on the box, so you work on your files with your own programs. On a computer, one command sets it all up.</p>
     <div class="row" id="syncstate"></div>
 
     <div class="card step" style="margin-top:12px">
       <div class="num">1</div>
       <div>
-        <h3>Install Syncthing</h3>
-        <p>Install it once on your device:</p>
+        <h3>Connect your computer</h3>
+        <p>Run one command on the computer, while it is on the same network (the same Wi-Fi or router) as this box. It installs Syncthing, starts it whenever you log in, connects it to this box and makes a folder called <span class="mono">yggstore</span> in your home folder. It takes a minute or two, and there is nothing to set up in Syncthing.</p>
 
         <details class="os" data-os="windows"><summary>Windows</summary>
           <ol>
-            <li>Go to <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a>.</li>
-            <li>Under <b>Windows</b>, download <b>Syncthing Windows Setup</b> and run it. Accept what it suggests.</li>
-            <li>When it has finished, Syncthing opens in your web browser. If it doesn't, open <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a>.</li>
+            <li>Open <b>PowerShell</b>: click Start, type <b>PowerShell</b> and press Enter.</li>
+            <li>Paste this in and press Enter:
+              <div class="copyrow"><pre id="cmdWin">irm http://this-box:7490/connect.ps1 | iex</pre><button data-copy="cmdWin">Copy</button></div></li>
+            <li>When it says <b>Done</b>, your folder opens.</li>
           </ol>
         </details>
 
         <details class="os" data-os="mac"><summary>Mac</summary>
           <ol>
-            <li>Go to <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a>.</li>
-            <li>Under <b>macOS</b>, download the <b>Syncthing app</b>, open the file and drag Syncthing into <b>Applications</b>.</li>
-            <li>Open Syncthing from Applications. Its icon appears in the menu bar at the top of the screen: click it and choose <b class="ui">Open</b>.</li>
+            <li>Open <b>Terminal</b> (in Applications, in the Utilities folder).</li>
+            <li>Paste this in and press Return:
+              <div class="copyrow"><pre id="cmdMac">curl -fsSL http://this-box:7490/connect.sh | sh</pre><button data-copy="cmdMac">Copy</button></div></li>
           </ol>
         </details>
 
         <details class="os" data-os="linux"><summary>Linux <span class="sub">(Ubuntu, Debian, Raspberry Pi OS)</span></summary>
           <ol>
-            <li>Open a terminal and run:
-              <pre>sudo apt install syncthing
-  systemctl --user enable --now syncthing</pre></li>
-            <li>Open <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a> in your browser.</li>
+            <li>Open a terminal, paste this in and press Enter:
+              <div class="copyrow"><pre id="cmdLinux">wget -qO- http://this-box:7490/connect.sh | sh</pre><button data-copy="cmdLinux">Copy</button></div></li>
           </ol>
         </details>
+
+        <p class="note">At the end it shows this computer's Syncthing ID, which you need for <b>Work from anywhere</b> (below). If the box doesn't take the computer, it may not be taking new devices today: ask whoever looks after it.</p>
 
         <details class="os" data-os="android"><summary>Android phone or tablet</summary>
           <ol>
             <li>Install <b>Syncthing-Fork</b> from <a href="https://play.google.com/store/apps/details?id=com.github.catfriend1.syncthingandroid" target="_blank" rel="noopener">Google Play</a> or <a href="https://f-droid.org/packages/com.github.catfriend1.syncthingandroid/" target="_blank" rel="noopener">F-Droid</a>.</li>
             <li>Open it and allow what it asks for (storage, and running in the background).</li>
+            <li>Then connect it by hand (below).</li>
           </ol>
         </details>
 
         <details class="os" data-os="ios"><summary>iPhone or iPad</summary>
-          <p>There is no official Syncthing for iPhone. <b>Möbius Sync</b> from the App Store works the same way (it is a paid app made by others).</p>
+          <p>There is no official Syncthing for iPhone. <b>Möbius Sync</b> from the App Store works the same way (it is a paid app made by others). Install it, then connect it by hand (below).</p>
         </details>
-      </div>
-    </div>
 
-    <div class="card step" style="margin-top:12px">
-      <div class="num">2</div>
-      <div>
-        <h3>Connect to this box</h3>
-        <ol>
-          <li>In Syncthing, click <b class="ui">+ Add Remote Device</b> (bottom right; on a phone, the <b class="ui">Devices</b> tab, then <b class="ui">+</b>).</li>
-          <li>Under <b>Device ID</b>, this box may be listed among the nearby devices: click it. If it isn't, copy this box's ID and paste it in:
-            <div class="copyrow"><pre id="stid">(waiting for this box's Syncthing)</pre><button data-copy="stid">Copy</button></div></li>
-          <li>Under <b>Device Name</b>, type <b id="boxname">this box's name</b>.</li>
-          <li>Open the <b class="ui">Advanced</b> tab. Under <b>Addresses</b>, replace what's there with this, so your device finds the box even when it isn't listed nearby:
-            <div class="copyrow"><pre id="staddr">…</pre><button data-copy="staddr">Copy</button></div></li>
-          <li>Click <b class="ui">Save</b>.</li>
-          <li>Within half a minute this box welcomes your device, and Syncthing shows a message: <b>"<span class="boxname2">this box</span> wants to share folder yggstore (<span class="boxname2">this box</span>)"</b>. Click <b class="ui">Add</b>.</li>
-          <li>Choose where the folder goes on your device (<b>Folder Path</b>, in the <b class="ui">General</b> tab), for example a folder called <span class="mono">yggstore</span> in your home folder. Click <b class="ui">Save</b>.</li>
-        </ol>
-        <p class="note">Your device must be on the same network (the same Wi-Fi or router) as this box when you connect.</p>
+        <details class="os" id="byhand"><summary>Connecting by hand <span class="sub">(phones, or if the command doesn't work)</span></summary>
+          <ol>
+            <li>Install Syncthing from <a href="https://syncthing.net/downloads/" target="_blank" rel="noopener">syncthing.net/downloads</a> and open it (in a browser, at <a href="http://127.0.0.1:8384" target="_blank" rel="noopener">127.0.0.1:8384</a>).</li>
+            <li>In Syncthing, click <b class="ui">+ Add Remote Device</b> (bottom right; on a phone, the <b class="ui">Devices</b> tab, then <b class="ui">+</b>).</li>
+            <li>Under <b>Device ID</b>, this box may be listed among the nearby devices: click it. If it isn't, copy this box's ID and paste it in:
+              <div class="copyrow"><pre id="stid">(waiting for this box's Syncthing)</pre><button data-copy="stid">Copy</button></div></li>
+            <li>Under <b>Device Name</b>, type <b id="boxname">this box's name</b>.</li>
+            <li>Open the <b class="ui">Advanced</b> tab. Under <b>Addresses</b>, replace what's there with this, so your device finds the box even when it isn't listed nearby:
+              <div class="copyrow"><pre id="staddr">…</pre><button data-copy="staddr">Copy</button></div></li>
+            <li>Click <b class="ui">Save</b>.</li>
+            <li>Within half a minute this box welcomes your device, and Syncthing shows a message: <b>"<span class="boxname2">this box</span> wants to share folder yggstore (<span class="boxname2">this box</span>)"</b>. Click <b class="ui">Add</b>.</li>
+            <li>Choose where the folder goes on your device (<b>Folder Path</b>, in the <b class="ui">General</b> tab), for example a folder called <span class="mono">yggstore</span> in your home folder. Click <b class="ui">Save</b>.</li>
+          </ol>
+        </details>
         <div id="sites"></div>
       </div>
     </div>
 
     <div class="card step" style="margin-top:12px">
-      <div class="num">3</div>
+      <div class="num">2</div>
       <div>
         <h3>Use the folder</h3>
         <ul>
@@ -182,12 +180,12 @@ b.ui { font-weight: 600; background: var(--empty); padding: 0 5px; border-radius
     </div>
 
     <div class="card step" style="margin-top:12px">
-      <div class="num">4</div>
+      <div class="num">3</div>
       <div>
         <h3>Work from anywhere</h3>
         <p>If you want to work remotely, or can't get to this device, you can carry on from any other one. Once your device is connected,
           the box emails you a link: open it on the device you want to work on, and your files come to it.</p>
-        <label for="awDevice">Your device's ID (in Syncthing: <b class="ui">Actions</b> › <b class="ui">Show ID</b>)</label>
+        <label for="awDevice">Your device's ID (the command shows it at the end; or in Syncthing: <b class="ui">Actions</b> › <b class="ui">Show ID</b>)</label>
         <input id="awDevice" placeholder="XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX" autocomplete="off" spellcheck="false">
         <label for="awEmail" style="display:block;margin-top:8px">Email the link to</label>
         <input id="awEmail" type="email" placeholder="an address you can read anywhere, such as Gmail" autocomplete="email">
@@ -250,8 +248,13 @@ function ago(t) {
   const ua = navigator.userAgent;
   const os = /Android/i.test(ua) ? 'android' : /iPhone|iPad|iPod/i.test(ua) ? 'ios'
     : /Windows/i.test(ua) ? 'windows' : /Macintosh|Mac OS X/i.test(ua) ? 'mac' : /Linux|X11/i.test(ua) ? 'linux' : '';
-  const d = document.querySelector('details.os[data-os="' + os + '"]');
-  if (d) d.open = true;
+  document.querySelectorAll('details.os[data-os="' + os + '"]').forEach(d => d.open = true);
+  if (os === 'android' || os === 'ios') $('byhand').open = true;
+  // The commands, at the address this page was opened at.
+  const base = location.protocol + '//' + location.host;
+  $('cmdWin').textContent = 'irm ' + base + '/connect.ps1 | iex';
+  $('cmdMac').textContent = 'curl -fsSL ' + base + '/connect.sh | sh';
+  $('cmdLinux').textContent = 'wget -qO- ' + base + '/connect.sh | sh';
   $('win').hidden = os !== 'windows';
 })();
 

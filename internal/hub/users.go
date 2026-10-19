@@ -682,12 +682,13 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 			continue
 		}
 		// A new device is a new person until it is linked to someone
-		// (yggstore hub link).
+		// (yggstore hub link). The folder's ID names the box too: the same
+		// device may have another box's folder already.
 		var us User
 		var person Person
 		if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
 			name := uniqueName(s.Users, s.People, u.cfg.Dir, p.Name, id)
-			person = Person{Name: name, Folder: "yggstore-" + short(id), Path: filepath.Join(u.cfg.Dir, name), Added: time.Now().Unix()}
+			person = Person{Name: name, Folder: "yggstore-" + short(u.myID) + "-" + short(id), Path: filepath.Join(u.cfg.Dir, name), Added: time.Now().Unix()}
 			us = User{Name: name, Device: id, Folder: person.Folder, Path: person.Path, Added: person.Added, Address: p.Address, Person: name}
 			s.Users = append(s.Users, us)
 			s.People = append(s.People, person)

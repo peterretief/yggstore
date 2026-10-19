@@ -109,7 +109,7 @@ func TestPairsOnlyTheLAN(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, _ := Load(filepath.Join(dir, "hub.json"))
-	if len(st.Users) != 1 || st.Users[0].Name != "anna-s-laptop" || st.Users[0].Folder != "yggstore-ANNAAAA" {
+	if len(st.Users) != 1 || st.Users[0].Name != "anna-s-laptop" || st.Users[0].Folder != "yggstore-HUBHUBH-ANNAAAA" {
 		t.Fatalf("users %+v; want anna-s-laptop only", st.Users)
 	}
 	if _, ok := fake.devices["EVILLLL-2"]; ok {
@@ -118,7 +118,7 @@ func TestPairsOnlyTheLAN(t *testing.T) {
 	if _, ok := fake.pending["EVILLLL-2"]; ok {
 		t.Fatal("the internet device was left pending")
 	}
-	fo := fake.folders["yggstore-ANNAAAA"]
+	fo := fake.folders["yggstore-HUBHUBH-ANNAAAA"]
 	if fo == nil || fo["someDefault"] == nil || fo["path"] != st.Users[0].Path {
 		t.Fatalf("folder %v; want Syncthing's defaults with the user's path", fo)
 	}
@@ -164,11 +164,11 @@ func TestSwitchesAndLimit(t *testing.T) {
 	})
 	u.step(ctx)
 	st, _ := Load(statePath)
-	if _, ok := fake.devices["ONEEEEE-1"]; ok || fake.folders["yggstore-ONEEEEE"] != nil {
+	if _, ok := fake.devices["ONEEEEE-1"]; ok || fake.folders["yggstore-HUBHUBH-ONEEEEE"] != nil {
 		t.Fatal("removed device still in Syncthing")
 	}
 	// With "one" gone, "two" may pair now, and joins paused like the rest.
-	if len(st.Users) != 1 || st.Users[0].Name != "two" || fake.folders["yggstore-TWOOOOO"]["paused"] != true {
+	if len(st.Users) != 1 || st.Users[0].Name != "two" || fake.folders["yggstore-HUBHUBH-TWOOOOO"]["paused"] != true {
 		t.Fatalf("users after remove: %+v", st.Users)
 	}
 }

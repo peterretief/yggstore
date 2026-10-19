@@ -29,14 +29,15 @@ people who want a folder on their device kept in step with the box. It is
 opened by itself when the box doesn't serve files in the browser, or with
 `#syncthing` on the page's address. Inside it:
 
-1. **Install Syncthing**, with steps for Windows, Mac, Linux, Android
-   (Syncthing-Fork) and iPhone (Möbius Sync). The visitor's own system is
-   opened.
-2. **Connect to this box**: the box's Syncthing ID and its address
-   (`tcp://IP:22000`), each with a Copy button, and where to paste them in
-   Syncthing. Then accept the folder the box offers.
-3. **Use the folder**: how to store, restore and delete files.
-4. **Work from anywhere** (below).
+1. **Connect your computer**: one command to paste, for Windows
+   (PowerShell), Mac and Linux, which sets everything up (see
+   [connecting with one command](#connecting-with-one-command)). Phones
+   (Syncthing-Fork on Android, Möbius Sync on iPhone) and anyone the
+   command fails for follow **Connecting by hand**, folded below it: the
+   box's Syncthing ID and address (`tcp://IP:22000`), each with a Copy
+   button, and where to paste them in Syncthing.
+2. **Use the folder**: how to store, restore and delete files.
+3. **Work from anywhere** (below).
 
 Below that, **This box** shows whether its node is up, how many of the
 group's machines answer, and whether it is taking new devices. A folded
@@ -196,7 +197,42 @@ folders go in `~/yggstore-hub/users/NAME` and websites in
 
 ## Syncing a device
 
-The box's page walks users through this; in short:
+### Connecting with one command
+
+On a computer, the box's page gives a command to paste:
+
+```sh
+irm http://pi.local:7490/connect.ps1 | iex          # Windows, in PowerShell
+curl -fsSL http://pi.local:7490/connect.sh | sh     # Mac
+wget -qO- http://pi.local:7490/connect.sh | sh      # Linux
+```
+
+The script has this box's Syncthing ID, name and LAN addresses in it. It:
+
+1. uses the Syncthing already on the computer, or downloads the latest
+   release from GitHub and checks it against the release's checksums (into
+   `~/.local/bin`, or `%LOCALAPPDATA%\Programs\Syncthing` on Windows);
+2. starts it when the person logs in (a systemd user unit on Linux, a
+   LaunchAgent on macOS, a Startup shortcut on Windows) and now;
+3. adds the box with its addresses;
+4. waits for the box to take the computer, then asks the hub which folders
+   it shares with it (`GET /api/connect/folders?device=ID`: a line each of
+   ID, label and folder) and adds them: the person's own in `~/yggstore`
+   (or `~/yggstore-BOX` if that is already in use), the websites in
+   `~/yggstore-websites` and teams in `~/yggstore-teams/NAME`;
+5. prints the computer's Syncthing ID, for Work from anywhere.
+
+Running it again skips what is done. Syncthing's own web page is never
+needed. `scripts/hub-connect.sh [SYNCTHING]` tests it end to end with a
+real box Syncthing and a hub on loopback.
+
+We use Syncthing as it is released rather than a fork of it: everything
+the script needs is in Syncthing's command line (`syncthing cli`), so
+Syncthing's own updates and security fixes keep coming.
+
+### By hand
+
+The page's **Connecting by hand** steps, for phones; in short:
 
 1. Install Syncthing on the device: on Windows, macOS, Linux, Android
    (Syncthing-Fork) or iPhone (Möbius Sync).
