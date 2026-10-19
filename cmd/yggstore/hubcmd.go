@@ -127,7 +127,21 @@ func cmdHub(ctx context.Context, args []string) error {
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	nodeMail := ""
-	if node, ok := hub.FindLocalNode(); ok {
+	// The box's node may still be starting (at boot, or restarted with the
+	// hub): wait for it a while, or the hub runs without its group.
+	node, ok := hub.FindLocalNode()
+	for i := 0; !ok && i < 30 && !given["peers"]; i++ {
+		if i == 0 {
+			log.Printf("hub: waiting for this machine's node to start")
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(2 * time.Second):
+		}
+		node, ok = hub.FindLocalNode()
+	}
+	if ok {
 		nodeMail = node.Mailbox
 		if !given["peers"] {
 			*peersPath = node.Peers
@@ -356,6 +370,12 @@ func cmdHubControl(ctx context.Context, args []string) error {
 	peersPath := fs.String("peers", defaultPeers(), "peer list, for invite links")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, hubUsage) }
 	fs.Parse(reorder(args))
+	// The group the running hub uses: its node's member list.
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "peers" })
+	if node, ok := hub.FindLocalNode(); ok && !given {
+		*peersPath = node.Peers
+	}
 	cmd := fs.Arg(0)
 	set := func(f func(*hub.HubState) error, done string) error {
 		if _, err := hub.Update(ctx, *statePath, f); err != nil {
