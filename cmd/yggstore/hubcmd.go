@@ -257,6 +257,26 @@ func cmdHub(ctx context.Context, args []string) error {
 			MailNodes: func(ctx context.Context) []string { return mailNodes(ctx, wc, *peersPath) },
 			LinkHost:  func(ctx context.Context) string { return linkHost(ctx, wc, *peersPath) },
 			SelfAddr:  selfAddr(self),
+			Tell: func(ctx context.Context, text string) error {
+				l, err := localMsgs()
+				if err != nil {
+					return err
+				}
+				list, err := peers.Load(*peersPath)
+				if err != nil {
+					return err
+				}
+				sent := map[string]bool{}
+				for _, p := range list {
+					if p.Admin && !sent[p.IP()] {
+						sent[p.IP()] = true
+						if _, err := l.Send(ctx, p.IP(), hub.TypeBoxNote, text); err != nil {
+							return err
+						}
+					}
+				}
+				return nil
+			},
 			Watch: func(ctx context.Context, p hub.Person) {
 				w := outbox.New(outbox.Config{Dir: p.Path, PeersPath: *peersPath, Client: wc, Identity: id,
 					Event: func(kind, msg string) { log.Printf("%s: %s", p.Name, msg) }})

@@ -93,6 +93,8 @@ type HubState struct {
 	Asks []DeviceAsk `json:"asks,omitempty"`
 	// Invites are the admin's links that let a person's first device in.
 	Invites []Invite `json:"invites,omitempty"`
+	// Fetches are the connect scripts fetched lately (see notify.go).
+	Fetches []Fetch `json:"fetches,omitempty"`
 }
 
 // Team is a folder several people work in, on this box: every device of
@@ -222,6 +224,9 @@ type UsersConfig struct {
 	// People runs people's own websites and mail (see personsite.go); nil
 	// for none.
 	People *PeopleSites
+	// Tell sends the group's admins a note (see notify.go); nil: nobody
+	// is told.
+	Tell func(ctx context.Context, text string) error
 }
 
 type Users struct {
@@ -231,6 +236,7 @@ type Users struct {
 	myID     string
 	err      string // the last problem talking to Syncthing
 	watchers map[string]context.CancelFunc
+	told     map[string]bool // what the admin was told while the hub runs
 	// lightKick asks pushLight to send the web nodes the box's people.
 	lightKick chan struct{}
 	// copiesKick asks keepCopies to look for people who need copies.
@@ -417,6 +423,7 @@ func (u *Users) step(ctx context.Context) error {
 			return err
 		}
 	}
+	u.checkFetches(ctx)
 	return u.shareWebsites(ctx, st, have)
 }
 
@@ -675,11 +682,13 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 		}
 		if !OnLAN(p.Address) {
 			u.cfg.Logf("hub: not pairing %s (%s): it isn't on the local network (%s)", p.Name, short(id), p.Address)
+			u.tellOnce(id, fmt.Sprintf("%s turned away %s: it asked from %s, which isn't the box's local network. It has to connect from there once.", boxName(), p.Name, p.Address))
 			u.cfg.ST.DismissPending(ctx, id)
 			continue
 		}
 		if u.cfg.Limit > 0 && today >= u.cfg.Limit {
 			u.cfg.Logf("hub: not pairing %s (%s) yet: %d devices paired in the last day already", p.Name, short(id), today)
+			u.tellOnce(id, fmt.Sprintf("%s is keeping %s waiting: %d devices paired in the last day already, the box's limit. It pairs tomorrow, or raise the limit (yggstore hub -pair-limit).", boxName(), p.Name, today))
 			continue
 		}
 		// A new device is a new person until it is linked to someone
@@ -695,6 +704,7 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 				us = User{Name: uniqueName(s.Users, s.People, u.cfg.Dir, p.Name, id), Device: id, Folder: o.Folder, Path: o.Path,
 					Added: time.Now().Unix(), Address: p.Address, Person: o.Name}
 				s.Users = append(s.Users, us)
+				s.paired(time.Now())
 				return nil
 			}
 			name := uniqueName(s.Users, s.People, u.cfg.Dir, p.Name, id)
@@ -702,12 +712,18 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 			us = User{Name: name, Device: id, Folder: person.Folder, Path: person.Path, Added: person.Added, Address: p.Address, Person: name}
 			s.Users = append(s.Users, us)
 			s.People = append(s.People, person)
+			s.paired(time.Now())
 			return nil
 		}); err != nil {
 			return err
 		}
 		today++
 		u.cfg.Logf("hub: paired %s (%s) from %s; its folder is %s", us.Name, short(id), p.Address, person.Path)
+		if us.Person == person.Name && person.Added < us.Added {
+			u.tell(fmt.Sprintf("%s connected to %s as %s, from %s: it syncs %s's folder now.", us.Name, boxName(), person.Name, p.Address, person.Name))
+		} else {
+			u.tell(fmt.Sprintf("%s connected to %s from %s, as a new person called %s. Link it to someone already on the box with: yggstore hub link %s PERSON", us.Name, boxName(), p.Address, us.Person, us.Name))
+		}
 	}
 	return nil
 }

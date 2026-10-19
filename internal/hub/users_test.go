@@ -406,3 +406,67 @@ func TestOwnersFirstDevice(t *testing.T) {
 		t.Fatalf("Tim's folder isn't shared: %v", fake.folders)
 	}
 }
+
+// TestTellsTheAdmin: the admin hears when the script is fetched, when a
+// device pairs, and when a fetch is followed by no device.
+func TestTellsTheAdmin(t *testing.T) {
+	u, fake, dir := setupUsers(t, 0)
+	ctx := context.Background()
+	statePath := filepath.Join(dir, "hub.json")
+	told := make(chan string, 10)
+	u.cfg.Tell = func(_ context.Context, text string) error { told <- text; return nil }
+	next := func(want string) {
+		t.Helper()
+		select {
+		case got := <-told:
+			if !strings.Contains(got, want) {
+				t.Fatalf("told %q; want %q in it", got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("not told %q", want)
+		}
+	}
+	quiet := func() {
+		t.Helper()
+		select {
+		case got := <-told:
+			t.Fatalf("told %q", got)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	u.Fetched("10.0.0.20:51234", "connect.ps1")
+	next("10.0.0.20")
+	u.Fetched("10.0.0.20:51240", "connect.ps1") // run again: told once
+	quiet()
+	fake.pending["LAPTOPP-1"] = syncthing.PendingDevice{Name: "laptop", Address: "10.0.0.20:22000"}
+	if err := u.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	next("laptop connected")
+	quiet() // the fetches before it are done
+
+	// A fetch with no device after it is reported once, later.
+	u.Fetched("10.0.0.30:5000", "connect.sh")
+	next("10.0.0.30")
+	u.step(ctx)
+	quiet()
+	Update(ctx, statePath, func(s *HubState) error {
+		for i := range s.Fetches {
+			s.Fetches[i].Time -= int64(notPairedAfter/time.Second) + 60
+		}
+		return nil
+	})
+	u.step(ctx)
+	next("no computer has connected")
+	u.step(ctx)
+	quiet()
+
+	// A device from outside the LAN is turned away, and the admin hears it once.
+	fake.pending["AWAYYYY-2"] = syncthing.PendingDevice{Name: "away", Address: "203.0.113.9:22000"}
+	u.step(ctx)
+	next("turned away away")
+	fake.pending["AWAYYYY-2"] = syncthing.PendingDevice{Name: "away", Address: "203.0.113.9:22000"}
+	u.step(ctx)
+	quiet()
+}

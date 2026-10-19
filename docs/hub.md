@@ -226,6 +226,18 @@ Running it again skips what is done. Syncthing's own web page is never
 needed. `scripts/hub-connect.sh [SYNCTHING]` tests it end to end with a
 real box Syncthing and a hub on loopback.
 
+A computer becomes a new person on the box, named after it, except the
+box owner's first device: if the group's list names the box's owner and
+they are on the box with no device yet, it syncs their folder straight
+away (with their address and sites).
+
+**The group's admin hears how it goes,** as messages from the box
+(type `box-note`) on their dashboard's Messages page: when someone on the
+LAN fetches the script, when their computer pairs (and as whom), when a
+device is turned away (not on the LAN, or over the day's limit), and when a
+script was fetched but no computer paired within 15 minutes. The box keeps
+the last week's fetches in `hub.json`.
+
 We use Syncthing as it is released rather than a fork of it: everything
 the script needs is in Syncthing's command line (`syncthing cli`), so
 Syncthing's own updates and security fixes keep coming.

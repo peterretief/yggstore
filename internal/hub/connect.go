@@ -72,6 +72,7 @@ func (h *Hub) handleConnect(script, contentType string) http.HandlerFunc {
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Cache-Control", "no-store")
 		fmt.Fprint(w, ConnectScript(script, "http://"+r.Host, name, id, boxAddrs()))
+		h.cfg.Users.Fetched(r.RemoteAddr, strings.TrimPrefix(r.URL.Path, "/"))
 	}
 }
 
