@@ -344,8 +344,19 @@ func TestGroupNamesBelongToTheirNode(t *testing.T) {
 	publish("200::2", "bob.org", "bob's own")
 	eventually(t, web, "bob.org", "bob's own")
 
+	// Moved to bob as a site: anna's version is served until bob announces.
 	mu.Lock()
-	members[1].Names = nil
+	members[1].Names, members[2].Sites, members[2].Code = nil, []string{"anna.example.org"}, "ys1b"
+	mu.Unlock()
+	if code, body := get(t, web, http.MethodGet, "anna.example.org", "/"); code != http.StatusOK || !strings.Contains(body, "anna's") {
+		t.Fatalf("a site on the move went offline: %d %q", code, body)
+	}
+	publish("200::1", "anna.example.org", "anna's again")
+	publish("200::2", "anna.example.org", "moved to bob")
+	eventually(t, web, "anna.example.org", "moved to bob")
+
+	mu.Lock()
+	members[2].Sites = nil
 	mu.Unlock()
 	if code, _ := get(t, web, http.MethodGet, "anna.example.org", "/"); code != http.StatusNotFound {
 		t.Fatalf("a name taken back is still served: %d", code)

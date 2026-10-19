@@ -53,7 +53,8 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	pn, named := peers.PersonNameOf(list, ps.cfg.Self, p.Name)
+	pn, hasAddress := peers.PersonNameOf(list, ps.cfg.Self, p.Name)
+	from, named := ForwardFrom(list, ps.cfg.Self, p.Name)
 	box, err := ps.Mailbox(p)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -71,7 +72,10 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 		case "status":
 			out := sitePageState{Person: p.Name, Messages: []mail.Summary{}, Domain: peers.GroupDomain(list)}
 			if named {
-				out.Name, out.Address = pn.Name, peers.MailAddress(pn.Name)
+				out.Name = from
+				if hasAddress {
+					out.Name, out.Address = pn.Name, peers.MailAddress(pn.Name)
+				}
 				if s, ok := ps.SiteStatus(p); ok {
 					out.Site = &s
 				}
@@ -120,7 +124,7 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 			err = errors.New("you need a name in the group first: your mail is forwarded from it")
 			break
 		}
-		err = ps.SendCode(ctx, p, pn.Name, req.To)
+		err = ps.SendCode(ctx, p, from, req.To)
 	case "confirm":
 		_, err = Update(ctx, f.u.cfg.StatePath, func(s *HubState) error {
 			if i := s.person(p.Name); i >= 0 {

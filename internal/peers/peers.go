@@ -33,6 +33,7 @@ import (
 // code, which their mail is sealed for. PeopleNames are names given to
 // people who use a box without a node of their own (see names.go): the
 // box's node keeps their site and mail, sealed for each person's own code.
+// Sites are names given to the node only as websites, with no mail.
 // A leaving peer is about to go down
 // (see package repair): nothing new is stored on it, and its shards are
 // moved off while it still answers.
@@ -53,6 +54,7 @@ type Peer struct {
 	Names       []string     `json:"names,omitempty"`
 	Code        string       `json:"code,omitempty"`
 	PeopleNames []PersonName `json:"people_names,omitempty"`
+	Sites       []string     `json:"sites,omitempty"`
 }
 
 // Operator is the person the peer's space and uploads count towards.

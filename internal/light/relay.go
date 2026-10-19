@@ -260,7 +260,7 @@ func PersonHost(list []peers.Peer, host string) (box peers.Peer, ok bool) {
 
 func personHost(list []peers.Peer, host string) (peers.Peer, string, bool) {
 	p, pn, ok := peers.NameHolder(list, hostOnly(host))
-	return p, pn.Person, ok && pn.Person != ""
+	return p, pn.Person, ok && pn.Person != "" && !pn.Site // nobody signs in at a site
 }
 
 func jsonOK(w http.ResponseWriter, v any) {

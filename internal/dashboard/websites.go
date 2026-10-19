@@ -79,7 +79,7 @@ func (d *Dashboard) mySites(pub *site.Publisher) (names map[string]bool, all []s
 	names = map[string]bool{}
 	if list, err := peers.Load(d.cfg.PeersPath); err == nil {
 		if own, ok := selfEntry(list, d.cfg.SelfID); ok {
-			for _, n := range own.Names {
+			for _, n := range append(append([]string{}, own.Names...), own.Sites...) {
 				names[n] = true
 			}
 		}

@@ -81,3 +81,51 @@ func TestPeopleNames(t *testing.T) {
 		}
 	}
 }
+
+func TestSiteNames(t *testing.T) {
+	admin := Peer{Name: "desktop", Addr: "[200::1]:7400", Admin: true, Domain: "example.org", Code: "ys1a"}
+	box := Peer{Name: "box", Addr: "[200::2]:7400", Code: "ys1b", Sites: []string{"club.example.org"},
+		PeopleNames: []PersonName{
+			{Name: "tim.example.org", Person: "Tim", Code: "ys1t"},
+			{Name: "shop.example.org", Person: "Tim", Code: "ys1t", Site: true},
+			{Name: "shop2.example.org", Person: "Tim", Code: "ys1t", Site: true},
+		}}
+	list := []Peer{admin, box}
+	if err := Validate(list); err != nil {
+		t.Fatal(err)
+	}
+	if pn, ok := PersonNameOf(list, "200::2", "tim"); !ok || pn.Name != "tim.example.org" {
+		t.Fatalf("Tim's address: %+v", pn)
+	}
+	if all := PersonNamesOf(list, "200::2", "Tim"); len(all) != 3 || all[0].Name != "tim.example.org" {
+		t.Fatalf("Tim's names: %+v", all)
+	}
+	for _, site := range []string{"shop.example.org", "club.example.org"} {
+		if p, pn, ok := NameHolder(list, site); !ok || p.Name != "box" || !pn.Site {
+			t.Fatalf("%s: %v %+v", site, ok, pn)
+		}
+		if keeper, given, _ := SiteKeeper(list, site); !given || keeper.Name != "box" {
+			t.Fatalf("%s is the box's to publish", site)
+		}
+		addr := MailAddress(site)
+		if _, _, ok := MailHolder(list, addr); ok {
+			t.Fatalf("%s takes mail", addr)
+		}
+		if p, ok := MailOwner(list, addr); !ok || p.Name != "box" {
+			t.Fatalf("the box can't forward from %s", addr)
+		}
+	}
+
+	for name, bad := range map[string][]Peer{
+		"two addresses": {admin, {Name: "b", Addr: "[200::3]:7400", PeopleNames: []PersonName{
+			{Name: "a.example.org", Person: "A", Code: "ys1x"}, {Name: "b.example.org", Person: "A", Code: "ys1x"}}}},
+		"site twice": {admin, box, {Name: "c", Addr: "[200::3]:7400", Code: "ys1c", Sites: []string{"shop.example.org"}}},
+		"site no code": {admin, {Name: "c", Addr: "[200::3]:7400", Sites: []string{"c.example.org"}}},
+		"site no person": {admin, {Name: "c", Addr: "[200::3]:7400", PeopleNames: []PersonName{
+			{Name: "c.example.org", Code: "ys1x", Site: true}}}},
+	} {
+		if Validate(bad) == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

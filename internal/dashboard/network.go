@@ -150,7 +150,7 @@ func (d *Dashboard) handleNetwork(w http.ResponseWriter, r *http.Request) {
 			port = pt
 		}
 		n := netNode{Name: p.Name, Machine: p.Machine(), IP: ip, Port: port, Owner: p.Owner, Roles: roles(p), LAN: []string{},
-			Names: append([]string{}, p.Names...), Test: !inMain[p.Addr] || test[p.Addr], Self: ip == d.cfg.SelfID && port == "7400"}
+			Names: append(append([]string{}, p.Names...), p.Sites...), Test: !inMain[p.Addr] || test[p.Addr], Self: ip == d.cfg.SelfID && port == "7400"}
 		for _, pn := range p.PeopleNames {
 			n.Names = append(n.Names, pn.Name)
 		}
@@ -178,7 +178,14 @@ func (d *Dashboard) handleNetwork(w http.ResponseWriter, r *http.Request) {
 			out.Names = append(out.Names, netName{Name: name, Mail: peers.MailAddress(name), Node: p.Name})
 		}
 		for _, pn := range p.PeopleNames {
-			out.Names = append(out.Names, netName{Name: pn.Name, Mail: peers.MailAddress(pn.Name), Node: p.Name, Person: pn.Person})
+			nn := netName{Name: pn.Name, Mail: peers.MailAddress(pn.Name), Node: p.Name, Person: pn.Person}
+			if pn.Site {
+				nn.Mail = "" // a site takes no mail
+			}
+			out.Names = append(out.Names, nn)
+		}
+		for _, name := range p.Sites {
+			out.Names = append(out.Names, netName{Name: name, Node: p.Name})
 		}
 	}
 	if out.Domain != "" {

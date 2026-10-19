@@ -130,7 +130,7 @@ func (f *filesPage) rpFor(r *http.Request) (rp, only string, ok bool) {
 	if host == light.Host+"."+domain {
 		return host, "", true
 	}
-	if p, pn, found := peers.NameHolder(list, host); found && pn.Person != "" && p.IP() == f.self {
+	if p, pn, found := peers.NameHolder(list, host); found && pn.Person != "" && !pn.Site && p.IP() == f.self {
 		return host, pn.Person, true
 	}
 	return "", "", false

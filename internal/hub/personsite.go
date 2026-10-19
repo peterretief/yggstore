@@ -11,6 +11,7 @@ import (
 	netmail "net/mail"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -114,8 +115,10 @@ type PeopleSites struct {
 	logged   map[string]string // the last problem logged, per person
 }
 
+// personSite is a person's websites: one watcher for all their names.
 type personSite struct {
-	name   string
+	name   string   // the first: their address's site, if they have one
+	names  []string // every name they hold
 	pub    *site.Publisher
 	w      *websites.Watcher
 	cancel context.CancelFunc
@@ -185,18 +188,23 @@ func (ps *PeopleSites) Step(ctx context.Context) {
 			})
 			p.Code = id.Code()
 		}
-		pn, named := peers.PersonNameOf(list, ps.cfg.Self, p.Name)
+		var names []string
+		for _, pn := range peers.PersonNamesOf(list, ps.cfg.Self, p.Name) {
+			names = append(names, pn.Name)
+		}
 		switch {
-		case named && p.Active():
-			ps.ensure(ctx, p, pn.Name)
-		case named:
+		case len(names) > 0 && p.Active():
+			ps.ensure(ctx, p, names)
+		case len(names) > 0:
 			ps.stop(p)
-			ps.takeDown(ctx, p, pn.Name)
-			if p.Removed {
-				ps.giveBack(ctx, list, p, pn.Name)
+			for _, name := range names {
+				ps.takeDown(ctx, p, name)
+				if p.Removed {
+					ps.giveBack(ctx, list, p, name)
+				}
 			}
 		default:
-			ps.stop(p)
+			ps.stop(p) // a site moved away, say: the move lets it go
 		}
 		if !p.Removed {
 			keys[p.Folder] = id
@@ -212,9 +220,9 @@ func (ps *PeopleSites) Step(ctx context.Context) {
 		}
 	}
 	for _, p := range st.People {
-		if pn, ok := peers.PersonNameOf(list, ps.cfg.Self, p.Name); ok && p.Active() && p.Forward.On() {
+		if from, ok := ForwardFrom(list, ps.cfg.Self, p.Name); ok && p.Active() && p.Forward.On() {
 			if id := keys[p.Folder]; id != nil {
-				ps.forward(ctx, p, pn.Name, id)
+				ps.forward(ctx, p, from, id)
 			}
 		}
 	}
@@ -257,52 +265,71 @@ const starterPage = `<!doctype html>
 </html>
 `
 
-// ensure runs person's site: its folder (a page to start from, the first
-// time) and the watcher that publishes it.
-func (ps *PeopleSites) ensure(ctx context.Context, p Person, name string) {
+// ForwardFrom is the name a person's messages are forwarded from: their
+// address, or failing that their first site.
+func ForwardFrom(list []peers.Peer, box, person string) (string, bool) {
+	names := peers.PersonNamesOf(list, box, person)
+	if len(names) == 0 {
+		return "", false
+	}
+	return names[0].Name, true
+}
+
+// ensure runs person's sites: a folder for each (a page to start from, the
+// first time) and the watcher that publishes them.
+func (ps *PeopleSites) ensure(ctx context.Context, p Person, names []string) {
 	ps.mu.Lock()
 	r := ps.running[p.Folder]
 	ps.mu.Unlock()
-	if r != nil && r.name == name {
+	if r != nil && slices.Equal(r.names, names) {
 		return
 	}
 	ps.stop(p)
 	ann, err := ps.cfg.Announcer()
 	if err != nil {
-		ps.logOnce(p.Name, "can't publish %s yet: %v", name, err)
+		ps.logOnce(p.Name, "can't publish %s yet: %v", strings.Join(names, ", "), err)
 		return
 	}
 	pub := &site.Publisher{Dir: filepath.Join(ps.cfg.Dir, p.Folder, "sites"), Client: ps.cfg.Client, Announce: ann,
 		Log: ps.cfg.Logf, Skip: websites.Skip}
 	dir := filepath.Join(p.Path, outbox.WebsitesDir)
-	folder := filepath.Join(dir, name)
-	published := false
+	published := map[string]bool{}
 	for _, s := range pub.Sites() {
-		published = published || s == name
+		published[s] = true
 	}
-	if _, err := os.Stat(folder); os.IsNotExist(err) && !published {
-		if err := os.MkdirAll(folder, 0o755); err != nil {
-			ps.logOnce(p.Name, "making the folder for %s: %v", name, err)
-			return
+	mine := map[string]bool{}
+	var fresh []string
+	for _, name := range names {
+		mine[name] = true
+		if published[name] {
+			continue // moved here, say: the watcher fills its folder
 		}
-		atomicfile.Replace(filepath.Join(folder, "index.html"), []byte(fmt.Sprintf(starterPage, p.Name)), 0o644)
-		ps.cfg.Logf("%s: %s is theirs now: started their site", p.Name, name)
+		fresh = append(fresh, name)
+		folder := filepath.Join(dir, name)
+		if _, err := os.Stat(folder); os.IsNotExist(err) {
+			if err := os.MkdirAll(folder, 0o755); err != nil {
+				ps.logOnce(p.Name, "making the folder for %s: %v", name, err)
+				return
+			}
+			atomicfile.Replace(filepath.Join(folder, "index.html"), []byte(fmt.Sprintf(starterPage, p.Name)), 0o644)
+			ps.cfg.Logf("%s: %s is theirs now: started their site", p.Name, name)
+		}
 	}
 	w := websites.New(websites.Config{Dir: dir, StatePath: filepath.Join(ps.cfg.Dir, p.Folder, "websites.json"),
 		Pub: pub, Client: ps.cfg.Client, Online: ps.cfg.Online, MaxBytes: ps.cfg.MaxBytes, Logf: ps.cfg.Logf,
-		Mine: func() map[string]bool { return map[string]bool{name: true} },
-		// A person publishes only the name they were given.
+		Mine: func() map[string]bool { return mine },
+		// A person publishes only the names they were given.
 		Cloudflare: func(context.Context, string) (bool, string, error) { return false, "", nil }})
-	if !published {
+	for _, name := range fresh {
 		w.Force(name) // a new site, or one taken down while they were shut out
 	}
 	cctx, cancel := context.WithCancel(ctx)
 	ps.mu.Lock()
-	ps.running[p.Folder] = &personSite{name: name, pub: pub, w: w, cancel: cancel}
+	ps.running[p.Folder] = &personSite{name: names[0], names: names, pub: pub, w: w, cancel: cancel}
 	ps.mu.Unlock()
 	go func() {
 		if err := w.Run(cctx); err != nil {
-			ps.cfg.Logf("%s: their site %s: %v", p.Name, name, err)
+			ps.cfg.Logf("%s: their sites %s: %v", p.Name, strings.Join(names, ", "), err)
 		}
 	}()
 }

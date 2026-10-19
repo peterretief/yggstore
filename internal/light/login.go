@@ -509,7 +509,7 @@ func (rl *Relay) email(box, person string) string {
 			continue
 		}
 		for _, pn := range p.PeopleNames {
-			if strings.EqualFold(pn.Person, person) {
+			if strings.EqualFold(pn.Person, person) && !pn.Site {
 				if label, ok := strings.CutSuffix(pn.Name, "."+d); ok && d != "" && !strings.Contains(label, ".") {
 					return label + "@" + d
 				}

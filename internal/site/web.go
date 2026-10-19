@@ -212,12 +212,13 @@ func isAdmin(list []peers.Peer, ip string) bool {
 	return false
 }
 
-// servable: a site under the group's domain is served only while its
-// publisher still holds the name (or is an admin), so a name taken back
-// stops being served at once.
+// servable: a site under the group's domain is served only while someone
+// holds its name (or its publisher is an admin), so a name taken back
+// stops being served at once. A name given to another node is a site on
+// the move: its version is served until the new holder announces its own.
 func servable(list []peers.Peer, site, owner string) bool {
-	keeper, given, under := peers.SiteKeeper(list, site)
-	return !under || (given && keeper.IP() == owner) || isAdmin(list, owner)
+	_, given, under := peers.SiteKeeper(list, site)
+	return !under || given || isAdmin(list, owner)
 }
 
 // mayClaim: www.NAME is served as NAME until it is a site of its own, so
@@ -355,7 +356,7 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		// Someone on a box signs in at their own name: /files there is
 		// their box's, the rest their website.
 		if p := r.URL.Path; p == "/files" || strings.HasPrefix(p, "/files/") {
-			if _, pn, ok := peers.NameHolder(w.Peers(), host); ok && pn.Person != "" {
+			if _, pn, ok := peers.NameHolder(w.Peers(), host); ok && pn.Person != "" && !pn.Site {
 				w.Light.ServeHTTP(rw, r)
 				return
 			}
