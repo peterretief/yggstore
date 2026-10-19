@@ -123,6 +123,7 @@ type groupSite struct {
 	Person  string   `json:"person,omitempty"` // someone on that node's box
 	Given   bool     `json:"given"`            // the list gives its name to the owner
 	Under   bool     `json:"under"`            // a name under the group's domain
+	Address bool     `json:"address"`          // it's someone's address too, with their mail
 	Contact bool     `json:"contact"`
 	Serving string   `json:"serving,omitempty"`
 	Served  []string `json:"served"` // web nodes serving it
@@ -233,6 +234,7 @@ func (d *Dashboard) groupSites(list []peers.Peer) []groupSite {
 			if g.Given {
 				g.Person = pn.Person
 			}
+			g.Address = !pn.Site
 		}
 		sort.Strings(g.Served)
 		out = append(out, g.groupSite)
@@ -269,6 +271,10 @@ func (d *Dashboard) handleMoveStart(w http.ResponseWriter, r *http.Request) {
 	}
 	if from == nil || from.Owner == "" {
 		http.Error(w, "no web node serves "+req.Site+" yet", http.StatusBadRequest)
+		return
+	}
+	if from.Address {
+		http.Error(w, req.Site+" is an address as well as a website: moving it would stop its mail. Moving someone's address isn't built yet.", http.StatusBadRequest)
 		return
 	}
 	m := sitemove.Move{Site: req.Site, From: from.Owner, FromPerson: from.Person, To: req.To, ToPerson: strings.TrimSpace(req.Person)}
