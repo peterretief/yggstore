@@ -122,6 +122,7 @@ type groupSite struct {
 	Node    string   `json:"node"`             // its name
 	Person  string   `json:"person,omitempty"` // someone on that node's box
 	Given   bool     `json:"given"`            // the list gives its name to the owner
+	Under   bool     `json:"under"`            // a name under the group's domain
 	Contact bool     `json:"contact"`
 	Serving string   `json:"serving,omitempty"`
 	Served  []string `json:"served"` // web nodes serving it
@@ -226,6 +227,7 @@ func (d *Dashboard) groupSites(list []peers.Peer) []groupSite {
 			}
 		}
 		g.Node = names[g.Owner]
+		_, _, g.Under = peers.SiteKeeper(list, g.Site)
 		if holder, pn, ok := peers.NameHolder(list, g.Site); ok {
 			g.Given = holder.IP() == g.Owner
 			if g.Given {

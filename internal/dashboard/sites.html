@@ -102,7 +102,7 @@ const status = m => ({
 function render() {
   set("sites", st.sites.map(s => {
     const from = s.node ? `<b>${s.person ? esc(s.person) + "</b> on <b>" : ""}${esc(s.node)}</b>` : `<span class="sub">unknown</span>`;
-    const given = s.given ? "" : ` <span class="pill warn" title="the member list gives this name to no one: only an admin can publish it">not given</span>`;
+    const given = s.given || !s.under ? "" : ` <span class="pill warn" title="the member list gives this name to no one: only an admin can publish it">not given</span>`;
     const served = s.served.length ? `<span class="pill up">${s.served.length}</span> <span class="sub">${s.served.map(esc).join(", ")}</span>` : `<span class="pill down">none</span>`;
     const btn = s.moving ? `<span class="pill role">moving</span>` : `<button data-move="${esc(s.site)}">Move</button>`;
     return `<tr><td><a href="https://${esc(s.site)}/" target="_blank" rel="noopener">${esc(s.site)}</a></td><td>${from}${given}</td>
