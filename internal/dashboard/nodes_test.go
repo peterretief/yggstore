@@ -234,3 +234,32 @@ func TestLeftNodeDropped(t *testing.T) {
 		t.Fatalf("after a day down: %+v (pi3 isn't leaving, so it stays)", list)
 	}
 }
+
+// TestSetOwner: the admin sets a box's owner, on every node at its address.
+func TestSetOwner(t *testing.T) {
+	dir := t.TempDir()
+	mine := filepath.Join(dir, "peers.json")
+	peers.Write(mine, []peers.Peer{{Name: "desktop", Addr: "127.0.0.1:1", Admin: true, Owner: "peter"},
+		{Name: "pi", Addr: "[200::2]:7400", Owner: "peter"}, {Name: "pi-usb1", Addr: "[200::2]:7401", Owner: "peter"}, {Name: "nas", Addr: "[200::3]:7400"}})
+	d := New(Config{PeersPath: mine, StubDir: dir, SelfID: "127.0.0.1", Client: client.New()})
+	d.poll(context.Background())
+	h := d.Handler()
+	send := func(body string) int {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, post("/api/nodes/owner", strings.NewReader(body)))
+		return rec.Code
+	}
+	if code := send(`{"name": "pi", "owner": " Tim "}`); code != http.StatusNoContent {
+		t.Fatalf("set owner: %d", code)
+	}
+	list, _ := peers.Load(mine)
+	if list[1].Owner != "Tim" || list[2].Owner != "Tim" || list[0].Owner != "peter" || list[3].Owner != "" {
+		t.Fatalf("after setting: %+v", list)
+	}
+	if code := send(`{"name": "pi", "owner": ""}`); code != http.StatusBadRequest {
+		t.Fatalf("empty owner: %d", code)
+	}
+	if code := send(`{"name": "nobody", "owner": "x"}`); code != http.StatusNotFound {
+		t.Fatalf("unknown node: %d", code)
+	}
+}

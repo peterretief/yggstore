@@ -5,6 +5,16 @@ person's name goes back to the group's admin). Stages 1 to 6 are built;
 stage 7, keys held in the browser, is not. How to use it is in
 [hub.md](hub.md#a-website-and-email-address-for-someone-on-the-box).
 
+> **Decided on 2026-10-19: one owner per box.** Each box has one owner
+> (`owner` on its entry in the member list, set by the group's admin),
+> and its storage counts towards them. The owner is responsible for
+> everything on their box: the people they let use it, and those people's
+> addresses, email and websites, such as a business's clients. Anyone who
+> wants a box of their own gets one; otherwise they share the owner's. The
+> owner's box keeps working for its people when it is off (sign-in and
+> files through the web nodes, see [web-access.md](web-access.md)). The
+> group's admin keeps access to every box.
+
 A box admin can add people to a box, and they use their folder through
 `/files` in a browser (see [hub.md](hub.md)). This plan lets one of them
 also have a website under the group's domain, such as

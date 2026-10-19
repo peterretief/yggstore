@@ -362,6 +362,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/delete", d.handleDelete)
 	mux.HandleFunc("POST /api/nodes", d.handleAddNode)
 	mux.HandleFunc("POST /api/nodes/leaving", d.handleLeaving)
+	mux.HandleFunc("POST /api/nodes/owner", d.handleOwner)
 	mux.HandleFunc("POST /api/share", d.handleShare)
 	mux.HandleFunc("POST /api/contacts", d.handleAddContact)
 	mux.HandleFunc("POST /api/invites", d.handleInvite)
@@ -1179,6 +1180,59 @@ func (d *Dashboard) handleLeaving(w http.ResponseWriter, r *http.Request) {
 	select {
 	case d.wake <- struct{}{}:
 	default:
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleOwner sets who owns a box (admin dashboards). A box has one owner:
+// every node at the machine's address gets it, and their storage counts
+// towards that person.
+func (d *Dashboard) handleOwner(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name  string `json:"name"`
+		Owner string `json:"owner"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	owner := strings.TrimSpace(req.Owner)
+	if owner == "" || len(owner) > 64 || strings.ContainsAny(owner, "\n\r\t") {
+		http.Error(w, "an owner is a person's name, up to 64 characters", http.StatusBadRequest)
+		return
+	}
+	d.mu.Lock()
+	admin := d.state.AdminEntry != ""
+	d.mu.Unlock()
+	if !admin {
+		http.Error(w, "this node is not marked \"admin\": true in peers.json, so it cannot change the list", http.StatusForbidden)
+		return
+	}
+	d.namesMu.Lock()
+	defer d.namesMu.Unlock()
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	i := slices.IndexFunc(list, func(p peers.Peer) bool { return p.Name == req.Name })
+	if i < 0 {
+		http.Error(w, "no node called "+req.Name, http.StatusNotFound)
+		return
+	}
+	ip, changed := list[i].IP(), false
+	for j := range list {
+		if list[j].IP() == ip && list[j].Owner != owner {
+			list[j].Owner, changed = owner, true
+		}
+	}
+	if changed {
+		if err := peers.Write(d.cfg.PeersPath, list); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		d.event("info", fmt.Sprintf("%s's box belongs to %s now", req.Name, owner))
+		d.poke()
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -105,8 +105,8 @@ button.del:hover { border-color: var(--bad); color: var(--bad); }
 .empty { padding: 22px; color: var(--muted); text-align: center; }
 td.actions { white-space: nowrap; }
 td.actions button + button { margin-left: 4px; }
-.card button[data-leaving] { font-size: 12px; padding: 2px 8px; opacity: .75; }
-.card button[data-leaving]:hover { opacity: 1; }
+.card button[data-leaving], .card button[data-owner] { font-size: 12px; padding: 2px 8px; opacity: .75; }
+.card button[data-leaving]:hover, .card button[data-owner]:hover { opacity: 1; }
 .restoreto { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; }
 .restoreto .mono { overflow-wrap: anywhere; }
 details.restoreto { display: block; }
@@ -300,7 +300,7 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
       <tbody id="accounts"></tbody>
     </table>
   </div>
-  <div class="sub" style="margin-top:6px">Each person should hold for others about 1.5× what they use. Accounting only for now: nothing is enforced. Set who runs a node with <span class="mono">"owner"</span> in peers.json; it defaults to the machine.</div>
+  <div class="sub" style="margin-top:6px">Each person should hold for others about 1.5× what they use. Accounting only for now: nothing is enforced. Each box has one owner, who is responsible for everything on it; the group's admin sets it under <b>change</b> beside the box's owner.</div>
   </div>
   </div>
 
@@ -646,6 +646,17 @@ document.addEventListener("click", async e => {
   if (leaving && !confirm(`Prepare to switch ${name} off?\n\nNothing new will be stored on it, and the group's files are moved off it while it is still on. Leave it on until its card says it can be switched off.`)) return;
   b.disabled = true;
   const r = await post("api/nodes/leaving", {headers: {"Content-Type": "application/json"}, body: JSON.stringify({name, leaving})});
+  if (!r.ok) alert(await r.text());
+  b.disabled = false;
+});
+
+document.addEventListener("click", async ev => {
+  const b = ev.target.closest("[data-owner]");
+  if (!b) return;
+  const owner = prompt(`Who owns ${b.dataset.owner}? A box has one owner: they're responsible for everyone and everything on it, and its storage counts towards them.`, b.dataset.was);
+  if (!owner || owner.trim() === b.dataset.was) return;
+  b.disabled = true;
+  const r = await post("api/nodes/owner", {headers: {"Content-Type": "application/json"}, body: JSON.stringify({name: b.dataset.owner, owner: owner.trim()})});
   if (!r.ok) alert(await r.text());
   b.disabled = false;
 });
@@ -1858,7 +1869,8 @@ async function refreshWallet() {
     <div class="sub">${p.nodes} node${p.nodes === 1 ? "" : "s"}</div></td><td class="num" ${r}>${sz(p.stores)}</td><td class="num" ${r}>${sz(p.on_others)}</td>
     <td class="num" ${r}>${sz(p.for_others)}</td><td class="num ${p.net < 0 ? "minus" : p.net > 0 ? "plus" : ""}" ${r}>${p.net > 0 ? "+" : ""}${fy(p.net)}
     <div class="sub">${yggUsd(p.net)}</div></td></tr>`).join("") || `<tr><td colspan="5" class="sub">No nodes report what they hold yet.</td></tr>`;
-  $("usageNodes").innerHTML = w.nodes.map(n => `<tr><td><b>${esc(n.node)}</b>${n.up ? "" : ` <span class="pill bad">down</span>`}</td><td>${esc(n.owner)}</td>
+  $("usageNodes").innerHTML = w.nodes.map(n => `<tr><td><b>${esc(n.node)}</b>${n.up ? "" : ` <span class="pill bad">down</span>`}</td><td>${esc(n.owner)}${lastState && lastState.admin_entry
+    ? ` <button data-owner="${esc(n.node)}" data-was="${esc(n.owner)}" title="who owns this box: its storage counts towards them">change</button>` : ""}</td>
     <td class="num" ${r}>${sz(n.holds)}</td><td class="num" ${r}>${sz(n.for_others)}</td><td class="num" ${r}>${sz(n.quota)}</td>
     <td class="num" ${r}>${n.earns ? fy(n.earns) + " yggs" : "–"}</td></tr>`).join("");
   $("usageToday").innerHTML = w.today.map(t => `<tr><td>${esc(t.node)} <span class="sub">(${esc(t.holder)})</span></td><td>${esc(t.writer)}</td>
