@@ -79,6 +79,8 @@ type SiteStatus struct {
 	Serving string `json:"serving,omitempty"` // version ID
 	Waiting string `json:"waiting,omitempty"` // newer version not fetched yet
 	Error   string `json:"error,omitempty"`
+	Owner   string `json:"owner,omitempty"` // the node that publishes it
+	Contact bool   `json:"contact,omitempty"`
 }
 
 func (w *Web) statePath() string { return filepath.Join(w.Dir, "web.json") }
@@ -328,7 +330,7 @@ func (w *Web) Status() []SiteStatus {
 	defer w.mu.Unlock()
 	var out []SiteStatus
 	for name, e := range w.st.Sites {
-		s := SiteStatus{Site: name, Serving: e.Serving, Error: e.Error}
+		s := SiteStatus{Site: name, Serving: e.Serving, Error: e.Error, Owner: e.Owner, Contact: e.Contact != ""}
 		if e.Want != nil {
 			s.Waiting = e.Want.FileID
 		}

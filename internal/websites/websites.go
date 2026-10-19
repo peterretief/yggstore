@@ -37,6 +37,9 @@ import (
 // NoteSuffix ends the name of the file that says why a site isn't published.
 const NoteSuffix = " - NOT PUBLISHED.txt"
 
+// MovedSuffix ends the name of the file that says where a site moved to.
+const MovedSuffix = " - MOVED.txt"
+
 // ErrNoToken is what Route returns when there is no Cloudflare API token:
 // routes are then added by hand.
 var ErrNoToken = errors.New("no Cloudflare API token")
@@ -54,6 +57,9 @@ type Config struct {
 	Mine func() map[string]bool
 	// Served is the sites the group's web nodes serve now. nil: none known.
 	Served func() map[string]bool
+	// Moved says where a site published from here moved to, and when
+	// (see package sitemove). nil: none moved.
+	Moved func(name string) (to string, at time.Time, ok bool)
 	// Cloudflare reports whether domain is on Cloudflare, and the zone it
 	// is (or would be) in. nil: by the domain's nameservers (OnCloudflare).
 	Cloudflare func(ctx context.Context, domain string) (bool, string, error)
@@ -219,6 +225,7 @@ func (w *Watcher) Step(ctx context.Context) {
 		switch {
 		case published[name] || mine[name]:
 			w.publish(ctx, folder, name, path, !mine[name])
+		case w.cfg.Moved != nil && w.movedNote(folder, name):
 		case w.cfg.Served != nil && w.cfg.Served()[name]:
 			w.note(folder, name, fmt.Sprintf("%s is already published by another node in the group, so this one leaves it alone and nothing in this folder is published.\n\nTo change that site, edit it on the node that publishes it. To make a new site, rename this folder after a domain of your own.", name))
 		default:
@@ -493,6 +500,29 @@ func (w *Watcher) entry(folder string) *entry {
 		w.sites[folder] = e
 	}
 	return e
+}
+
+// movedNote writes where a site moved to beside its folder, if it moved
+// away from here: nothing in the folder is published any more.
+func (w *Watcher) movedNote(folder, name string) bool {
+	to, at, ok := w.cfg.Moved(name)
+	if !ok {
+		return false
+	}
+	text := fmt.Sprintf("%s moved to %s on %s, and is published from there now.\n\nNothing in this folder is published any more: to change the site, edit it there. You can delete this folder.\n",
+		name, to, at.Format("2 January 2006"))
+	e := w.entry(folder)
+	w.mu.Lock()
+	e.status.Problem = text
+	w.mu.Unlock()
+	path := filepath.Join(w.cfg.Dir, folder+MovedSuffix)
+	if old, err := os.ReadFile(path); err != nil || string(old) != text {
+		if err := os.WriteFile(path, []byte(text), 0o644); err == nil {
+			w.cfg.Logf("websites: %s moved to %s; its folder here is no longer published", name, to)
+		}
+	}
+	os.Remove(w.notePath(folder))
+	return true
 }
 
 func (w *Watcher) notePath(folder string) string {

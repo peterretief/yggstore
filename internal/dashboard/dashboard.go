@@ -36,6 +36,7 @@ import (
 	"github.com/peterretief/yggstore/internal/server"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
+	"github.com/peterretief/yggstore/internal/sitemove"
 	"github.com/peterretief/yggstore/internal/websites"
 	"github.com/peterretief/yggstore/internal/workcopy"
 	"github.com/peterretief/yggstore/internal/ygg"
@@ -262,6 +263,9 @@ type Dashboard struct {
 	yggName      string          // this machine's name for its Yggdrasil address (see peers.YggNames), under mu
 	yggDNSAt     time.Time       // when the machines' names were last added to DNS, used only by poll
 	names        peers.NameCheck // which machines' names are in DNS
+
+	moverOnce sync.Once
+	moves     *sitemove.Agent // this machine's part in moving sites (moves.go)
 }
 
 func New(cfg Config) *Dashboard {
@@ -293,6 +297,7 @@ func (d *Dashboard) Run(ctx context.Context) {
 	go d.runWebsites(ctx)
 	go d.runRecovery(ctx)
 	go d.runForwards(ctx)
+	go d.runMoves(ctx)
 	t := time.NewTicker(d.cfg.Interval)
 	defer t.Stop()
 	for {
@@ -386,6 +391,9 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/devices", d.handleDevices)
 	mux.HandleFunc("POST /api/devices/{action}", d.handleDeviceAction)
 	mux.HandleFunc("GET /network", d.handleNetworkPage)
+	mux.HandleFunc("GET /sites", d.handleSitesPage)
+	mux.HandleFunc("GET /api/moves", d.handleMoves)
+	mux.HandleFunc("POST /api/moves", d.handleMoveStart)
 	mux.HandleFunc("GET /api/network", d.handleNetwork)
 	mux.HandleFunc("GET /api/box/people", d.handlePeople)
 	mux.HandleFunc("POST /api/box/people/{action}", d.handlePeopleAction)

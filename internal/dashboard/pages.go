@@ -33,6 +33,7 @@ var pageNames = map[string]string{"files": "Files", "web": "Website", "messages"
 // matched exactly or as a folder.
 var pageRoutes = []struct{ path, page string }{
 	{"/admin", "admin"}, {"/network", "admin"}, {"/api/network", "admin"}, {"/api/nodes", "admin"},
+	{"/sites", "admin"}, {"/api/moves", "admin"},
 	{"/api/invites", "admin"}, {"/api/box", "admin"}, {"/api/devices", "admin"},
 
 	{"/storage", "files"}, {FilesPage, "files"}, {"/api/verify", "files"}, {"/api/restore", "files"},

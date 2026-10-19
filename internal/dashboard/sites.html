@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>yggstore websites</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea;
+  --ok: #1f9d55; --ok-bg: #e5f5ec; --warn: #b7791f; --warn-bg: #fdf3e1;
+  --bad: #d64545; --bad-bg: #fbe9e9; --info: #3b6fd8; --info-bg: #e8effc;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418; --panel: #1a1e24; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038;
+    --ok: #3ccf7e; --ok-bg: #173225; --warn: #e3a948; --warn-bg: #3a2c14;
+    --bad: #f07070; --bad-bg: #3d1c1c; --info: #79a2f2; --info-bg: #1b2842;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 8px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 10px; font-weight: 600; }
+a { color: var(--info); }
+.sub { color: var(--muted); font-size: 13px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.live { margin-left: auto; color: var(--muted); font-size: 13px; }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+thead th { border-top: 0; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; margin: 1px 2px 1px 0; white-space: nowrap; }
+.up { background: var(--ok-bg); color: var(--ok); }
+.down { background: var(--bad-bg); color: var(--bad); }
+.role { background: var(--info-bg); color: var(--info); }
+.warn { background: var(--warn-bg); color: var(--warn); }
+button { font: inherit; padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button.go { background: var(--info); border-color: var(--info); color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+select, input { font: inherit; padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-top: 12px; }
+.form .row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: end; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.form p { margin: 12px 0 0; }
+.err { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Websites</h1>
+    <a class="sub" href="/admin">← Admin</a>
+    <a class="sub" href="/network">Network</a>
+    <span class="live" id="updated">loading…</span>
+  </header>
+  <div class="sub">Every website the group's web nodes serve, and the machine it's published from. <b>Move</b> hands a site to
+    another machine, or to someone on a box: its versions go with it, and the site and its contact form stay online throughout.</div>
+
+  <h2>Sites</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Site</th><th>Published from</th><th>Contact form</th><th>Served by</th><th></th></tr></thead>
+    <tbody id="sites"></tbody>
+  </table></div>
+
+  <div class="form" id="moveForm" hidden>
+    <b>Move <span id="mvSite" class="mono"></span></b>
+    <div class="row" style="margin-top:10px">
+      <label>To the machine<select id="mvTo"></select></label>
+      <label>For someone on its box <input id="mvPerson" placeholder="their name on the box (or leave empty)" size="30" autocomplete="off"></label>
+      <button class="go" id="mvGo">Move it</button>
+      <button id="mvCancel">Cancel</button>
+    </div>
+    <p id="mvSummary"></p>
+    <p class="err" id="mvErr"></p>
+  </div>
+
+  <h2>Moves</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Site</th><th>From</th><th>To</th><th>Where it is</th><th>Started</th></tr></thead>
+    <tbody id="moves"></tbody>
+  </table></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const shown = {};
+const set = (id, html) => { if (shown[id] !== html) $(id).innerHTML = shown[id] = html; };
+let st, moving = null;
+
+const holder = (node, person) => (person ? esc(person) + " on " : "") + esc(st.names[node] || node);
+const status = m => ({
+  asked: `<span class="pill role">handing over…</span>`,
+  named: `<span class="pill role">named; waiting for it to be served from there</span>`,
+  done: `<span class="pill up">moved</span>`,
+  refused: `<span class="pill down">didn't move</span> <span class="sub">${esc(m.reason)}</span>`,
+}[m.status] || esc(m.status));
+
+function render() {
+  set("sites", st.sites.map(s => {
+    const from = s.node ? `<b>${s.person ? esc(s.person) + "</b> on <b>" : ""}${esc(s.node)}</b>` : `<span class="sub">unknown</span>`;
+    const given = s.given ? "" : ` <span class="pill warn" title="the member list gives this name to no one: only an admin can publish it">not given</span>`;
+    const served = s.served.length ? `<span class="pill up">${s.served.length}</span> <span class="sub">${s.served.map(esc).join(", ")}</span>` : `<span class="pill down">none</span>`;
+    const btn = s.moving ? `<span class="pill role">moving</span>` : `<button data-move="${esc(s.site)}">Move</button>`;
+    return `<tr><td><a href="https://${esc(s.site)}/" target="_blank" rel="noopener">${esc(s.site)}</a></td><td>${from}${given}</td>
+      <td>${s.contact ? `<span class="pill up">on</span>` : `<span class="sub">off</span>`}</td><td>${served}</td><td>${btn}</td></tr>`;
+  }).join("") || `<tr><td colspan="5" class="sub">No web node reports any site yet.</td></tr>`);
+  set("moves", st.moves.map(m => `<tr><td class="mono">${esc(m.site)}</td><td>${holder(m.from, m.from_person)}</td><td>${holder(m.to, m.to_person)}</td>
+    <td>${status(m)}</td><td class="sub">${new Date(m.time).toLocaleString()}</td></tr>`).join("") || `<tr><td colspan="5" class="sub">No moves yet.</td></tr>`);
+  $("updated").textContent = "updated " + new Date(st.at * 1000).toLocaleTimeString();
+}
+
+function summary() {
+  if (!moving) return;
+  const s = st.sites.find(x => x.site === moving);
+  const to = $("mvTo").value, person = $("mvPerson").value.trim();
+  if (!s) return;
+  const from = s.person ? `${esc(s.person)} on ${esc(s.node)}` : esc(s.node);
+  $("mvSummary").innerHTML = `<b>${esc(moving)}</b> moves from <b>${from}</b> to <b>${holder(to, person)}</b>. Its versions move with it,
+    and the site stays online throughout.` + (s.contact ? ` Its contact form stays on: new messages go to ${person ? esc(person) + "'s Messages" : "that machine's mailbox"}
+    once the move is done. The move won't start if that machine collects no mail.` : "");
+}
+
+async function load() {
+  try {
+    const r = await fetch("/api/moves", {cache: "no-store"});
+    if (!r.ok) throw new Error((await r.text()).trim());
+    st = await r.json();
+    render();
+  } catch (e) { $("updated").textContent = "not answering: " + e.message; }
+}
+
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("[data-move]");
+  if (!b) return;
+  moving = b.dataset.move;
+  $("mvSite").textContent = moving;
+  $("mvTo").innerHTML = st.dests.map(x => `<option value="${esc(x.node)}">${esc(x.name)}${x.self ? " (this machine)" : ""}</option>`).join("");
+  $("mvPerson").value = ""; $("mvErr").textContent = "";
+  $("moveForm").hidden = false;
+  summary();
+  $("moveForm").scrollIntoView({behavior: "smooth", block: "nearest"});
+});
+$("mvTo").addEventListener("change", summary);
+$("mvPerson").addEventListener("input", summary);
+$("mvCancel").addEventListener("click", () => { moving = null; $("moveForm").hidden = true; });
+$("mvGo").addEventListener("click", async () => {
+  $("mvGo").disabled = true; $("mvErr").textContent = "";
+  try {
+    const r = await fetch("/api/moves", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({site: moving, to: $("mvTo").value, person: $("mvPerson").value.trim()})});
+    if (!r.ok) throw new Error((await r.text()).trim());
+    moving = null; $("moveForm").hidden = true;
+    await load();
+  } catch (e) { $("mvErr").textContent = e.message; }
+  $("mvGo").disabled = false;
+});
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

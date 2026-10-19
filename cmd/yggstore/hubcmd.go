@@ -31,6 +31,7 @@ import (
 	"github.com/peterretief/yggstore/internal/repair"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
+	"github.com/peterretief/yggstore/internal/sitemove"
 	"github.com/peterretief/yggstore/internal/syncthing"
 	"github.com/peterretief/yggstore/internal/transport"
 	"github.com/peterretief/yggstore/internal/websites"
@@ -216,6 +217,18 @@ func cmdHub(ctx context.Context, args []string) error {
 			},
 			Messages: func() (hub.Messenger, error) { return localMsgs() }})
 		go people.Run(ctx)
+		// Sites moved to or from people on the box.
+		go sitemove.NewAgent(sitemove.Config{Self: self, Client: wc, Holder: hub.MoveHolder{PS: people},
+			StatePath: filepath.Join(filepath.Dir(*statePath), "hub-moves.json"), Logf: log.Printf,
+			Peers: func() []peers.Peer {
+				list, _ := peers.Load(*peersPath)
+				return list
+			},
+			Bus: func() (sitemove.Bus, error) {
+				l, err := localMsgs()
+				return l, err
+			},
+			Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) }}).Run(ctx)
 		cfg.Users = hub.NewUsers(hub.UsersConfig{People: people, ST: syncthing.New(base, key), Dir: filepath.Join(*dir, "users"), StatePath: *statePath,
 			Limit: *limit, Logf: log.Printf, Websites: sites.Dir(), WebsitesReady: sites.Ready, Client: wc,
 			PeersPath: *peersPath, Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },

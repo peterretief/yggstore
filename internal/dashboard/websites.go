@@ -715,6 +715,7 @@ func (d *Dashboard) runWebsites(ctx context.Context) {
 		Online:    func(context.Context) ([]peers.Peer, error) { return d.onlinePeers() },
 		Mine:      func() map[string]bool { names, _ := d.mySites(pub); return names },
 		Served:    d.servedSites,
+		Moved:     d.movedAway,
 		Answers:   site.Answers,
 		Service:   strings.TrimPrefix(service, "http://"),
 		TokenPath: d.cfg.CloudflareToken,

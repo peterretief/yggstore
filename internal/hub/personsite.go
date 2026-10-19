@@ -24,6 +24,7 @@ import (
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
+	"github.com/peterretief/yggstore/internal/sitemove"
 	"github.com/peterretief/yggstore/internal/websites"
 )
 
@@ -317,7 +318,8 @@ func (ps *PeopleSites) ensure(ctx context.Context, p Person, names []string) {
 	}
 	w := websites.New(websites.Config{Dir: dir, StatePath: filepath.Join(ps.cfg.Dir, p.Folder, "websites.json"),
 		Pub: pub, Client: ps.cfg.Client, Online: ps.cfg.Online, MaxBytes: ps.cfg.MaxBytes, Logf: ps.cfg.Logf,
-		Mine: func() map[string]bool { return mine },
+		Mine:  func() map[string]bool { return mine },
+		Moved: func(name string) (string, time.Time, bool) { return sitemove.Moved(pub.Dir, name) },
 		// A person publishes only the names they were given.
 		Cloudflare: func(context.Context, string) (bool, string, error) { return false, "", nil }})
 	for _, name := range fresh {
