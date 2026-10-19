@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/syncthing"
 )
 
@@ -367,5 +368,41 @@ func TestTeamFolders(t *testing.T) {
 	}
 	if st, _ := Load(statePath); len(st.Teams) != 0 {
 		t.Fatalf("teams %+v", st.Teams)
+	}
+}
+
+// TestOwnersFirstDevice: the box's owner, already on the box, gets their
+// first device on their own folder; anyone else's is a new person.
+func TestOwnersFirstDevice(t *testing.T) {
+	u, fake, dir := setupUsers(t, 0)
+	ctx := context.Background()
+	statePath := filepath.Join(dir, "hub.json")
+	u.cfg.PeersPath = filepath.Join(dir, "peers.json")
+	u.cfg.SelfAddr = "[200::3]:7400"
+	peers.Write(u.cfg.PeersPath, []peers.Peer{{Name: "desktop", Addr: "[200::1]:7400", Admin: true, Owner: "peter"},
+		{Name: "localmail", Addr: "[200::3]:7400", Owner: "Tim"}})
+	var tim Person
+	Update(ctx, statePath, func(s *HubState) error {
+		var err error
+		tim, err = s.AddPerson("Tim", filepath.Join(dir, "users"))
+		return err
+	})
+	fake.pending["TIMLAPT-1"] = syncthing.PendingDevice{Name: "TIM-LAPTOP", Address: "10.0.0.20:22000"}
+	if err := u.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fake.pending["TIMPHON-2"] = syncthing.PendingDevice{Name: "visitor", Address: "10.0.0.21:22000"}
+	if err := u.step(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := Load(statePath)
+	if len(st.Users) != 2 || st.Users[0].Person != "Tim" || st.Users[0].Folder != tim.Folder {
+		t.Fatalf("the owner's first device: %+v", st.Users)
+	}
+	if st.Users[1].Person == "Tim" || len(st.People) != 2 {
+		t.Fatalf("a second device went to the owner too: %+v", st.Users)
+	}
+	if fo := fake.folders[tim.Folder]; fo == nil {
+		t.Fatalf("Tim's folder isn't shared: %v", fake.folders)
 	}
 }

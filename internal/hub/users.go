@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -682,11 +683,20 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 			continue
 		}
 		// A new device is a new person until it is linked to someone
-		// (yggstore hub link). The folder's ID names the box too: the same
-		// device may have another box's folder already.
+		// (yggstore hub link), except the first device of the box's owner
+		// when they are on it already. The folder's ID names the box too:
+		// the same device may have another box's folder already.
+		owner := u.ownerName()
 		var us User
 		var person Person
 		if _, err := Update(ctx, u.cfg.StatePath, func(s *HubState) error {
+			if o, ok := s.PersonNamed(owner); ok && owner != "" && o.Active() && len(s.DevicesOf(o.Name)) == 0 {
+				person = o
+				us = User{Name: uniqueName(s.Users, s.People, u.cfg.Dir, p.Name, id), Device: id, Folder: o.Folder, Path: o.Path,
+					Added: time.Now().Unix(), Address: p.Address, Person: o.Name}
+				s.Users = append(s.Users, us)
+				return nil
+			}
 			name := uniqueName(s.Users, s.People, u.cfg.Dir, p.Name, id)
 			person = Person{Name: name, Folder: "yggstore-" + short(u.myID) + "-" + short(id), Path: filepath.Join(u.cfg.Dir, name), Added: time.Now().Unix()}
 			us = User{Name: name, Device: id, Folder: person.Folder, Path: person.Path, Added: person.Added, Address: p.Address, Person: name}
@@ -700,6 +710,28 @@ func (u *Users) pair(ctx context.Context, st HubState) error {
 		u.cfg.Logf("hub: paired %s (%s) from %s; its folder is %s", us.Name, short(id), p.Address, person.Path)
 	}
 	return nil
+}
+
+// ownerName is who owns the box, as the group's list says: "" if it
+// doesn't say, or the hub doesn't know its node.
+func (u *Users) ownerName() string {
+	if u.cfg.PeersPath == "" || u.cfg.SelfAddr == "" {
+		return ""
+	}
+	list, err := peers.Load(u.cfg.PeersPath)
+	if err != nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(u.cfg.SelfAddr)
+	if err != nil {
+		host = u.cfg.SelfAddr
+	}
+	for _, p := range list {
+		if p.IP() == host {
+			return p.Owner
+		}
+	}
+	return ""
 }
 
 // ignore keeps the outbox's own files on the hub: its settings and history,
