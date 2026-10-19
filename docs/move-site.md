@@ -1,7 +1,7 @@
 # Moving a website to another machine
 
-Status: proposed on 2026-10-19, with its open questions decided the same
-day ([below](#decided-2026-10-19)), waiting for approval to build. It builds on
+Status: built on 2026-10-19 (steps 1 to 4 of the [build order](#build-order)),
+except as noted under [not built yet](#not-built-yet). It builds on
 [more-sites.md](more-sites.md) (sites that are only websites, with no
 mail) and doesn't change how sites are published or served.
 
@@ -206,6 +206,20 @@ Then Tim edits the site from his laptop in
 `~/yggstore/websites/messagemate-test.withcare.co.za`, the site changes
 within a minute, and a test order sent through its contact form reaches
 his Messages and is forwarded to tim@messagemate.co.za.
+
+## Not built yet
+
+- **To a box, for everyone on it.** A move goes to a machine's own sites
+  (its dashboard) or to a person on its box (its hub). A machine that runs
+  no dashboard, such as localmail, can only take sites for people on its
+  box.
+- **Move without it**, for an old holder that's gone.
+- **The contact form test message** after a move: check by sending one.
+- **Domains outside the group's** (step 5).
+
+The code is in `internal/sitemove` (the moves), `internal/dashboard/moves.go`
+and `sites.html` (the admin's page, and the machine's own sites) and
+`internal/hub/moves.go` (people on a box).
 
 ## Decided (2026-10-19)
 
