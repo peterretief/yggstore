@@ -217,6 +217,15 @@ his Messages and is forwarded to tim@messagemate.co.za.
 - **The contact form test message** after a move: check by sending one.
 - **Domains outside the group's** (step 5).
 
+Every node in the group must run this version (2026-10-19) or later before
+someone gets a site as well as an address: older nodes allow one name per
+person, and refuse the whole member list. The move then waits at **named**
+until they're updated.
+
+The first move, on 2026-10-19: messagemate-test from the desktop to Tim on
+localbox-004, for testing with his tim@withcare.co.za Messages. A test
+message through its contact form reached his mailbox within seconds.
+
 The code is in `internal/sitemove` (the moves), `internal/dashboard/moves.go`
 and `sites.html` (the admin's page, and the machine's own sites) and
 `internal/hub/moves.go` (people on a box).
