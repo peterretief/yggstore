@@ -119,7 +119,7 @@ func TestSiteNames(t *testing.T) {
 	for name, bad := range map[string][]Peer{
 		"two addresses": {admin, {Name: "b", Addr: "[200::3]:7400", PeopleNames: []PersonName{
 			{Name: "a.example.org", Person: "A", Code: "ys1x"}, {Name: "b.example.org", Person: "A", Code: "ys1x"}}}},
-		"site twice": {admin, box, {Name: "c", Addr: "[200::3]:7400", Code: "ys1c", Sites: []string{"shop.example.org"}}},
+		"site twice":   {admin, box, {Name: "c", Addr: "[200::3]:7400", Code: "ys1c", Sites: []string{"shop.example.org"}}},
 		"site no code": {admin, {Name: "c", Addr: "[200::3]:7400", Sites: []string{"c.example.org"}}},
 		"site no person": {admin, {Name: "c", Addr: "[200::3]:7400", PeopleNames: []PersonName{
 			{Name: "c.example.org", Code: "ys1x", Site: true}}}},
