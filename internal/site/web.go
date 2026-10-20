@@ -152,6 +152,12 @@ func (w *Web) retry(ctx context.Context) {
 func (w *Web) handle(s msg.Stored) {
 	w.mu.Lock()
 	w.st.After = max(w.st.After, s.N)
+	if s.Topic == Topic && s.Type == typeOwner {
+		w.changeOwner(s)
+		w.save()
+		w.mu.Unlock()
+		return
+	}
 	a, ok := decode(s)
 	if !ok {
 		w.save()
@@ -197,6 +203,29 @@ func (w *Web) handle(s msg.Stored) {
 	}
 	w.save()
 	w.mu.Unlock()
+}
+
+// changeOwner takes an admin's OwnerChange: the site's next versions come
+// from the new owner. The version being served stays until it announces
+// one. Called with w.mu held.
+func (w *Web) changeOwner(s msg.Stored) {
+	var c OwnerChange
+	if json.Unmarshal([]byte(s.Body), &c) != nil || ValidName(c.Site) != nil || net.ParseIP(c.Owner) == nil {
+		return
+	}
+	list := w.Peers()
+	_, _, under := peers.SiteKeeper(list, c.Site)
+	switch e := w.st.Sites[c.Site]; {
+	case !isAdmin(list, s.From):
+		w.logf("web: ignored a new owner for %s from %s, who isn't an admin", c.Site, s.FromName)
+	case under:
+		w.logf("web: ignored a new owner for %s: names under %s move with the member list", c.Site, peers.GroupDomain(list))
+	case e == nil:
+		w.logf("web: ignored a new owner for %s: it isn't served here", c.Site)
+	default:
+		e.Owner = c.Owner
+		w.logf("web: %s is published from %s now", c.Site, c.Owner)
+	}
 }
 
 // mayChange: the node that first published a site may change it, and so

@@ -19,6 +19,7 @@ import (
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
+	"github.com/peterretief/yggstore/internal/sitemove"
 )
 
 const siteUsage = `yggstore site: static websites hosted on the group
@@ -35,6 +36,8 @@ const siteUsage = `yggstore site: static websites hosted on the group
                                                 mailbox (see docs/sites.md)
   yggstore site route DOMAIN                    add the tunnel route and DNS only; for the
                                                 group's names: site route '*.example.org'
+  yggstore site owner DOMAIN NODE               (admin) let NODE publish a site on a domain
+                                                of its own instead; this machine stops
   yggstore site announce                        tell web nodes about every site again
   yggstore site remove DOMAIN -yes              stop serving it and delete every version
   yggstore site status                          which web nodes serve which version
@@ -190,6 +193,41 @@ func cmdSite(ctx context.Context, args []string) error {
 			fmt.Printf("%s: contact form off.\n", domain)
 		} else {
 			fmt.Printf("%s: contact form on. Messages posted to https://%s%s arrive in this machine's mailbox.\n", domain, domain, site.ContactPath)
+		}
+	case "owner":
+		if fs.NArg() != 2 {
+			return errors.New("usage: yggstore site owner DOMAIN NODE")
+		}
+		domain := site.Normalise(arg(0))
+		list, err := peers.Load(*peersPath)
+		if err != nil {
+			return err
+		}
+		var to *peers.Peer
+		for i := range list {
+			if list[i].Name == arg(1) {
+				to = &list[i]
+			}
+		}
+		if to == nil {
+			return fmt.Errorf("no node called %q is in the group's list", arg(1))
+		}
+		typ, body, err := site.EncodeOwner(site.OwnerChange{Site: domain, Owner: to.IP()})
+		if err != nil {
+			return err
+		}
+		if err := announcer(); err != nil {
+			return err
+		}
+		if err := pub.Announce.Publish(ctx, site.Topic, typ, body); err != nil {
+			return fmt.Errorf("telling the web nodes: %w", err)
+		}
+		fmt.Printf("%s: web nodes take its versions from %s now; the version being served stays until %s publishes one.\n", domain, to.Name, to.Name)
+		if err := sitemove.LetGo(pub.Dir, domain, to.Name, time.Now()); err == nil {
+			fmt.Printf("This machine no longer publishes it. Its versions are kept for %d days in %s.\n",
+				int(sitemove.Keep.Hours()/24), filepath.Join(pub.Dir, sitemove.MovedDir))
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
 	case "route":
 		if fs.NArg() != 1 {

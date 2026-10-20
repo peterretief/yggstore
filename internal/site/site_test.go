@@ -344,6 +344,37 @@ func TestGroupNamesBelongToTheirNode(t *testing.T) {
 	publish("200::2", "bob.org", "bob's own")
 	eventually(t, web, "bob.org", "bob's own")
 
+	// Until an admin gives it to another node: anna's owner change is
+	// ignored, the admin's isn't, and bob's versions are then ignored.
+	owner := func(from, site, to string) {
+		t.Helper()
+		b.mu.Lock()
+		b.from = from
+		b.mu.Unlock()
+		typ, body, err := EncodeOwner(OwnerChange{Site: site, Owner: to})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Publish(ctx, Topic, typ, body)
+	}
+	owner("200::1", "bob.org", "200::1")
+	owner("200::9", "anna.example.org", "200::2")
+	publish("200::1", "bob.org", "anna took it")
+	publish("200::2", "bob.org", "bob's still")
+	eventually(t, web, "bob.org", "bob's still")
+	owner("200::9", "bob.org", "200::1")
+	if code, body := get(t, web, http.MethodGet, "bob.org", "/"); code != http.StatusOK || !strings.Contains(body, "bob's still") {
+		t.Fatalf("a site went offline when its owner changed: %d %q", code, body)
+	}
+	publish("200::2", "bob.org", "bob's again")
+	publish("200::1", "bob.org", "anna's now")
+	eventually(t, web, "bob.org", "anna's now")
+	for _, s := range web.Status() {
+		if s.Site == "bob.org" && s.Owner != "200::1" {
+			t.Fatalf("bob.org's owner is %q, want 200::1", s.Owner)
+		}
+	}
+
 	// Moved to bob as a site: anna's version is served until bob announces.
 	mu.Lock()
 	members[1].Names, members[2].Sites, members[2].Code = nil, []string{"anna.example.org"}, "ys1b"

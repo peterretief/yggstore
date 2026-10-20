@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
 
@@ -23,7 +24,29 @@ const Topic = "sites"
 const (
 	typePublish = "site"
 	typeRemove  = "site-remove"
+	typeOwner   = "site-owner"
 )
+
+// OwnerChange, from an admin, gives a site on a domain of its own to
+// another node: web nodes take its next versions from that node, and send
+// its contact form there. (A name under the group's domain moves with the
+// member list instead; see docs/move-site.md.)
+type OwnerChange struct {
+	Site  string `json:"site"`
+	Owner string `json:"owner"` // the node's overlay IP
+}
+
+// EncodeOwner is an owner change as a message on Topic.
+func EncodeOwner(c OwnerChange) (typ, body string, err error) {
+	if err := ValidName(c.Site); err != nil {
+		return "", "", err
+	}
+	if net.ParseIP(c.Owner) == nil {
+		return "", "", fmt.Errorf("%q isn't a node's address", c.Owner)
+	}
+	b, err := json.Marshal(c)
+	return typeOwner, string(b), err
+}
 
 // Announcement is the body of a message on Topic.
 type Announcement struct {
