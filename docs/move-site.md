@@ -110,7 +110,7 @@ turns it off and never loses a message. The form follows the site:
 
 - **To a person on a box:** their messages are sealed for the person's own
   code, and land in their **Messages**, which they can forward on (to
-  tim@messagemate.co.za, for example).
+  tim@business.example, for example).
 - **To a box for everyone, or a member's machine:** the messages go to that
   node's mailbox.
 
@@ -205,7 +205,7 @@ to Tim, as a person on localmail. Before it:
 Then Tim edits the site from his laptop in
 `~/yggstore/websites/messagemate-test.withcare.co.za`, the site changes
 within a minute, and a test order sent through its contact form reaches
-his Messages and is forwarded to tim@messagemate.co.za.
+his Messages and is forwarded to tim@business.example.
 
 ## Not built yet
 
@@ -223,7 +223,7 @@ person, and refuse the whole member list. The move then waits at **named**
 until they're updated.
 
 The first move, on 2026-10-19: messagemate-test from the desktop to Tim on
-localbox-004, for testing with his tim@withcare.co.za Messages. A test
+localbox-004, for testing with his tim@group.example Messages. A test
 message through its contact form reached his mailbox within seconds.
 
 The code is in `internal/sitemove` (the moves), `internal/dashboard/moves.go`

@@ -13,7 +13,7 @@ on a box rather than one website.
 ## Why
 
 Tim uses the group through a box. His account is on localbox-004, at
-Peter's place: his address tim@withcare.co.za and its mail, his own site
+Peter's place: his address tim@group.example and its mail, his own site
 tim.withcare.co.za, the test site messagemate-test, his passkey and his
 files. But the box at his office is localmail, and that's where his laptop
 will sync.
@@ -57,7 +57,7 @@ they store. Each person has **Move**.
 default). Then it shows what will happen:
 
 > **Tim** moves from **localbox-004** to **localmail**, as **Tim**. With
-> him go his address tim@withcare.co.za and its messages, his sites
+> him go his address tim@group.example and its messages, his sites
 > tim.withcare.co.za and messagemate-test.withcare.co.za with their
 > versions, his stored files, and his passkey. He's in no teams.
 > Nothing he uses goes offline. His devices connect to localmail from its

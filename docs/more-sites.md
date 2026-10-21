@@ -23,7 +23,7 @@ domain.
 
 A person keeps one **address**: the first name they were given. That
 name is still where they sign in (`/files`) and where their mail comes
-(tim@withcare.co.za). On top of that they can hold any number of
+(tim@group.example). On top of that they can hold any number of
 **sites**. A site is only a website: it has no mail and no `/files`.
 
 A site can be either of these:
@@ -41,7 +41,7 @@ Each site works the same way as the address's site does today:
   has its own contact form switch and **Back to the previous version**.
 - Contact form messages are sealed for the person's key. They land in the
   same **Messages** list and are forwarded the same way: all of Tim's go
-  on to tim@messagemate.co.za.
+  on to tim@business.example.
 - Their storage quota counts all of their sites.
 - When the box admin removes them, every name goes back to the group
   admin. When the box admin suspends them, every site comes down.

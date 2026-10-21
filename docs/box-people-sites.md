@@ -75,7 +75,7 @@ entry with each one's own code:
   only from the node holding it, and that is still the box.
 - Contact forms on that site are sealed for the person's code, not the
   box's.
-- Mail to `anna@withcare.co.za` is sealed for her code in the same way.
+- Mail to `anna@group.example` is sealed for her code in the same way.
 - The name request, approval and decline messages gain a `person` field.
   The group admin's dashboard shows "anna.withcare.co.za for Anna, on
   localbox-004 (peter)", so they know whose box is vouching for her.

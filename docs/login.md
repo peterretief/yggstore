@@ -4,7 +4,7 @@ Status: approved 2026-10-18; step 1 built (see [What's built](#whats-built)).
 
 Everyone in the group, whether a member with their own node or someone on a
 box, gets **one login that works everywhere in the group**:
-`kath@withcare.co.za`. They sign in once at `https://my.withcare.co.za`.
+`kath@group.example`. They sign in once at `https://my.withcare.co.za`.
 Every page the group serves then knows who they are, without another
 sign-in.
 
@@ -48,7 +48,7 @@ sequenceDiagram
   B->>L: (signs in, or already is)
   L->>B: back to kath.…/files/.login?code=…
   A->>L: code → who is it? (over Yggdrasil)
-  L->>A: kath@withcare.co.za, signed in until …
+  L->>A: kath@group.example, signed in until …
   A->>B: cookie for kath.…
 ```
 
