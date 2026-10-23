@@ -379,3 +379,31 @@ func TestFollowersSurviveRestart(t *testing.T) {
 		t.Fatalf("follower looks lapsed after a restart: announced %ds ago", clock.Unix()-at)
 	}
 }
+
+// A follower repeating its subscriptions is saved now and then, so a node
+// that restarts doesn't take it for lapsed (and publish to nobody) until
+// it repeats them again. Seen live on 2026-10-23: a box restarted for a
+// deploy kept its web nodes' subscriptions from hours before.
+func TestFollowersSavedForRestart(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(dir, "200::1", func() []peers.Peer { return nil }, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Unix(1_800_000_000, 0)
+	at := t0
+	e.now = func() time.Time { return at }
+	for i := range 7 { // every 10 minutes for an hour
+		at = t0.Add(time.Duration(i) * 10 * time.Minute)
+		if err := e.Announced("200::9", []string{"sites"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, err := Open(dir, "200::1", func() []peers.Peer { return nil }, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.st.Subscribers["200::9"].At; at.Unix()-got > int64(announceTTL/time.Second)/2 {
+		t.Fatalf("after a restart the follower was last heard %v before", time.Duration(at.Unix()-got)*time.Second)
+	}
+}

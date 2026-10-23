@@ -161,6 +161,8 @@ type Engine struct {
 	// reached; it doubles up to announceEach while they stay unreachable.
 	retryIn    time.Duration
 	retryFirst time.Duration
+	// subsSaved is when followers' announcements were last saved (unix s).
+	subsSaved int64
 }
 
 // Open loads the engine kept in dir. self is this node's ID (its overlay IP).
@@ -543,10 +545,11 @@ func (e *Engine) Announced(caller string, topics []string) error {
 	old := e.st.Subscribers[caller]
 	now := e.now().Unix()
 	e.st.Subscribers[caller] = subscriber{Topics: topics, At: now}
-	// Save a change at once, and the time now and then, so a restart
+	// Save a change at once, and the times now and then, so a restart
 	// doesn't take followers for lapsed until they announce again.
-	if strings.Join(old.Topics, ",") != strings.Join(topics, ",") || now-old.At > int64(announceTTL/time.Second)/2 {
+	if strings.Join(old.Topics, ",") != strings.Join(topics, ",") || now-e.subsSaved > int64(announceTTL/time.Second)/2 {
 		e.saveState()
+		e.subsSaved = now
 	}
 	// A node announcing itself is reachable: deliver what waits for it now,
 	// rather than when its backoff ends.
