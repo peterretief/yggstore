@@ -2,7 +2,9 @@
 
 Status: proposed on 2026-10-22; on 2026-10-23 planned together with the
 starter (one project, two halves; see [one project](#one-project-two-halves)),
-with Kath's site as the first real use. Nothing of the server half is built.
+with Kath's site as the first real use; the data design decided the
+same day (a write log and a read database, merged by replay). Stage 1 is
+being built.
 
 ## What we want
 
@@ -109,32 +111,62 @@ handlers.
 
 ## Data that lasts
 
+Decided 2026-10-23: **writes go into a log, reads come from a database
+built from it**, and the copies merge by replaying the log in one order.
 Every web node serves every site, so a site's data can't live on one of
-them, and putting it on the owner's box would stop the site when the box
-is off (aim 4). Instead each web node keeps its own copy, and the copies
-are kept in step by messages, merging the way the group's machines already
-come and go.
+them, and putting it on the owner's box would stop it when the box is off
+(aim 4).
 
-- **A write is a message.** A handler's write goes out on the site's data
-  topic (`site/NAME/data`). Topics already deliver to nodes that were off
-  once they're back, fill gaps from the publisher, and give a new follower
-  the last 30 days.
-- **Each web node keeps a local copy**, a SQLite file built from the
-  messages. Reads are local, so they're quick and work when the web node
-  is cut off from the rest.
-- **Writes merge without a leader.** Records are CRDTs: values that merge
-  to the same result whatever order the messages come in. Counters add
-  up, sets and lists combine, and a plain value goes to the latest write
-  (by time, then by node, so every copy agrees). Nobody has to be up for
-  someone else to write.
-- **Snapshots are stored in the group.** Now and then a web node stores
-  the site's data as an item, sharded like any file, so it outlives any
-  machine and the 30 days of messages. A new web node starts from the
-  latest snapshot and the messages since.
+| Part | What it is | Where |
+| --- | --- | --- |
+| Write log | every change as an entry, appended, never edited | every web node, shared on the site's topic, snapshots in the group |
+| Read database | a SQLite file built by replaying the log | every web node, its own copy |
+| Rules | what may be written (one account per email, no more bookings than places) | checked during replay |
 
-A handler sees a small API, not the messages: `get`, `put`, `delete`,
-`add` (to a counter or a set) and `list` (by key prefix), as host
-functions it imports from the web node.
+### Writing and reading
+
+- **A write is an entry:** a kind (`booking`, `register`, `edit`), its
+  fields, the time, and which web node took it, with a number of its own.
+  A handler records one with `db.Record(kind, fields)`; the entry is
+  applied to that web node's copy at once (the visitor sees their own
+  change) and goes out on the site's data topic (`site/NAME/data`).
+  Topics already deliver to nodes that were off once they're back, fill
+  gaps, and give a new follower the last 30 days.
+- **A read is SQL** on the local copy: `db.Query("SELECT …", args)`. Reads
+  are quick and work when the web node is cut off from the rest.
+- **The site says what each kind of entry does to its tables**, as SQL with
+  the entry's fields as parameters, in its `api/schema.sql` (the tables)
+  and `api/entries.sql` (one statement per kind). Statements must give the
+  same result everywhere: no `random()`, and the time is the entry's own.
+
+### Merging
+
+- **One order everywhere:** entries are replayed by time, then by web node,
+  then by number. The same entries give the same database on every web
+  node, with no leader.
+- **An entry that arrives late** (from a web node that was cut off) goes in
+  its place in the order: the web node rebuilds its copy from the latest
+  snapshot and replays from there.
+- **Rules are checked during replay.** An entry that breaks one (a second
+  account for an email, a booking past the places left) is turned down the
+  same way on every web node, and kept in the log, marked turned down, so
+  the site can tell the person.
+
+### What each kind of data gets
+
+| Data | Rule at merge | What a visitor sees |
+| --- | --- | --- |
+| Content the owner edits | the latest edit wins | the change at once |
+| Registrations | all kept; the same person twice is one | registered at once |
+| Members and logins | one account per email: the first wins | works at once; a rare duplicate is told |
+| App data | as the site's statements say | at once |
+| Bookings and places | the first in the order get the places; the rest go on a waiting list | **held**, then confirmed once the other web nodes have the entry |
+
+A booking is confirmed when every web node that answers has the entry,
+which with both up takes a second or two. If one was cut off and took a
+booking for the same last place, the replay after they meet decides, and
+the one turned down is told by email. So a site says "held until
+confirmed", not "booked", until then.
 
 ### Keeping it private
 
@@ -146,9 +178,8 @@ every member, so:
 - **each site has a data key.** The site's owner makes it when code is
   turned on for the site, and seals it for each web node's sharing code,
   as a contact form's messages are sealed for the owner's code today;
-- **every write is encrypted with it** before it goes on the topic, and
-  so is every snapshot. Members who aren't web nodes see only sealed
-  messages;
+- **every entry is encrypted with it** before it goes on the topic, and so
+  is every snapshot. Members who aren't web nodes see only sealed entries;
 - **when a web node leaves the group, the owner makes a new key**, seals
   it for the web nodes that remain, and the next snapshot is written with
   it. What the departed node already had, it keeps; what's written after,
@@ -158,22 +189,25 @@ The web nodes themselves can read the data, as they can read the sites
 they serve. That's the same trust as today, and it's why web nodes are
 machines the group chooses.
 
-### Big records
+### Snapshots and big records
 
-A message holds up to 64 KB. A record bigger than that, such as a photo
-someone uploads, is stored as an item in the group, sharded like any
-file, and the message carries its stub instead, the way bigger messages
-are sent already ([messaging.md](messaging.md)). The stub is sealed with
-the site's data key like the rest, so only the web nodes can open it.
+- **Now and then a web node stores the site's database** as an item in the
+  group, sharded like any file, with the position in the log it reached.
+  A new web node, or one rebuilding, starts from the latest snapshot and
+  replays the entries since.
+- **An entry holds up to 64 KB.** Something bigger, such as a photo, is
+  stored as an item in the group and the entry carries its stub, sealed
+  with the site's data key like the rest.
 
 ### What it can't do
 
-With no leader there is no "only one of these": two web nodes can both
-take the last place on a course, or both give out the same name. Most
-sites don't need that. One that does sends those writes to a single
-place, the owner's box, as the contact form does now, and accepts that
-they wait while the box is off. A handler would say so per write
-(`put` versus `claim`), so the rest of the site stays always on.
+- **An instant "yes, it's yours" for a limited thing** while web nodes are
+  cut off from each other: the booking is held until the merge.
+- **A read straight after someone else's write on another web node** may
+  not see it for a second or two.
+- **Large or busy data:** each web node holds the whole of every site's
+  database. Fine for courses, members and bookings; not for millions of
+  rows.
 
 ## One project, two halves
 
@@ -237,8 +271,10 @@ is the first question below.
    dev` for the developer. The starter gets `api/hello`.
 2. **Handing on:** a handler sends a message to the site's owner, sealed
    for them, as the contact form does (a booking request, an order).
-3. **Data that lasts:** the data topic, the CRDT records, local SQLite,
-   snapshots, the data key and big records. The starter gets a guestbook.
+3. **Data that lasts:** the write log on the data topic, replay into
+   SQLite, `db.Query` and `db.Record` for handlers, rules at replay and
+   held bookings, then snapshots, the data key and big records. The starter
+   gets registrations and bookings.
 
 Each stage is useful by itself, and each needs the one before. Each is
 tried on a test site, then on Kath's, with her.
@@ -261,7 +297,7 @@ tried on a test site, then on Kath's, with her.
    (`net/http`, chi), and preview 1 is enough. The module is 5.2 MB with
    Go; TinyGo has no `net/http/cgi`, so a small CGI adapter of our own
    would be needed for TinyGo's smaller modules.
-3. **How long are messages kept?** 30 days of catch-up is enough if
-   snapshots are taken often; how often, and how many are kept?
+3. **How long are entries kept?** 30 days of catch-up on the topic is
+   enough if snapshots are taken often; how often, and how many are kept?
 4. **Who makes the data key** when the owner is a person on a box rather
    than a node? Probably their box, which holds their sharing key now.
