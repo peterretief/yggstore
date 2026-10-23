@@ -90,9 +90,13 @@ func TestSiteDataHandlers(t *testing.T) {
 	var a, z *Web
 	apiA, apiZ := serveNodeAPI(t, &a), serveNodeAPI(t, &z)
 	addr := func(n *nodeAPI) string { return strings.TrimPrefix(n.srv.URL, "http://") }
+	// An older web node, without sites' data: it doesn't count against
+	// "confirmed".
+	old := httptest.NewServer(http.NotFoundHandler())
+	defer old.Close()
 	mk := func(self string, other *nodeAPI) *Web {
 		return &Web{Dir: t.TempDir(), Msgs: b, Peers: func() []peers.Peer { return nodes }, Client: client.New(), Log: t.Logf,
-			Self: self, Others: func(context.Context) []string { return []string{addr(other)} }}
+			Self: self, Others: func(context.Context) []string { return []string{addr(other), strings.TrimPrefix(old.URL, "http://")} }}
 	}
 	a, z = mk("web-a", apiZ), mk("web-z", apiA)
 	go a.Run(ctx)

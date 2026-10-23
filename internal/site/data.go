@@ -138,7 +138,7 @@ func openSiteData(dir string) (*siteData, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	log, err := sql.Open("sqlite3", "file:"+filepath.Join(dir, "log.db")+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)")
+	log, err := sql.Open("sqlite3", "file:"+filepath.Join(dir, "log.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)")
 	if err != nil {
 		return nil, err
 	}
@@ -376,10 +376,10 @@ func (d *siteData) rebuildLocked(s siteSQL) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
-	if d.read, err = sql.Open("sqlite3", "file:"+path+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"); err != nil {
+	if d.read, err = sql.Open("sqlite3", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(1)"); err != nil {
 		return err
 	}
-	if d.ro, err = sql.Open("sqlite3", "file:"+path+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)"); err != nil {
+	if d.ro, err = sql.Open("sqlite3", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)"); err != nil {
 		return err
 	}
 	d.hash, d.dirty = s.hash, false

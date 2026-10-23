@@ -110,17 +110,9 @@ func (w *Web) siteDB(site, root string) (*siteData, error) {
 	}
 	if d == nil {
 		var err error
-		if d, err = openSiteData(filepath.Join(w.Dir, "data", site)); err != nil {
+		if d, err = w.siteLog(site); err != nil {
 			return nil, err
 		}
-		w.data.mu.Lock()
-		if old := w.data.open[site]; old != nil {
-			d.close()
-			d = old
-		} else {
-			w.data.open[site] = d
-		}
-		w.data.mu.Unlock()
 	}
 	return d, d.replay(s)
 }
@@ -246,7 +238,8 @@ func (c *call) record(req []byte) any {
 }
 
 // share sends entries to the other web nodes, and says whether every one
-// that answered has them, and at least those that are up answered.
+// that keeps sites' data has them now. One that doesn't (an older
+// yggstore: it answers 404) doesn't count; one that is down does.
 func (w *Web) share(ctx context.Context, site string, entries []Entry) bool {
 	if w.Others == nil {
 		return true // the only web node
@@ -261,8 +254,7 @@ func (w *Web) share(ctx context.Context, site string, entries []Entry) bool {
 		wg.Add(1)
 		go func(addr string) {
 			defer wg.Done()
-			ok := w.postEntries(ctx, addr, body)
-			if !ok {
+			if !w.postEntries(ctx, addr, body) {
 				mu.Lock()
 				all = false
 				mu.Unlock()
@@ -284,7 +276,7 @@ func (w *Web) postEntries(ctx context.Context, addr string, body []byte) bool {
 		return false
 	}
 	resp.Body.Close()
-	return resp.StatusCode == http.StatusNoContent
+	return resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound
 }
 
 func (w *Web) dataClient() *http.Client {
