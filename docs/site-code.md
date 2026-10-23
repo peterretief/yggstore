@@ -253,6 +253,14 @@ tried on a test site, then on Kath's, with her.
 2. **WASI preview 1 or the component model?** Preview 1 is what TinyGo
    and Go build today and what the CGI interface needs; the component
    model (`wasi:http`) is where WASI is heading, but fewer tools build it.
+   **Tried 2026-10-23:** an ordinary Go web app (chi routes, JSON in and
+   out, URL parameters) served with `net/http/cgi`, built with Go 1.24
+   (`GOOS=wasip1`), ran in wazero 1.9 as a web node would: compiled once
+   (2.8 s), then each request in a fresh instance in 20–50 ms, with the
+   right statuses (201, 400, 404). So a handler can be any `http.Handler`
+   (`net/http`, chi), and preview 1 is enough. The module is 5.2 MB with
+   Go; TinyGo has no `net/http/cgi`, so a small CGI adapter of our own
+   would be needed for TinyGo's smaller modules.
 3. **How long are messages kept?** 30 days of catch-up is enough if
    snapshots are taken often; how often, and how many are kept?
 4. **Who makes the data key** when the owner is a person on a box rather
