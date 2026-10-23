@@ -65,6 +65,7 @@ sync their files with, and a page showing how it is
   yggstore hub site versions PERSON  a person's site's versions
   yggstore hub site back PERSON [VERSION]   put the version before (or VERSION) online again
   yggstore hub site anyway|keep PERSON      publish a held-back change, or drop it
+  yggstore hub site code PERSON on|off      run their site's handlers (/api/NAME) on the web nodes
 
 Devices pair through Syncthing, which must run on this box as the same user:
 a device on the LAN that adds this box is accepted, and shares a folder
@@ -614,7 +615,7 @@ func cmdHubControl(ctx context.Context, args []string) error {
 			}
 		}
 		return nil
-	case cmd == "site" && fs.NArg() >= 3 && slices.Contains([]string{"versions", "back", "anyway", "keep"}, fs.Arg(1)):
+	case cmd == "site" && fs.NArg() >= 3 && slices.Contains([]string{"versions", "back", "anyway", "keep", "code"}, fs.Arg(1)):
 		// A person's site: see hub/siteversions.go.
 		st, err := hub.Load(*statePath)
 		if err != nil {
@@ -631,7 +632,11 @@ func cmdHubControl(ctx context.Context, args []string) error {
 				if err != nil {
 					return err
 				}
-				fmt.Println(name)
+				code := "off"
+				if pub.Code(name) {
+					code = "on (it runs once the group's admin allows it: yggstore site allow-code " + name + " on)"
+				}
+				fmt.Printf("%s\n  code: %s\n", name, code)
 				for _, v := range vs {
 					mark := ""
 					if v.Current {
@@ -659,6 +664,15 @@ func cmdHubControl(ctx context.Context, args []string) error {
 		case "keep":
 			done = p.Name + "'s held-back change is dropped: their folder gets the version online again (the change is kept in " +
 				filepath.Join(*dir, "people", p.Folder, "replaced") + ")."
+		case "code":
+			if fs.NArg() != 4 || (fs.Arg(3) != "on" && fs.Arg(3) != "off") {
+				return errors.New("usage: yggstore hub site code PERSON on|off")
+			}
+			ask = "code-" + fs.Arg(3)
+			done = p.Name + "'s site: the web nodes are told to run its handlers within a few seconds. On the admin's desktop: yggstore site allow-code SITE on, once."
+			if fs.Arg(3) == "off" {
+				done = p.Name + "'s site: its handlers stop within a few seconds."
+			}
 		}
 		return set(func(s *hub.HubState) error {
 			for i := range s.People {

@@ -138,4 +138,40 @@ func TestHandlers(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("a member's code: %d %s", rec.Code, rec.Body)
 	}
+
+	// Only the admin can allow it: the member's own say-so is ignored.
+	allow := func(from string, on bool) {
+		typ, body, err := EncodeAllowance(CodeAllowance{Site: "shop.example", On: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.mu.Lock()
+		b.from = from
+		b.mu.Unlock()
+		b.Publish(ctx, Topic, typ, body)
+	}
+	gate := func(want func(int) bool) int {
+		var code int
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if code = request(web, "GET", "shop.example", "/api/hello", "").Code; want(code) {
+				break
+			}
+		}
+		return code
+	}
+	allow("200::7", true)
+	time.Sleep(200 * time.Millisecond)
+	if code := gate(func(c int) bool { return c != http.StatusForbidden }); code != http.StatusForbidden {
+		t.Fatalf("a member allowed their own code: %d", code)
+	}
+	// Allowed by the admin, it gets past the gate (to a module that won't
+	// start, as this one isn't real).
+	allow("200::1", true)
+	if code := gate(func(c int) bool { return c != http.StatusForbidden }); code != http.StatusBadGateway {
+		t.Fatalf("allowed by the admin: %d", code)
+	}
+	allow("200::1", false)
+	if code := gate(func(c int) bool { return c == http.StatusForbidden }); code != http.StatusForbidden {
+		t.Fatalf("after the admin stopped it: %d", code)
+	}
 }

@@ -125,13 +125,16 @@ handlers.
 - **Compiled once:** a version's modules are compiled when it arrives, or
   when code is turned on, and kept compiled in `web/wasm-cache` across
   restarts; compiling isn't counted in the 2 seconds.
-- **Turned on by the publisher:** `yggstore site code SITE on|off`. For
-  now only sites the group's admin node publishes run code; anyone else's
-  answer 403 until there is a way for the admin to approve a site. A web
+- **Turned on by the publisher:** `yggstore site code SITE on|off`, or for
+  a person's site on a box, `yggstore hub site code PERSON on|off` there.
+  Sites the group's admin node publishes run at once; any other site also
+  needs the admin's say-so, `yggstore site allow-code SITE on|off` on the
+  admin's machine, which the web nodes take only from the admin and keep
+  across versions. Until then it answers 403. A web
   node started with `NoCode` (not yet a flag) answers 503 and the others
   serve the request.
-- **Not yet:** the admin's approval for other sites, building `api/` in
-  the starter's `npm run build`, `db.Query` and `db.Record` (stage 3).
+- **Built since:** `api/` in the starter's `npm run build`, and `db.Query`
+  and `db.Record` (stage 3, [Data that lasts](#data-that-lasts)).
 
 ## Data that lasts
 

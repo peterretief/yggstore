@@ -188,9 +188,9 @@ func (w *Web) api(rw http.ResponseWriter, r *http.Request, site, root, owner str
 	case w.NoCode:
 		http.Error(rw, "This web node doesn't run sites' code. Try again: another may.", http.StatusServiceUnavailable)
 		return
-	case !isAdmin(w.Peers(), owner):
-		// The group's admin approves code for other publishers (not built
-		// yet); until then only the admin's own sites run it.
+	case !w.codeAllowed(site, owner):
+		// Code is a bigger step than files: the group's admin allows it
+		// for a site another node publishes (yggstore site allow-code).
 		http.Error(rw, "Code on "+site+" waits for the group's admin to allow it.", http.StatusForbidden)
 		return
 	}

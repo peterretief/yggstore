@@ -62,8 +62,19 @@ func (ps *PeopleSites) KeepServed(p Person) error {
 	return nil
 }
 
+// SetCode asks the web nodes to run person's site's handlers
+// (api/NAME.wasm), or to stop. The group's admin must also allow code for
+// the site (yggstore site allow-code) before it runs.
+func (ps *PeopleSites) SetCode(ctx context.Context, p Person, on bool) error {
+	r := ps.site(p)
+	if r == nil {
+		return errors.New("you have no website yet")
+	}
+	return r.pub.SetCode(ctx, r.name, on)
+}
+
 // siteAsk does what the box's admin asked for person's site on the command
-// line: "back" or "back:ID", "anyway", or "keep".
+// line: "back" or "back:ID", "anyway", "keep", or "code-on", "code-off".
 func (ps *PeopleSites) siteAsk(ctx context.Context, p Person, ask string) error {
 	switch what, id, _ := strings.Cut(ask, ":"); what {
 	case "back":
@@ -73,6 +84,12 @@ func (ps *PeopleSites) siteAsk(ctx context.Context, p Person, ask string) error 
 		return ps.PublishAnyway(p)
 	case "keep":
 		return ps.KeepServed(p)
+	case "code-on", "code-off":
+		err := ps.SetCode(ctx, p, what == "code-on")
+		if err == nil {
+			ps.cfg.Logf("%s: their site's code is %s", p.Name, strings.TrimPrefix(what, "code-"))
+		}
+		return err
 	}
 	return errors.New("unknown request " + ask)
 }

@@ -27,7 +27,25 @@ const (
 	typePublish = "site"
 	typeRemove  = "site-remove"
 	typeOwner   = "site-owner"
+	typeAllow   = "site-allow-code"
 )
+
+// CodeAllowance, from an admin, lets a site's handlers run on the web
+// nodes though another node publishes it (On), or stops them. The admin's
+// own sites need none.
+type CodeAllowance struct {
+	Site string `json:"site"`
+	On   bool   `json:"on"`
+}
+
+// EncodeAllowance is a code allowance as a message on Topic.
+func EncodeAllowance(c CodeAllowance) (typ, body string, err error) {
+	if err := ValidName(c.Site); err != nil {
+		return "", "", err
+	}
+	b, err := json.Marshal(c)
+	return typeAllow, string(b), err
+}
 
 // OwnerChange, from an admin, gives a site on a domain of its own to
 // another node: web nodes take its next versions from that node, and send

@@ -71,6 +71,9 @@ type Web struct {
 type webState struct {
 	After int64                `json:"after"` // last message handled
 	Sites map[string]*webEntry `json:"sites"`
+	// CodeAllowed are the sites the group's admin let run code though
+	// another node publishes them (CodeAllowance), with when.
+	CodeAllowed map[string]int64 `json:"code_allowed,omitempty"`
 }
 
 type webEntry struct {
@@ -179,6 +182,12 @@ func (w *Web) handle(s msg.Stored) {
 		w.mu.Unlock()
 		return
 	}
+	if s.Topic == Topic && s.Type == typeAllow {
+		w.allowCode(s)
+		w.save()
+		w.mu.Unlock()
+		return
+	}
 	a, ok := decode(s)
 	if !ok {
 		w.save()
@@ -227,6 +236,43 @@ func (w *Web) handle(s msg.Stored) {
 	}
 	w.save()
 	w.mu.Unlock()
+}
+
+// allowCode takes an admin's CodeAllowance. Called with w.mu held.
+func (w *Web) allowCode(s msg.Stored) {
+	var c CodeAllowance
+	if json.Unmarshal([]byte(s.Body), &c) != nil || ValidName(c.Site) != nil {
+		return
+	}
+	if !isAdmin(w.Peers(), s.From) {
+		w.logf("web: ignored code allowed for %s from %s, who isn't the group's admin", c.Site, s.FromName)
+		return
+	}
+	if w.st.CodeAllowed == nil {
+		w.st.CodeAllowed = map[string]int64{}
+	}
+	if c.On {
+		w.st.CodeAllowed[c.Site] = s.Time
+		if e := w.st.Sites[c.Site]; e != nil && e.Code && e.Serving != "" && !w.NoCode {
+			go w.warm(c.Site, filepath.Join(w.Dir, "sites", c.Site, e.Serving))
+		}
+		w.logf("web: %s may run code (the admin allowed it)", c.Site)
+	} else {
+		delete(w.st.CodeAllowed, c.Site)
+		w.logf("web: %s may no longer run code (the admin stopped it)", c.Site)
+	}
+}
+
+// codeAllowed is whether a site's handlers may run: the admin publishes
+// it, or allowed it.
+func (w *Web) codeAllowed(site, owner string) bool {
+	if isAdmin(w.Peers(), owner) {
+		return true
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, ok := w.st.CodeAllowed[site]
+	return ok
 }
 
 // changeOwner takes an admin's OwnerChange: the site's next versions come

@@ -33,6 +33,7 @@ const siteUsage = `yggstore site: static websites hosted on the group
   yggstore site rollback DOMAIN [VERSION]       serve an earlier version (default: the one before)
   yggstore site code DOMAIN on|off              run the site's handlers: /api/NAME runs api/NAME.wasm
                                                 on the web nodes (see docs/site-code.md)
+  yggstore site allow-code DOMAIN on|off        (admin) let a site another node publishes run code
   yggstore site contact DOMAIN on|off           the site's contact form: messages posted to
                                                 /_yggstore/contact arrive in this machine's
                                                 mailbox (see docs/sites.md)
@@ -211,6 +212,26 @@ func cmdSite(ctx context.Context, args []string) error {
 			fmt.Printf("%s: its handlers don't run any more; /api/ addresses are a 404.\n", domain)
 		} else {
 			fmt.Printf("%s: the web nodes run its handlers: https://%s%sNAME runs api/NAME.wasm from the version being served.\n", domain, domain, site.ApiPath)
+		}
+	case "allow-code":
+		if fs.NArg() != 2 || (arg(1) != "on" && arg(1) != "off") {
+			return errors.New("usage: yggstore site allow-code DOMAIN on|off")
+		}
+		domain := site.Normalise(arg(0))
+		typ, body, err := site.EncodeAllowance(site.CodeAllowance{Site: domain, On: arg(1) == "on"})
+		if err != nil {
+			return err
+		}
+		if err := announcer(); err != nil {
+			return err
+		}
+		if err := pub.Announce.Publish(ctx, site.Topic, typ, body); err != nil {
+			return fmt.Errorf("telling the web nodes: %w", err)
+		}
+		if arg(1) == "on" {
+			fmt.Printf("%s: the web nodes run its handlers once its publisher turns its code on. Only the group's admin can allow this; the web nodes ignore it from anyone else.\n", domain)
+		} else {
+			fmt.Printf("%s: its handlers don't run any more, whatever its publisher says.\n", domain)
 		}
 	case "owner":
 		if fs.NArg() != 2 {
