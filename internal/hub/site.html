@@ -34,6 +34,9 @@ a { color: var(--accent); }
   <h1>Your website</h1>
   <div class="sub">Your page on the web. <a href="/files">Your files</a> · <a href="/files/mail">Your mail</a></div>
   <div class="card" id="siteCard"><span class="sub">Loading…</span></div>
+  <div class="card" id="verCard" hidden><h2>Versions</h2>
+    <p class="sub">Every change you publish is kept. Going back puts an earlier version online, and in your site's folder; what was in the
+      folder is kept on the box.</p><div id="vers"></div></div>
   <div class="err" id="err"></div>
 </main>
 <script>
@@ -56,7 +59,8 @@ function siteCard() {
   const pub = s && s.published ? `<span class="ok">online</span> since ${when(s.published < 1e12 ? s.published * 1000 : s.published)}`
     : `<span class="sub">being put online…</span>`;
   return `<h2><a href="https://${esc(st.name)}/" target="_blank" rel="noopener">${esc(st.name)}</a></h2>
-    <p>${pub}${s && s.problem ? `<br><span class="err">${esc(s.problem)}</span>` : ""}</p>
+    <p>${pub}${s && s.problem ? `<br><span class="err">${esc(s.problem)}</span>
+      <br><button id="keep">Keep the site as it is</button> <button class="plain" id="anyway">Publish the change anyway</button>` : ""}</p>
     <p>Your email address is <b>${esc(st.address)}</b>: mail to it comes in to <a href="/files/mail">your mail</a>.</p>
     <p class="sub">To change your page, open <a href="/files">your files</a>, then <b>Your websites</b> and <b>${esc(st.name)}</b>.
       Each change goes online within a minute.</p>
@@ -78,12 +82,24 @@ async function load() {
   try { st = await (await fetch("?op=status", {cache: "no-store"})).json(); }
   catch (e) { $("err").textContent = "The box isn't answering."; return; }
   if (!document.activeElement || document.activeElement.id !== "upAdd") $("siteCard").innerHTML = siteCard();
+  if (!st.site) return;
+  const r = await fetch("?op=versions", {cache: "no-store"}).catch(() => null);
+  const vs = r && r.ok ? await r.json() : [];
+  $("verCard").hidden = vs.length < 2;
+  const size = n => n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+  const cur = vs.findIndex(v => v.current);
+  $("vers").innerHTML = (cur >= 0 && cur + 1 < vs.length ? `<p><button data-back="">Go back to the version before</button></p>` : "") +
+    vs.map(v => `<div class="row"><span class="name">${when(v.stored_at * 1000)} · ${v.files} file${v.files == 1 ? "" : "s"}, ${size(v.bytes)}</span>
+      ${v.current ? `<span class="ok">online now</span>` : `<button class="plain" data-back="${esc(v.id)}">Go back to this one</button>`}</div>`).join("");
 }
 document.addEventListener("click", async ev => {
   const t = ev.target;
   const list = (st.site && st.site.uploaders) || [];
   if (t.id === "upGo" && $("upAdd").value.trim()) act("uploaders", {list: [...list, $("upAdd").value.trim()]});
   if (t.dataset.unlist) act("uploaders", {list: list.filter(a => a !== t.dataset.unlist)});
+  if (t.dataset.back !== undefined && confirm("Put this earlier version online, and in your site's folder?")) act("back", {id: t.dataset.back});
+  if (t.id === "keep") act("keep");
+  if (t.id === "anyway" && confirm("Publish the change as it is? It replaces the site online.")) act("anyway");
 });
 document.addEventListener("change", ev => {
   if (ev.target.id === "contact") act("contact", {on: ev.target.checked});

@@ -101,6 +101,16 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 				out.Forward = &forwardState{To: fw.To, Confirmed: fw.Confirmed, Allowed: fw.Allowed, Sent: max(fw.SentAt, fw.Resent)}
 			}
 			reply(out)
+		case "versions":
+			vs, err := ps.Versions(p)
+			if err != nil {
+				fail(err)
+				return
+			}
+			if len(vs) > 10 {
+				vs = vs[:10]
+			}
+			reply(vs)
 		case "message":
 			m, err := box.Read(r.URL.Query().Get("id"))
 			if errors.Is(err, mail.ErrNoMessage) {
@@ -149,6 +159,12 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 	switch op {
 	case "contact":
 		err = ps.SetContact(ctx, p, req.On)
+	case "back":
+		_, err = ps.GoBack(ctx, p, req.ID)
+	case "anyway":
+		err = ps.PublishAnyway(p)
+	case "keep":
+		err = ps.KeepServed(p)
 	case "uploaders":
 		err = ps.SetUploaders(ctx, p, req.List)
 	case "delete":

@@ -73,6 +73,12 @@ type Config struct {
 	// Service is where the web nodes serve, for the instructions
 	// (default localhost:8480); TokenPath where an API token would go.
 	Service, TokenPath string
+	// Replaced, if set, is where a folder's files go when Refill puts the
+	// version being served in their place, so nothing is lost. "": deleted.
+	Replaced string
+	// Buttons: the site's page offers "Publish anyway" and "Keep the site
+	// as it is", so a note about a held-back change names no commands.
+	Buttons bool
 	// MaxBytes is the most a site may hold (0 = no limit).
 	MaxBytes int64
 	// Quiet is how long a folder must be unchanged before it is
@@ -104,6 +110,7 @@ type entry struct {
 	answered   bool
 	routeErr   error // why the route couldn't be added, last time
 	force      bool  // publish it as it is, past the checks
+	refill     bool  // put the version being served in the folder (Refill)
 	status     Status
 }
 
@@ -156,6 +163,16 @@ func (w *Watcher) Force(folder string) {
 	e := w.entry(folder)
 	w.mu.Lock()
 	e.force = true
+	w.mu.Unlock()
+}
+
+// Refill puts the version being served in folder at the next step, in
+// place of what is there, which goes to Config.Replaced: after going back
+// to an earlier version, or to drop a change that was held back.
+func (w *Watcher) Refill(folder string) {
+	e := w.entry(folder)
+	w.mu.Lock()
+	e.refill, e.force = true, false
 	w.mu.Unlock()
 }
 
@@ -281,14 +298,23 @@ func (w *Watcher) fill(ctx context.Context, name string) {
 func (w *Watcher) catchUp(ctx context.Context, folder, name, path string, sc scan) bool {
 	e := w.entry(folder)
 	w.mu.Lock()
-	matches, last := e.matches, e.last
+	matches, last, refill := e.matches, e.last, e.refill
 	w.mu.Unlock()
-	if matches == "" || sc != last {
+	if !refill && (matches == "" || sc != last) {
 		return false
 	}
 	m, err := w.cfg.Pub.Current(name)
-	if err != nil || m.FileID == matches {
+	if err != nil || (!refill && m.FileID == matches) {
 		return false
+	}
+	if refill && w.cfg.Replaced != "" {
+		keep := filepath.Join(w.cfg.Replaced, folder+"-"+w.cfg.Now().UTC().Format("20060102T150405Z"))
+		if err := os.MkdirAll(w.cfg.Replaced, 0o700); err == nil {
+			if err := os.CopyFS(keep, os.DirFS(path)); err != nil {
+				w.cfg.Logf("websites: %s: keeping the folder's files before putting the served version back: %v (will try again)", name, err)
+				return true
+			}
+		}
 	}
 	tmp := filepath.Join(w.cfg.Dir, ".filling-"+folder)
 	old := filepath.Join(w.cfg.Dir, ".replaced-"+folder)
@@ -310,9 +336,14 @@ func (w *Watcher) catchUp(ctx context.Context, folder, name, path string, sc sca
 	}
 	sc = scanSite(path)
 	w.mu.Lock()
-	e.last, e.seen, e.matches = sc, sc, m.FileID
+	e.last, e.seen, e.matches, e.refill = sc, sc, m.FileID, false
 	w.save()
 	w.mu.Unlock()
+	if refill {
+		w.clear(folder, name, "published")
+		w.cfg.Logf("websites: %s: its folder holds the version being served again (%s)", name, short(m.FileID))
+		return true
+	}
 	w.cfg.Logf("websites: %s: its folder now holds version %s, published from the dashboard or the command line", name, short(m.FileID))
 	return true
 }
@@ -445,12 +476,31 @@ func (w *Watcher) check(name string, sc scan) string {
 	if vs, _ := w.cfg.Pub.Versions(name); len(vs) > 0 {
 		for _, v := range vs {
 			if v.Current && v.Bytes > 0 && sc.bytes < v.Bytes/2 {
+				if w.cfg.Buttons {
+					return fmt.Sprintf("The latest change to %s isn't published: its folder went from %s to %s, which looks like a mistake. The site online is unchanged.",
+						name, amount(v.Files, v.Bytes), amount(sc.files, sc.bytes))
+				}
 				return fmt.Sprintf("%s isn't published: its folder shrank from %d to %d bytes since the version being served, which looks like a mistake. To publish it anyway, use the dashboard's Websites page or: yggstore site publish \"%s\" -name %s%s",
 					name, v.Bytes, sc.bytes, filepath.Join(w.cfg.Dir, name), name, keep)
 			}
 		}
 	}
 	return ""
+}
+
+// amount is how much a site holds, said plainly: "12 files, 3.4 MB".
+func amount(n int, bytes int64) string {
+	files := fmt.Sprintf("%d files", n)
+	if n == 1 {
+		files = "1 file"
+	}
+	switch {
+	case bytes >= 1<<20:
+		return fmt.Sprintf("%s, %.1f MB", files, float64(bytes)/(1<<20))
+	case bytes >= 1<<10:
+		return fmt.Sprintf("%s, %d KB", files, bytes>>10)
+	}
+	return fmt.Sprintf("%s, %d bytes", files, bytes)
 }
 
 func notOnCloudflare(name, zone string, at time.Time) string {

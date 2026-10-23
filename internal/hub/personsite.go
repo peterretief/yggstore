@@ -206,6 +206,17 @@ func (ps *PeopleSites) Step(ctx context.Context) {
 		switch {
 		case len(names) > 0 && p.Active():
 			ps.ensure(ctx, p, names)
+			if p.SiteAsk != "" {
+				if err := ps.siteAsk(ctx, p, p.SiteAsk); err != nil {
+					ps.cfg.Logf("%s: their site (%s): %v", p.Name, p.SiteAsk, err)
+				}
+				Update(ctx, ps.cfg.StatePath, func(s *HubState) error {
+					if i := s.person(p.Name); i >= 0 && s.People[i].SiteAsk == p.SiteAsk {
+						s.People[i].SiteAsk = ""
+					}
+					return nil
+				})
+			}
 		case len(names) > 0:
 			ps.stop(p)
 			for _, name := range names {
@@ -329,6 +340,7 @@ func (ps *PeopleSites) ensure(ctx context.Context, p Person, names []string) {
 	}
 	w := websites.New(websites.Config{Dir: dir, StatePath: filepath.Join(ps.cfg.Dir, p.Folder, "websites.json"),
 		Pub: pub, Client: ps.cfg.Client, Online: ps.cfg.Online, MaxBytes: ps.cfg.MaxBytes, Logf: ps.cfg.Logf,
+		Replaced: filepath.Join(ps.cfg.Dir, p.Folder, "replaced"), Buttons: true,
 		Mine:  func() map[string]bool { return mine },
 		Moved: func(name string) (string, time.Time, bool) { return sitemove.Moved(pub.Dir, name) },
 		// A person publishes only the names they were given.

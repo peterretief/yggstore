@@ -76,6 +76,9 @@ type Person struct {
 	// Password signs them in on the web too: a temporary one the admin
 	// set, until they choose their own (see password.go).
 	Password *password.Password `json:"password,omitempty"`
+	// SiteAsk is what the box's admin asked for their site on the command
+	// line, done at the next step (see siteversions.go).
+	SiteAsk string `json:"site_ask,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.

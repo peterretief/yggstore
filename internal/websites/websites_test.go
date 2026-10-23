@@ -224,6 +224,57 @@ func TestEditsPublishedMistakesHeldBackFolderRefilled(t *testing.T) {
 	}
 }
 
+// What happened on 2026-10-22: a push replaced most of a site, and the
+// change was held back. "Keep the site as it is" puts the live version
+// back in the folder, keeping what was there; going back to the version
+// before puts it online and in the folder.
+func TestKeepAndGoBack(t *testing.T) {
+	x := setup(t)
+	x.w.cfg.Replaced, x.w.cfg.Buttons = filepath.Join(t.TempDir(), "replaced"), true
+	const name = "me.group.example"
+	x.site(name, map[string]string{"index.html": strings.Repeat("her page ", 200), "photo.jpg": strings.Repeat("x", 4000)})
+	x.settle(t)
+	os.RemoveAll(filepath.Join(x.dir, name))
+	x.site(name, map[string]string{"index.html": "starter"})
+	x.settle(t)
+	if vs, _ := x.w.cfg.Pub.Versions(name); len(vs) != 1 || !strings.Contains(x.note(name), "went from 2 files") {
+		t.Fatalf("%d versions, note %q", len(vs), x.note(name))
+	}
+
+	x.w.Refill(name)
+	x.settle(t)
+	if got, _ := os.ReadFile(filepath.Join(x.dir, name, "index.html")); string(got) != strings.Repeat("her page ", 200) || x.note(name) != "" {
+		t.Fatalf("after keeping: %q, note %q", got, x.note(name))
+	}
+	kept, _ := filepath.Glob(filepath.Join(x.w.cfg.Replaced, name+"-*", "index.html"))
+	if len(kept) != 1 {
+		t.Fatalf("the change wasn't kept: %v", kept)
+	}
+	if b, _ := os.ReadFile(kept[0]); string(b) != "starter" {
+		t.Fatalf("kept %q", b)
+	}
+
+	// An ordinary edit, then back to the version before.
+	os.WriteFile(filepath.Join(x.dir, name, "index.html"), []byte(strings.Repeat("her new page ", 200)), 0o644)
+	x.now = x.now.Add(time.Hour)
+	x.settle(t)
+	if vs, _ := x.w.cfg.Pub.Versions(name); len(vs) != 2 {
+		t.Fatalf("%d versions after an edit", len(vs))
+	}
+	if _, err := x.w.cfg.Pub.Rollback(context.Background(), name, ""); err != nil {
+		t.Fatal(err)
+	}
+	x.w.Refill(name)
+	x.settle(t)
+	if got, _ := os.ReadFile(filepath.Join(x.dir, name, "index.html")); string(got) != strings.Repeat("her page ", 200) {
+		t.Fatalf("after going back the folder holds %q", got)
+	}
+	x.settle(t)
+	if vs, _ := x.w.cfg.Pub.Versions(name); len(vs) != 2 || !vs[1].Current {
+		t.Fatalf("going back published again, or the wrong one is online: %+v", vs)
+	}
+}
+
 // A version published some other way (the dashboard's Edit) comes into
 // the folder, so the next edit there doesn't undo it.
 func TestFolderCatchesUpWithOtherPublishes(t *testing.T) {

@@ -62,6 +62,9 @@ sync their files with, and a page showing how it is
   yggstore hub remove NAME       unpair a device (its files stay on the hub)
   yggstore hub sites             the websites kept here, in DIR/websites/
   yggstore hub site publish DOMAIN   publish it now, even if it looks broken
+  yggstore hub site versions PERSON  a person's site's versions
+  yggstore hub site back PERSON [VERSION]   put the version before (or VERSION) online again
+  yggstore hub site anyway|keep PERSON      publish a held-back change, or drop it
 
 Devices pair through Syncthing, which must run on this box as the same user:
 a device on the LAN that adds this box is accepted, and shares a folder
@@ -611,6 +614,56 @@ func cmdHubControl(ctx context.Context, args []string) error {
 			}
 		}
 		return nil
+	case cmd == "site" && fs.NArg() >= 3 && slices.Contains([]string{"versions", "back", "anyway", "keep"}, fs.Arg(1)):
+		// A person's site: see hub/siteversions.go.
+		st, err := hub.Load(*statePath)
+		if err != nil {
+			return err
+		}
+		p, ok := st.PersonNamed(fs.Arg(2))
+		if !ok {
+			return fmt.Errorf("nobody called %s on this box (see yggstore hub people)", fs.Arg(2))
+		}
+		if fs.Arg(1) == "versions" {
+			pub := &site.Publisher{Dir: filepath.Join(*dir, "people", p.Folder, "sites")}
+			for _, name := range pub.Sites() {
+				vs, err := pub.Versions(name)
+				if err != nil {
+					return err
+				}
+				fmt.Println(name)
+				for _, v := range vs {
+					mark := ""
+					if v.Current {
+						mark = "  <- online now"
+					}
+					fmt.Printf("  %s  %s  %d files, %d bytes%s\n", v.ID[:8], time.Unix(v.StoredAt, 0).Format("2 Jan 15:04"), v.Files, v.Bytes, mark)
+				}
+			}
+			return nil
+		}
+		ask, done := fs.Arg(1), ""
+		switch ask {
+		case "back":
+			done = p.Name + "'s site goes back to the version before within a few seconds; their folder gets it too."
+			if fs.NArg() >= 4 {
+				ask += ":" + fs.Arg(3)
+				done = p.Name + "'s site goes back to version " + fs.Arg(3) + " within a few seconds; their folder gets it too."
+			}
+		case "anyway":
+			done = p.Name + "'s site will be published as its folder is, within a few seconds."
+		case "keep":
+			done = p.Name + "'s held-back change is dropped: their folder gets the version online again (the change is kept in " +
+				filepath.Join(*dir, "people", p.Folder, "replaced") + ")."
+		}
+		return set(func(s *hub.HubState) error {
+			for i := range s.People {
+				if s.People[i].Name == p.Name {
+					s.People[i].SiteAsk = ask
+				}
+			}
+			return nil
+		}, done)
 	case cmd == "site" && fs.NArg() == 3:
 		name := site.Normalise(fs.Arg(2))
 		if err := site.ValidName(name); err != nil {
