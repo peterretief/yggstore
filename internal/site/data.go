@@ -342,7 +342,8 @@ func (d *siteData) rebuildLocked(s siteSQL) error {
 	for _, p := range []string{tmp, tmp + "-wal", tmp + "-shm"} {
 		os.Remove(p)
 	}
-	db, err := sql.Open("sqlite3", "file:"+tmp+"?_pragma=journal_mode(delete)")
+	// Foreign keys on, whatever SQLite's default: REFERENCES is a rule too.
+	db, err := sql.Open("sqlite3", "file:"+tmp+"?_pragma=journal_mode(delete)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return err
 	}
@@ -375,7 +376,7 @@ func (d *siteData) rebuildLocked(s siteSQL) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
-	if d.read, err = sql.Open("sqlite3", "file:"+path+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)"); err != nil {
+	if d.read, err = sql.Open("sqlite3", "file:"+path+"?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"); err != nil {
 		return err
 	}
 	if d.ro, err = sql.Open("sqlite3", "file:"+path+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)"); err != nil {
