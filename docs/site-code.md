@@ -160,8 +160,11 @@ them, and putting it on the owner's box would stop it when the box is off
   are quick and work when the web node is cut off from the rest.
 - **The site says what each kind of entry does to its tables**, as SQL with
   the entry's fields as parameters, in its `api/schema.sql` (the tables)
-  and `api/entries.sql` (one statement per kind). Statements must give the
-  same result everywhere: no `random()`, and the time is the entry's own.
+  and `api/entries.sql` (each kind's statements under a `-- kind: NAME`
+  line). Besides the fields, a statement can use `:entry_id`,
+  `:entry_time` (unix ms), `:entry_node` and `:entry_kind`. Statements must
+  give the same result everywhere: no `random()` or `datetime('now')`; the
+  time is the entry's own.
 
 ### Merging
 
