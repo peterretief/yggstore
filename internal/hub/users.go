@@ -20,6 +20,7 @@ import (
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/filelock"
+	"github.com/peterretief/yggstore/internal/password"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/syncthing"
 	"github.com/peterretief/yggstore/internal/workcopy"
@@ -72,6 +73,9 @@ type Person struct {
 	// light.go); WebOff is the box's admin turning that off for them.
 	Passkeys []Passkey `json:"passkeys,omitempty"`
 	WebOff   bool      `json:"web_off,omitempty"`
+	// Password signs them in on the web too: a temporary one the admin
+	// set, until they choose their own (see password.go).
+	Password *password.Password `json:"password,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.
@@ -187,6 +191,9 @@ func Load(path string) (HubState, error) {
 	}
 	if err := json.Unmarshal(data, &st); err != nil {
 		return st, fmt.Errorf("%s: %w", path, err)
+	}
+	for i := range st.People {
+		st.People[i].Passkeys = slices.DeleteFunc(st.People[i].Passkeys, func(k Passkey) bool { return k.Kind == "browser" })
 	}
 	return st, nil
 }
@@ -564,7 +571,7 @@ func (u *Users) sharePeople(ctx context.Context, st HubState, have map[string]bo
 			delete(u.shared, p.Folder)
 			// Someone who only opens their files in the browser, over
 			// Yggdrasil or through the web, still has them stored.
-			if (len(p.FilesDevices) > 0 || len(p.Passkeys) > 0) && p.Active() {
+			if (len(p.FilesDevices) > 0 || p.CanSignIn()) && p.Active() {
 				u.startWatch(ctx, p)
 			} else {
 				u.stopWatch(p.Folder)

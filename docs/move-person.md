@@ -35,7 +35,7 @@ Everything that is the person's moves together:
 | Their sites, with every version | `people/FOLDER/sites` | the same, announced from the new box ([move-site.md](move-site.md)) |
 | Their forwarding | the hub's state | the same: confirmed addresses stay confirmed |
 | Their files | their folder's stubs and history (`users/NAME`) | a folder with the **same Syncthing folder ID**, filled with the same stubs |
-| Their passkeys and browser keys | the hub's state (public halves) | the same keys, so they sign in as before |
+| Their passkeys | the hub's state (public halves) | the same keys, so they sign in as before |
 | Their devices: Syncthing IDs and the addresses that open `/files` | the hub's state | the same, already let in |
 
 What stays:

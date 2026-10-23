@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/mail"
@@ -20,8 +22,15 @@ import (
 //go:embed site.html
 var siteHTML []byte
 
-// SitePath is the page, beside the files page.
-const SitePath = FilesPath + "/site"
+//go:embed mail.html
+var mailHTML []byte
+
+// SitePath is the page, beside the files page, and MailPath the person's
+// mail: the messages and forwarding, with the same requests.
+const (
+	SitePath = FilesPath + "/site"
+	MailPath = FilesPath + "/mail"
+)
 
 type sitePageState struct {
 	Person   string            `json:"person"`
@@ -37,6 +46,7 @@ type forwardState struct {
 	To        string `json:"to"`
 	Confirmed bool   `json:"confirmed"`
 	Allowed   bool   `json:"allowed"`
+	Sent      int64  `json:"sent,omitempty"` // when the code last went (unix)
 }
 
 func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
@@ -45,7 +55,11 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 	if op == "" && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Write(siteHTML)
+		if r.URL.Path == MailPath {
+			w.Write(mailHTML)
+		} else {
+			w.Write(siteHTML)
+		}
 		return
 	}
 	list, err := peers.Load(f.u.cfg.PeersPath)
@@ -84,7 +98,7 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 				out.Messages = msgs
 			}
 			if fw := p.Forward; fw != nil {
-				out.Forward = &forwardState{To: fw.To, Confirmed: fw.Confirmed, Allowed: fw.Allowed}
+				out.Forward = &forwardState{To: fw.To, Confirmed: fw.Confirmed, Allowed: fw.Allowed, Sent: max(fw.SentAt, fw.Resent)}
 			}
 			reply(out)
 		case "message":
@@ -97,6 +111,23 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 				return
 			}
 			reply(m)
+		case "attachment":
+			n, _ := strconv.Atoi(r.URL.Query().Get("n"))
+			a, data, err := box.Attachment(r.URL.Query().Get("id"), n)
+			if errors.Is(err, mail.ErrNoMessage) {
+				http.NotFound(w, r)
+				return
+			} else if err != nil {
+				fail(err)
+				return
+			}
+			// Always a download, never a page at the person's address.
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": a.Name}))
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Content-Security-Policy", "sandbox")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Write(data)
 		default:
 			http.NotFound(w, r)
 		}

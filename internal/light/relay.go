@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/passkey"
+	"github.com/peterretief/yggstore/internal/password"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -45,8 +46,9 @@ type Relay struct {
 
 	proxy *httputil.ReverseProxy
 	mu    sync.Mutex
-	down  map[string]bool      // boxes that didn't answer, by address, until they do
-	heard map[string]time.Time // when each box last answered
+	down  map[string]bool        // boxes that didn't answer, by address, until they do
+	heard map[string]time.Time   // when each box last answered
+	tries map[string][]time.Time // password sign-ins per address (see password.go)
 }
 
 // QuietFor is how long a box may go unheard before the relay checks it's
@@ -312,6 +314,9 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == Base+"/signin" && r.Method == http.MethodPost:
 		rl.signIn(w, r, host, only)
 		return
+	case p == Base+"/password" && r.Method == http.MethodPost:
+		rl.passwordSignIn(w, r, host, only)
+		return
 	case p == Base+"/signout":
 		if c, err := r.Cookie(SessionCookie); err == nil && rl.Signin != nil {
 			rl.Signin.end(tokenHash(c.Value), true)
@@ -391,7 +396,7 @@ func (rl *Relay) signedIn(w http.ResponseWriter, r *http.Request, host, only str
 
 // SignInRequest is what the sign-in and invite pages send.
 type SignInRequest struct {
-	Kind       string `json:"kind"` // "" or KindBrowser
+	Link       bool   `json:"link"` // an invite used to sign in, with no passkey
 	T          string `json:"t"`
 	Name       string `json:"name"`
 	Challenge  string `json:"challenge"`
@@ -402,8 +407,6 @@ type SignInRequest struct {
 	Alg        int    `json:"alg"`
 	Signature  string `json:"signature"`
 	UserHandle string `json:"user_handle"`
-	PIN        string `json:"pin"`     // a browser key's PIN
-	NewPIN     string `json:"new_pin"` // one chosen for a browser key that has none yet
 }
 
 // Registered is the box's answer to an invite used: the key it now has.
@@ -413,12 +416,11 @@ type Registered struct {
 }
 
 // Seen is what a web node tells a box about a key after a sign-in: that it
-// was used, its wrong PINs in a row, and a PIN chosen for it.
+// was used, or the password chosen in place of the one Key names.
 type Seen struct {
-	Key      string `json:"key"`
-	Used     bool   `json:"used,omitempty"`
-	PINFails int    `json:"pin_fails"`
-	PIN      string `json:"pin,omitempty"` // a PIN hash, for a key with none yet
+	Key      string             `json:"key"`
+	Used     bool               `json:"used,omitempty"`
+	Password *password.Password `json:"password,omitempty"`
 }
 
 // SeenPath is where a box hears of a key's use.
@@ -426,8 +428,7 @@ const SeenPath = Base + "/seen"
 
 func dec(s string) []byte { b, _ := passkey.B64.DecodeString(s); return b }
 
-// signIn checks a passkey or browser key (and its PIN) and starts a
-// session.
+// signIn checks a passkey and starts a session.
 func (rl *Relay) signIn(w http.ResponseWriter, r *http.Request, host, only string) {
 	if rl.Signin == nil {
 		http.Error(w, "this web node doesn't sign people in", http.StatusServiceUnavailable)
@@ -440,9 +441,7 @@ func (rl *Relay) signIn(w http.ResponseWriter, r *http.Request, host, only strin
 	}
 	now := time.Now()
 	origin := "https://" + host
-	browser := req.Kind == KindBrowser
-	clientData := dec(req.ClientData)
-	if !browser && passkey.ChallengeOf(clientData) != req.Challenge {
+	if passkey.ChallengeOf(dec(req.ClientData)) != req.Challenge {
 		http.Error(w, "the challenge doesn't match", http.StatusBadRequest)
 		return
 	}
@@ -451,13 +450,6 @@ func (rl *Relay) signIn(w http.ResponseWriter, r *http.Request, host, only strin
 		return
 	}
 	f, err := rl.checkKey(req, host, only, origin)
-	if err == nil && browser {
-		err = rl.checkPIN(r.Context(), req, host, &f)
-	}
-	if errors.Is(err, passkey.ErrNeedPIN) {
-		http.Error(w, err.Error(), http.StatusPreconditionRequired) // the page asks for a new PIN
-		return
-	}
 	if err != nil {
 		rl.logf("light: sign-in refused at %s (from %s): %v", host, r.Header.Get("CF-Connecting-IP"), err)
 		http.Error(w, err.Error(), http.StatusForbidden)
@@ -485,21 +477,14 @@ func (rl *Relay) checkKey(req SignInRequest, host, only, origin string) (found, 
 		return f, errNoKey
 	}
 	k := f.Key
-	browser := req.Kind == KindBrowser
-	if browser != (k.Kind == KindBrowser) {
-		return f, errors.New("That key isn't the kind it says it is.")
+	if k.Link {
+		return f, errors.New("This browser signed in with an invite link, which works once. Ask the box's owner for a new one.")
 	}
 	if k.RP != "" && !strings.EqualFold(k.RP, host) {
 		return f, fmt.Errorf("This key is for %s.", k.RP)
 	}
-	var err error
-	if browser {
-		err = passkey.VerifyBrowser(k.SPKI, origin, req.Challenge, dec(req.Signature))
-	} else {
-		// The device's counter isn't checked: the web nodes don't share one.
-		_, err = k.Key.Verify(dec(req.ClientData), dec(req.AuthData), dec(req.Signature), req.Challenge, origin, host)
-	}
-	if err != nil {
+	// The device's counter isn't checked: the web nodes don't share one.
+	if _, err := k.Key.Verify(dec(req.ClientData), dec(req.AuthData), dec(req.Signature), req.Challenge, origin, host); err != nil {
 		return f, err
 	}
 	if only != "" && !strings.EqualFold(f.Person.Name, only) {
@@ -509,37 +494,6 @@ func (rl *Relay) checkKey(req SignInRequest, host, only, origin string) (found, 
 		return f, errors.New("Opening your files through the web is turned off for now. Ask the box's owner.")
 	}
 	return f, nil
-}
-
-// checkPIN checks a browser key's PIN, counting wrong ones. A key made
-// before PINs gets the one chosen, if its box says yes.
-func (rl *Relay) checkPIN(ctx context.Context, req SignInRequest, host string, f *found) error {
-	k := f.Key
-	switch {
-	case f.Fails >= passkey.MaxPINFails:
-		return passkey.ErrPINLocked
-	case k.PIN == "" && req.NewPIN == "":
-		return passkey.ErrNeedPIN
-	case k.PIN == "":
-		if err := passkey.PINOK(req.NewPIN); err != nil {
-			return err
-		}
-		hash := passkey.PINHash(req.NewPIN)
-		if err := rl.tellBox(f.Box, host, f.Person.Name, Seen{Key: k.ID, PIN: hash}); err != nil {
-			rl.logf("light: %s's new PIN: %v", f.Person.Name, err)
-			return errors.New("Your box has to be on to choose a PIN, and it isn't answering. Try again in a while.")
-		}
-		rl.Signin.setPIN(f.Box, k.ID, hash)
-	case !passkey.PINMatches(k.PIN, req.PIN):
-		n := f.Fails + 1
-		rl.Signin.setFails(k.ID, n, true)
-		go rl.tellBox(f.Box, host, f.Person.Name, Seen{Key: k.ID, PINFails: n})
-		return passkey.WrongPIN(passkey.MaxPINFails - n)
-	}
-	if f.Fails > 0 {
-		rl.Signin.setFails(k.ID, 0, true)
-	}
-	return nil
 }
 
 // tellBox sends a person's box what happened with one of their keys.
@@ -661,11 +615,7 @@ func (rl *Relay) devices(w http.ResponseWriter, r *http.Request, me Session) boo
 				ss = append(ss, sess{s, s.Hash == me.Hash, []string{s.Host}})
 			}
 		}
-		keys := []Key{}
-		for _, k := range f.Person.Keys {
-			k.PIN = "" // the browser has no business with it
-			keys = append(keys, k)
-		}
+		keys := append([]Key{}, f.Person.Keys...)
 		jsonOK(w, map[string]any{"person": me.Person, "passkeys": keys, "sessions": ss})
 		return true
 	case op == "signout" && r.Method == http.MethodPost:

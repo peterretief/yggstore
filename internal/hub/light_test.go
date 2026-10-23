@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/light"
+	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/passkey"
 	"github.com/peterretief/yggstore/internal/peers"
 )
@@ -366,7 +368,7 @@ func TestPushLight(t *testing.T) {
 	statePath := filepath.Join(dir, "hub.json")
 	Update(context.Background(), statePath, func(s *HubState) error {
 		s.AddPerson("anna", u.cfg.Dir)
-		s.People[s.person("anna")].Passkeys = []Passkey{{Key: passkey.Key{ID: "k1"}, Name: "phone", Kind: KindBrowser, PIN: "pbkdf2-sha256$x$y"}}
+		s.People[s.person("anna")].Passkeys = []Passkey{{Key: passkey.Key{ID: "k1"}, Name: "phone"}}
 		s.AddPerson("ben", u.cfg.Dir) // no key: not sent
 		return nil
 	})
@@ -382,7 +384,7 @@ func TestPushLight(t *testing.T) {
 		}
 		return light.People{}
 	}
-	if ps := wait(); len(ps.People) != 1 || ps.People[0].Name != "anna" || !ps.People[0].Web || ps.People[0].Keys[0].PIN == "" {
+	if ps := wait(); len(ps.People) != 1 || ps.People[0].Name != "anna" || !ps.People[0].Web || ps.People[0].Keys[0].ID != "k1" {
 		t.Fatalf("sent %+v", ps)
 	}
 	time.Sleep(10 * time.Millisecond) // a new modification time
@@ -458,133 +460,175 @@ func TestLightOwnAddress(t *testing.T) {
 	}
 }
 
-// A device that can't make a passkey keeps a key in the browser instead,
-// with a PIN the web node checks and counts.
-func TestLightBrowserKey(t *testing.T) {
+// Opening an invite signs that browser in without a passkey. The invite
+// works once, and the link's way in can't sign in again; forgetting it
+// signs the browser out.
+func TestLightInviteLink(t *testing.T) {
 	g := newLightGroup(t)
-	token := g.invite(t, "kath")
+	token := g.invite(t, "anna")
 	b := g.browser(t, "")
-	a, _ := begin(t, b, "/files/join?box=box&t="+token, token)
-	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	sign := func(ch string) string {
-		hh := sha256.Sum256(passkey.BrowserMessage("https://"+rpHost, ch))
-		r, s, _ := ecdsa.Sign(rand.Reader, key, hh[:])
-		sig := make([]byte, 64)
-		r.FillBytes(sig[:32])
-		s.FillBytes(sig[32:])
-		return passkey.B64.EncodeToString(sig)
+	if r := b.do("GET", "/files/join?box=box&t="+token, ""); r.StatusCode != 200 || !strings.Contains(text(r), "Open my mail and files") {
+		t.Fatalf("invite page: %d", r.StatusCode)
 	}
-	id := "browser-key-id-0001"
-	register := func(pin string) *http.Response {
-		reg, _ := json.Marshal(map[string]any{"kind": KindBrowser, "t": token, "name": "kath's phone", "challenge": a.Challenge, "id": id,
-			"spki": passkey.B64.EncodeToString(spki), "signature": sign(a.Challenge), "pin": pin})
-		return b.do("POST", light.Base+"/register", string(reg))
+	if r := b.do("POST", light.Base+"/register", `{"link":true,"t":"`+token+`","name":"laptop"}`); r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" {
+		t.Fatalf("register: %d %s", r.StatusCode, text(r))
 	}
-	if r := register("111111"); r.StatusCode == 200 {
-		t.Fatal("registered with a PIN that's too easy")
+	if r := b.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
+		t.Fatalf("list: %d %s", r.StatusCode, text(r))
 	}
-	a, _ = begin(t, b, "", token)
-	if r := register("482913"); r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" {
-		t.Fatalf("register a browser key: %d %s", r.StatusCode, text(r))
+	if r := g.browser(t, "").do("POST", light.Base+"/register", `{"link":true,"t":"`+token+`"}`); r.StatusCode == 200 {
+		t.Fatal("the invite worked twice")
 	}
 	st, _ := Load(g.statePath)
-	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].Kind != KindBrowser || !passkey.PINMatches(p.Passkeys[0].PIN, "482913") {
-		t.Fatalf("kept %+v", p.Passkeys)
+	anna, _ := st.PersonNamed("anna")
+	if len(anna.Passkeys) != 1 || !anna.Passkeys[0].Link || anna.Passkeys[0].Name != "laptop" {
+		t.Fatalf("keys %+v", anna.Passkeys)
 	}
-	if r := b.do("GET", "/files/devices?op=list", ""); strings.Contains(text(r), "pbkdf2") {
-		t.Fatal("the devices list shows the PIN's hash")
+	id := anna.Passkeys[0].ID
+	r := g.browser(t, "").do("POST", light.Base+"/signin", `{"challenge":"x","id":"`+id+`"}`)
+	if r.StatusCode == 200 {
+		t.Fatal("a link's way in signed in again")
 	}
-	g.push(t)
 
-	pin := "482913"
+	// A passkey as well, then forgetting the link signs its browser out.
+	token = g.invite(t, "anna")
 	b2 := g.browser(t, "")
-	signin := func(kind, sig string, extra map[string]string) *http.Response {
-		ch := passkey.NewChallenge(time.Now())
-		if sig == "" {
-			sig = sign(ch)
-		}
-		body := map[string]string{"kind": kind, "challenge": ch, "id": id, "signature": sig, "pin": pin}
-		for k, v := range extra {
-			body[k] = v
-		}
-		bb, _ := json.Marshal(body)
-		delete(b2.cookies, light.SessionCookie)
-		return b2.do("POST", light.Base+"/signin", string(bb))
+	b2.do("GET", "/files/join?box=box&t="+token, "")
+	a, _ := begin(t, b2, "", token)
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if r := makePasskey(b2, &phone{key: key, id: []byte("anna-phone-1")}, token, a); r.StatusCode != 200 {
+		t.Fatalf("passkey: %d %s", r.StatusCode, text(r))
 	}
-	if r := signin("", "", nil); r.StatusCode == 200 {
-		t.Fatal("a browser key signed in as a passkey")
+	if r := b2.do("POST", "/files/devices?op=forget&id="+url.QueryEscape(id), ""); r.StatusCode != 204 {
+		t.Fatalf("forget: %d %s", r.StatusCode, text(r))
 	}
-	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	ch := passkey.NewChallenge(time.Now())
-	hh := sha256.Sum256(passkey.BrowserMessage("https://"+rpHost, ch))
-	r1, s1, _ := ecdsa.Sign(rand.Reader, other, hh[:])
-	bad := make([]byte, 64)
-	r1.FillBytes(bad[:32])
-	s1.FillBytes(bad[32:])
-	if r := signin(KindBrowser, passkey.B64.EncodeToString(bad), nil); r.StatusCode == 200 {
-		t.Fatal("another key signed in")
-	}
-	// Wrong PINs are counted, and the box hears of them; a right one
-	// starts again.
-	pin = "000001"
-	for i := 0; i < passkey.MaxPINFails-1; i++ {
-		if r := signin(KindBrowser, "", nil); r.StatusCode != 403 || b2.cookies[light.SessionCookie] != "" {
-			t.Fatalf("wrong PIN %d: %d %s", i, r.StatusCode, text(r))
-		}
-	}
-	waitFor(t, func() bool {
-		st, _ := Load(g.statePath)
-		p, _ := st.PersonNamed("kath")
-		return p.Passkeys[0].PINFails == passkey.MaxPINFails-1
-	}, "the box to hear of the wrong PINs")
-	pin = "482913"
-	if r := signin(KindBrowser, "", nil); r.StatusCode != 200 || b2.cookies[light.SessionCookie] == "" {
-		t.Fatalf("sign in with the browser key: %d %s", r.StatusCode, text(r))
-	}
-	if r := b2.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
-		t.Fatalf("files after signing in: %d", r.StatusCode)
-	}
-	if r := b2.do("GET", "/files/devices?op=list", ""); !strings.Contains(text(r), `"short":true`) {
-		t.Fatal("a browser key's session isn't short")
-	}
-	// MaxPINFails wrong PINs in a row lock the key, even to the right PIN,
-	// and even once the box has said it again.
-	pin = "000001"
-	for i := 0; i < passkey.MaxPINFails; i++ {
-		signin(KindBrowser, "", nil)
-	}
-	waitFor(t, func() bool {
-		st, _ := Load(g.statePath)
-		p, _ := st.PersonNamed("kath")
-		return p.Passkeys[0].PINFails == passkey.MaxPINFails
-	}, "the box to hear of the lock")
 	g.push(t)
-	pin = "482913"
-	if r := signin(KindBrowser, "", nil); r.StatusCode != 403 || !strings.Contains(text(r), "locked") {
-		t.Fatalf("a locked key: %d", r.StatusCode)
+	waitFor(t, func() bool { return b.do("POST", "/files?op=list", `{"path":""}`).StatusCode == 401 }, "the link's browser to be signed out")
+}
+
+// Signed in on the web, a person reads their mail at /files/mail, and
+// its attachments only download.
+func TestLightMail(t *testing.T) {
+	g := newLightGroup(t, peers.PersonName{Name: "anna.example.org", Person: "anna", Code: "ys1annaannaanna"})
+	dir := filepath.Dir(g.statePath)
+	g.u.cfg.People = NewPeopleSites(PeopleSitesConfig{StatePath: g.statePath, PeersPath: g.u.cfg.PeersPath, Self: boxYgg,
+		Dir: filepath.Join(dir, "people"), Logf: t.Logf})
+	token := g.invite(t, "anna")
+	st, _ := Load(g.statePath)
+	anna, _ := st.PersonNamed("anna")
+	box, err := g.u.cfg.People.Mailbox(anna)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// A key made before PINs: the web node asks for one to be chosen, and
-	// the box keeps it.
+	raw := "From: ben@example.com\r\nTo: anna@example.org\r\nSubject: the plan\r\nMIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nsee attached\r\n" +
+		"--b\r\nContent-Type: text/html\r\nContent-Disposition: attachment; filename=\"plan.html\"\r\n\r\n<script>x</script>\r\n--b--\r\n"
+	sealed, err := mail.Seal(box.ID.Code(), []byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(box.Dir, 0o700)
+	os.WriteFile(filepath.Join(box.Dir, "m1.sealed"), sealed, 0o600)
+	os.WriteFile(filepath.Join(box.Dir, "m1.json"), []byte(`{"received":1}`), 0o600)
+
+	b := g.browser(t, "")
+	b.do("GET", "/files/join?box=box&t="+token, "")
+	if r := b.do("POST", light.Base+"/register", `{"link":true,"t":"`+token+`"}`); r.StatusCode != 200 {
+		t.Fatalf("register: %d %s", r.StatusCode, text(r))
+	}
+	if r := b.do("GET", MailPath, ""); r.StatusCode != 200 || !strings.Contains(text(r), "<title>Your mail</title>") {
+		t.Fatalf("mail page: %d", r.StatusCode)
+	}
+	if body := text(b.do("GET", MailPath+"?op=status", "")); !strings.Contains(body, `"address":"anna@example.org"`) || !strings.Contains(body, "the plan") {
+		t.Fatalf("status: %s", body)
+	}
+	if body := text(b.do("GET", MailPath+"?op=message&id=m1", "")); !strings.Contains(body, "see attached") || !strings.Contains(body, "plan.html") {
+		t.Fatalf("message: %s", body)
+	}
+	r := b.do("GET", MailPath+"?op=attachment&id=m1&n=0", "")
+	if body := text(r); r.StatusCode != 200 || body != "<script>x</script>" || r.Header.Get("Content-Type") != "application/octet-stream" ||
+		!strings.HasPrefix(r.Header.Get("Content-Disposition"), "attachment") {
+		t.Fatalf("attachment: %d %q %v", r.StatusCode, body, r.Header)
+	}
+	if r := g.browser(t, "").do("GET", MailPath+"?op=status", ""); r.StatusCode == 200 {
+		t.Fatal("mail without signing in")
+	}
+}
+
+// The admin sets a temporary password; she signs in with her group
+// address and it, must choose her own first, which her box keeps. Wrong
+// passwords make her wait, and a new temporary one signs her out.
+func TestLightPassword(t *testing.T) {
+	g := newLightGroup(t, peers.PersonName{Name: "anna.example.org", Person: "anna", Code: "ys1annaannaanna"})
+	g.invite(t, "anna") // adds her
+	var temp string
 	Update(context.Background(), g.statePath, func(s *HubState) error {
-		k := &s.People[s.person("kath")].Passkeys[0]
-		k.PIN, k.PINFails = "", 0
-		return nil
+		var err error
+		temp, err = s.SetTempPassword("anna", time.Now())
+		return err
 	})
 	g.push(t)
-	if r := signin(KindBrowser, "", nil); r.StatusCode != http.StatusPreconditionRequired || b2.cookies[light.SessionCookie] != "" {
-		t.Fatalf("no PIN yet: %d %s", r.StatusCode, text(r))
+	pw := func(b *browser, body string) *http.Response { return b.do("POST", light.Base+"/password", body) }
+	b := g.browser(t, "")
+	if r := pw(b, `{"login":"anna@example.org","password":"`+temp+`"}`); r.StatusCode != http.StatusPreconditionRequired {
+		t.Fatalf("temporary alone: %d %s", r.StatusCode, text(r))
 	}
-	if r := signin(KindBrowser, "", map[string]string{"new_pin": "735102"}); r.StatusCode != 200 || b2.cookies[light.SessionCookie] == "" {
-		t.Fatalf("choose a PIN: %d %s", r.StatusCode, text(r))
+	if r := pw(b, `{"login":"anna@example.org","password":"`+temp+`","new":"short"}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a short new one: %d", r.StatusCode)
 	}
-	st, _ = Load(g.statePath)
-	if p, _ := st.PersonNamed("kath"); !passkey.PINMatches(p.Passkeys[0].PIN, "735102") {
-		t.Fatal("the box didn't keep the chosen PIN")
+	r := pw(b, `{"login":"Anna@Example.org","password":"`+temp+`","new":"tea at four on fridays"}`)
+	if r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" || !strings.Contains(text(r), "/files/mail") {
+		t.Fatalf("choosing her own: %d %s", r.StatusCode, text(r))
 	}
-	pin = "735102"
-	if r := signin(KindBrowser, "", nil); r.StatusCode != 200 {
-		t.Fatalf("sign in with the chosen PIN: %d %s", r.StatusCode, text(r))
+	if r := b.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
+		t.Fatalf("list: %d %s", r.StatusCode, text(r))
+	}
+	st, _ := Load(g.statePath)
+	anna, _ := st.PersonNamed("anna")
+	if anna.Password == nil || anna.Password.Temp || !anna.Password.Matches("tea at four on fridays") {
+		t.Fatalf("the box keeps %+v", anna.Password)
+	}
+	g.push(t)
+	if r := pw(g.browser(t, ""), `{"login":"anna@example.org","password":"`+temp+`"}`); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("the temporary one still works: %d", r.StatusCode)
+	}
+	if r := pw(g.browser(t, ""), `{"login":"anna@localbox","password":"tea at four on fridays"}`); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("a made-up login: %d", r.StatusCode)
+	}
+	b2 := g.browser(t, "")
+	if r := pw(b2, `{"login":"anna@box","password":"tea at four on fridays"}`); r.StatusCode != 200 {
+		t.Fatalf("name@box: %d %s", r.StatusCode, text(r))
+	}
+
+	// Wrong passwords: after MaxFails, even the right one waits.
+	for i := 0; i < light.MaxFails; i++ {
+		pw(g.browser(t, ""), `{"login":"anna@example.org","password":"wrong wrong wrong"}`)
+	}
+	if r := pw(g.browser(t, ""), `{"login":"anna@example.org","password":"tea at four on fridays"}`); r.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("after too many wrong: %d %s", r.StatusCode, text(r))
+	}
+
+	// A new temporary password signs her browsers out.
+	Update(context.Background(), g.statePath, func(s *HubState) error { _, err := s.SetTempPassword("anna", time.Now()); return err })
+	g.push(t)
+	if r := b.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("still signed in after a new temporary password: %d", r.StatusCode)
+	}
+}
+
+// Browser keys are gone: one kept from before is forgotten, so it signs
+// nobody in.
+func TestLightBrowserKeysGone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hub.json")
+	os.WriteFile(path, []byte(`{"people":[{"name":"kath","passkeys":[
+		{"id":"k1","name":"laptop","kind":"browser","pin":"pbkdf2-sha256$x$y"},
+		{"id":"k2","name":"phone"}]}]}`), 0o600)
+	st, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].ID != "k2" {
+		t.Fatalf("kept %+v", p.Passkeys)
 	}
 }
 

@@ -20,13 +20,14 @@ import (
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/passkey"
+	"github.com/peterretief/yggstore/internal/password"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
 // Signing in happens on the web nodes, so it works while any one of them
 // is up, whichever box is off (docs/web-access.md, "Always on"). Each box
-// sends every web node its people's keys (public halves and PIN hashes
-// only) when they change; the web node checks sign-ins against them, keeps
+// sends every web node its people's keys (public halves only) when they
+// change; the web node checks sign-ins against them, keeps
 // the sessions, and passes each new one to the other web nodes. Relaying a
 // signed-in request to the box, it names the person in PersonHeader, which
 // the box takes only from the group's web nodes.
@@ -34,29 +35,17 @@ import (
 // PersonHeader names whom a web node signed in, on a request it relays.
 const PersonHeader = "X-Yggstore-Person"
 
-// KindBrowser marks a key a browser keeps (see passkey.VerifyBrowser), for
-// a device that can't make a passkey, such as a phone without a screen
-// lock. It needs a PIN as well.
-const KindBrowser = "browser"
+// SessionFor is how long a session lasts unused.
+const SessionFor = 30 * 24 * time.Hour
 
-// SessionFor is how long a session lasts unused, and ShortSessionFor one
-// started with a browser key, after which the PIN is asked again.
-const (
-	SessionFor      = 30 * 24 * time.Hour
-	ShortSessionFor = time.Hour
-)
-
-// Key is one of a person's passkeys or browser keys, as a box tells the
-// web nodes.
+// Key is one of a person's passkeys, as a box tells the web nodes.
 type Key struct {
 	passkey.Key
-	RP       string `json:"rp,omitempty"`   // the address it signs in at
-	Kind     string `json:"kind,omitempty"` // "" or KindBrowser
-	Name     string `json:"name"`           // the device, as they named it
-	PIN      string `json:"pin,omitempty"`  // a browser key's PIN hash (passkey.PINHash)
-	PINFails int    `json:"pin_fails,omitempty"`
-	Added    int64  `json:"added,omitempty"`
-	Used     int64  `json:"used,omitempty"`
+	RP    string `json:"rp,omitempty"`   // the address it signs in at
+	Name  string `json:"name"`           // the device, as they named it
+	Link  bool   `json:"link,omitempty"` // signed in with the invite link: no passkey
+	Added int64  `json:"added,omitempty"`
+	Used  int64  `json:"used,omitempty"`
 }
 
 // Person is someone on a box who may sign in on the web.
@@ -64,6 +53,8 @@ type Person struct {
 	Name string `json:"name"`
 	Web  bool   `json:"web"` // may sign in on the web now
 	Keys []Key  `json:"keys"`
+	// Password is their password's hash, if they have one.
+	Password *password.Password `json:"password,omitempty"`
 	// Recovery is their recovery ID: the web nodes' record of their
 	// latest recovery copy, for their files while the box is off.
 	Recovery string `json:"recovery,omitempty"`
@@ -84,19 +75,13 @@ type Session struct {
 	Host    string `json:"host"`   // the address it was started at
 	Started int64  `json:"started"`
 	Used    int64  `json:"used"`
-	Short   bool   `json:"short,omitempty"` // started with a browser key
 	// Via is the session at my. that this one at another address came
 	// from (docs/login.md): signing out there signs this out too.
 	Via string `json:"via,omitempty"`
 }
 
 // For is how long the session lasts unused.
-func (ss Session) For() time.Duration {
-	if ss.Short {
-		return ShortSessionFor
-	}
-	return SessionFor
-}
+func (ss Session) For() time.Duration { return SessionFor }
 
 func (ss Session) live(now time.Time) bool { return now.Sub(time.Unix(ss.Used, 0)) < ss.For() }
 
@@ -105,7 +90,7 @@ type Store struct {
 	Dir   string
 	Peers func() []peers.Peer
 	// Others are the group's other web nodes (node API addresses), which
-	// share sessions and wrong PINs.
+	// share sessions.
 	Others func(ctx context.Context) []string
 	// Client reaches them over Yggdrasil.
 	Client *http.Client
@@ -129,9 +114,9 @@ type Store struct {
 type storeState struct {
 	Boxes    map[string][]Person `json:"boxes"` // by box name
 	Sessions []Session           `json:"sessions"`
-	// Fails are wrong PINs in a row, per key ID, as the web nodes saw
-	// them since the box last said.
-	Fails map[string]int `json:"fails,omitempty"`
+	// Fails are wrong passwords in a row, per "box/person", as the web
+	// nodes saw them (see password.go).
+	Fails map[string]Fails `json:"password_fails,omitempty"`
 	// Tickets are the login's codes, not yet used (see login.go).
 	Tickets []Ticket `json:"tickets,omitempty"`
 	// Gone are codes used up and sessions ended, by hash, until when
@@ -166,7 +151,7 @@ func (s *Store) lock() {
 		s.st.Boxes = map[string][]Person{}
 	}
 	if s.st.Fails == nil {
-		s.st.Fails = map[string]int{}
+		s.st.Fails = map[string]Fails{}
 	}
 	if s.st.Gone == nil {
 		s.st.Gone = map[string]int64{}
@@ -193,7 +178,6 @@ type found struct {
 	Box    string
 	Person Person
 	Key    Key
-	Fails  int // wrong PINs in a row, counting what the web nodes saw
 }
 
 // key finds a key by its ID.
@@ -204,7 +188,7 @@ func (s *Store) key(id string) (found, bool) {
 		for _, p := range ps {
 			for _, k := range p.Keys {
 				if k.ID == id {
-					return found{box, p, k, max(k.PINFails, s.st.Fails[id])}, true
+					return found{box, p, k}, true
 				}
 			}
 		}
@@ -218,13 +202,6 @@ func (s *Store) SetPeople(box string, ps []Person) {
 	s.lock()
 	defer s.mu.Unlock()
 	s.st.Boxes[box] = ps
-	for _, p := range ps {
-		for _, k := range p.Keys {
-			if f, ok := s.st.Fails[k.ID]; ok && k.PINFails >= f {
-				delete(s.st.Fails, k.ID) // the box has them now
-			}
-		}
-	}
 	s.pruneLocked(time.Now())
 	s.saveLocked()
 }
@@ -239,6 +216,9 @@ func (s *Store) allowedLocked(ss Session) bool {
 			if k.ID == ss.Key {
 				return p.Web
 			}
+		}
+		if p.Password != nil && p.Password.ID() == ss.Key {
+			return p.Web
 		}
 	}
 	return false
@@ -263,7 +243,7 @@ func tokenHash(token string) string {
 // cookie's token, which only the browser keeps.
 func (s *Store) newSession(f found, host string, now time.Time) (string, Session) {
 	return s.startSession(Session{Box: f.Box, Person: f.Person.Name, Key: f.Key.ID, Device: f.Key.Name, Host: host,
-		Started: now.Unix(), Short: f.Key.Kind == KindBrowser}, now)
+		Started: now.Unix()}, now)
 }
 
 // startSession starts ss, as a new session with its own cookie.
@@ -404,35 +384,6 @@ func (s *Store) sessionsOf(box, person string) []Session {
 	return out
 }
 
-// setFails notes a key's wrong PINs in a row (0 after a right one).
-func (s *Store) setFails(id string, n int, tell bool) {
-	s.lock()
-	if n == 0 {
-		delete(s.st.Fails, id)
-	} else {
-		s.st.Fails[id] = max(n, s.st.Fails[id])
-	}
-	s.saveLocked()
-	s.mu.Unlock()
-	if tell {
-		go s.tellOthers(http.MethodPost, "/v1/light/fails", map[string]any{"key": id, "fails": n})
-	}
-}
-
-// setPIN keeps a PIN chosen for a browser key the box has said yes to.
-func (s *Store) setPIN(box, id, hash string) {
-	s.lock()
-	defer s.mu.Unlock()
-	for i := range s.st.Boxes[box] {
-		for j := range s.st.Boxes[box][i].Keys {
-			if k := &s.st.Boxes[box][i].Keys[j]; k.ID == id {
-				k.PIN = hash
-			}
-		}
-	}
-	s.saveLocked()
-}
-
 // addKey keeps a key a box has just made, before the box's own word of it
 // arrives.
 func (s *Store) addKey(f found) {
@@ -545,7 +496,7 @@ func (s *Store) askOthers(ctx context.Context, hash string) []Session {
 }
 
 // Serve answers members on the node's API (/v1/light/…): boxes sending
-// their people, and the other web nodes sharing sessions and wrong PINs.
+// their people, and the other web nodes sharing sessions.
 func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) bool {
 	path, ok := strings.CutPrefix(r.URL.Path, "/v1/light/")
 	if !ok {
@@ -600,6 +551,17 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 	case isSession && r.Method == http.MethodDelete:
 		s.end(hash, false)
 		w.WriteHeader(http.StatusNoContent)
+	case path == "fails" && r.Method == http.MethodPost:
+		var req struct {
+			Who string `json:"who"`
+			Fails
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil || req.Who == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return true
+		}
+		s.setFails(req.Who, req.Fails, false)
+		w.WriteHeader(http.StatusNoContent)
 	case path == "ticket" && r.Method == http.MethodPut:
 		var t Ticket
 		if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&t); err != nil || len(t.Hash) != 64 {
@@ -625,17 +587,6 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 			return true
 		}
 		jsonOK(w, sg.jwk)
-	case path == "fails" && r.Method == http.MethodPost:
-		var req struct {
-			Key   string `json:"key"`
-			Fails int    `json:"fails"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil || req.Key == "" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return true
-		}
-		s.setFails(req.Key, req.Fails, false)
-		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.NotFound(w, r)
 	}

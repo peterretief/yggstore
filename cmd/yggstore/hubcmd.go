@@ -10,7 +10,6 @@ import (
 	"maps"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +22,6 @@ import (
 	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/hub"
-	"github.com/peterretief/yggstore/internal/light"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
@@ -47,8 +45,9 @@ sync their files with, and a page showing how it is
   yggstore hub users             the devices paired, and whose they are
   yggstore hub people            the people, their devices and folders
   yggstore hub link DEVICE PERSON  make a device sync that person's folder
-  yggstore hub person add NAME   add someone, and print their invite link
-  yggstore hub person invite NAME    a new invite link (works once, for a week)
+  yggstore hub person add NAME   add someone, and print their temporary password
+  yggstore hub person password NAME  a new temporary password (they choose their own at once)
+  yggstore hub person invite NAME    a link for a device with Yggdrasil (works once, for a week)
   yggstore hub person limit NAME GB DEVICES   how much they may store, and how many devices (0: no limit)
   yggstore hub person suspend|resume|remove NAME   shut them out for now, let them back, or for good
   yggstore hub devices           the devices that open each person's files in the browser
@@ -634,8 +633,8 @@ func cmdHubControl(ctx context.Context, args []string) error {
 	case cmd == "person" && fs.NArg() >= 3:
 		name := fs.Arg(2)
 		switch fs.Arg(1) {
-		case "add", "invite":
-			var token string
+		case "add", "password":
+			var pw string
 			if _, err := hub.Update(ctx, *statePath, func(s *hub.HubState) error {
 				if fs.Arg(1) == "add" {
 					p, err := s.AddPerson(name, filepath.Join(*dir, "users"))
@@ -645,36 +644,31 @@ func cmdHubControl(ctx context.Context, args []string) error {
 					name = p.Name
 				}
 				var err error
+				pw, err = s.SetTempPassword(name, time.Now())
+				return err
+			}); err != nil {
+				return err
+			}
+			list, _ := peers.Load(*peersPath)
+			at := hub.SignInAt(list)
+			if at == "" {
+				at = "this box's files page"
+			}
+			fmt.Printf("Give %s these yourself (by phone or in person, not by email):\n  sign in at %s\n  as         %s\n  password   %s\n",
+				name, at, hub.LoginOf(list, boxYggAddr(), name), pw)
+			fmt.Println("The password works for a week. At the first sign-in they choose their own.")
+			return nil
+		case "invite":
+			var token string
+			if _, err := hub.Update(ctx, *statePath, func(s *hub.HubState) error {
+				var err error
 				token, err = s.Invite(name, time.Now())
 				return err
 			}); err != nil {
 				return err
 			}
-			addr := "THIS-BOX'S-YGGDRASIL-ADDRESS"
-			if t, err := transport.ByName("ygg"); err == nil {
-				if ip, err := t.LocalIP(); err == nil {
-					addr = ip.String()
-				}
-			}
-			list, _ := peers.Load(*peersPath)
-			if pn, ok := peers.PersonNameOf(list, addr, name); ok {
-				fmt.Printf("Send %s this link. It works once, for a week, in any browser:\n  https://%s%s?t=%s\n", name, pn.Name, hub.JoinPath, token)
-				fmt.Printf("Or, on a device with Yggdrasil:\n  http://[%s]:7490%s?t=%s\n", addr, hub.JoinPath, token)
-				return nil
-			}
-			if domain := peers.GroupDomain(list); domain != "" {
-				box := name
-				for _, p := range list {
-					if p.IP() == addr {
-						box = p.Name
-						break
-					}
-				}
-				fmt.Printf("Send %s this link. It works once, for a week, in any browser:\n  https://%s.%s%s?box=%s&t=%s\n", name, light.Host, domain, hub.JoinPath, url.QueryEscape(box), token)
-				fmt.Printf("Or, on a device with Yggdrasil:\n  http://[%s]:7490%s?t=%s\n", addr, hub.JoinPath, token)
-				return nil
-			}
-			fmt.Printf("Send %s this link. It works once, for a week, on a device with Yggdrasil:\n  http://[%s]:7490%s?t=%s\n", name, addr, hub.JoinPath, token)
+			fmt.Printf("For a device with Yggdrasil (on the web, use: yggstore hub person password %s). It works once, for a week:\n  http://[%s]:7490%s?t=%s\n",
+				name, boxYggAddr(), hub.JoinPath, token)
 			return nil
 		case "suspend", "resume":
 			on := fs.Arg(1) == "suspend"
@@ -892,4 +886,14 @@ func linkHost(ctx context.Context, c client.Client, peersPath string) string {
 		}
 	}
 	return ""
+}
+
+// boxYggAddr is this box's Yggdrasil address.
+func boxYggAddr() string {
+	if t, err := transport.ByName("ygg"); err == nil {
+		if ip, err := t.LocalIP(); err == nil {
+			return ip.String()
+		}
+	}
+	return "THIS-BOX'S-YGGDRASIL-ADDRESS"
 }

@@ -27,23 +27,13 @@ button.plain { background: none; color: var(--info); border: 1px solid var(--lin
 <main>
   <div class="card">
     <h1>Open your files</h1>
-    <p>This sets up this phone or computer to open your files on the box, from anywhere, in the browser.</p>
-    <p class="sub">You'll make a <b>passkey</b>: your device asks for your fingerprint, face or screen lock, and that's how you sign in from now on.
-      There's no password to remember. The invite link works once.</p>
+    <p>This signs this phone or computer in to your mail and files, from anywhere, in the browser.</p>
+    <p class="sub">The invite link works once. This browser stays signed in while you use it.</p>
     <label for="name">Name this device</label>
     <input id="name" maxlength="60" placeholder="e.g. my phone" autocomplete="off">
-    <button id="go">Make a passkey and open my files</button>
-    <button id="nolock" class="plain">No screen lock? Keep the key in this browser instead</button>
-    <div id="pinBox" hidden>
-      <p class="sub">This browser keeps a key, and you choose a <b>PIN</b>: signing in needs both, so having this phone or computer isn't enough.
-        The box checks the PIN, and 5 wrong tries in a row lock the key. You type it when you open your files, and again after an hour away.</p>
-      <label for="pin">Choose a PIN (at least 6 digits or letters)</label>
-      <input id="pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="64">
-      <label for="pin2">Type it again</label>
-      <input id="pin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="64">
-      <button id="mk">Make the key and open my files</button>
-      <p class="sub">If you clear this browser's data, forget the PIN or change device, ask the box's owner for a new invite.</p>
-    </div>
+    <button id="link">Open my mail and files</button>
+    <button id="go" class="plain">Make a passkey instead</button>
+    <p class="sub">A passkey signs you in with your fingerprint, face or screen lock, so you can sign in again on this device later.</p>
     <div id="msg" role="status"></div>
   </div>
   <p class="sub" style="margin-top:16px">Your files are stored encrypted on the group's machines. Over the web, what you open or upload passes through
@@ -79,48 +69,17 @@ async function join() {
   go.disabled = false;
 }
 document.getElementById("go").addEventListener("click", join);
-// A browser key (for a device that can't make a passkey) is kept here, in
-// this site's own storage, where it can't be copied out.
-function idb(mode, f) {
-  return new Promise((ok, bad) => {
-    const o = indexedDB.open("yggstore", 1);
-    o.onupgradeneeded = () => o.result.createObjectStore("keys");
-    o.onerror = () => bad(o.error);
-    o.onsuccess = () => {
-      const tx = o.result.transaction("keys", mode), r = f(tx.objectStore("keys"));
-      tx.oncomplete = () => ok(r && r.result); tx.onerror = () => bad(tx.error);
-    };
-  });
-}
-const keyMsg = ch => new TextEncoder().encode("yggstore browser key\n" + location.origin + "\n" + ch);
-async function joinBrowser() {
-  const msg = document.getElementById("msg"), btn = document.getElementById("mk");
-  const pin = document.getElementById("pin").value, pin2 = document.getElementById("pin2").value;
-  msg.textContent = "";
-  if (pin.length < 6) { msg.textContent = "Choose a PIN of at least 6 digits or letters."; return; }
-  if (pin !== pin2) { msg.textContent = "The two PINs aren't the same. Type them again."; return; }
-  btn.disabled = true;
+// Without a passkey: the invite itself signs this browser in.
+document.getElementById("link").addEventListener("click", async () => {
+  const msg = document.getElementById("msg"), btn = document.getElementById("link");
+  btn.disabled = true; msg.textContent = "";
   try {
-    let r = await post("/begin", {t});
+    const r = await post("/register", {link: true, t, name: document.getElementById("name").value.trim()});
     if (!r.ok) throw new Error((await r.text()).trim());
-    const b = await r.json();
-    const kp = await crypto.subtle.generateKey({name: "ECDSA", namedCurve: "P-256"}, false, ["sign", "verify"]);
-    const id = b64(crypto.getRandomValues(new Uint8Array(18)));
-    const spki = await crypto.subtle.exportKey("spki", kp.publicKey);
-    const sig = await crypto.subtle.sign({name: "ECDSA", hash: "SHA-256"}, kp.privateKey, keyMsg(b.challenge));
-    await idb("readwrite", s => s.put({id, key: kp.privateKey, user: b.user_id}, "me"));
-    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-    r = await post("/register", {kind: "browser", t, name: document.getElementById("name").value.trim() || "a browser", challenge: b.challenge,
-      id, spki: b64(spki), signature: b64(sig), pin});
-    if (!r.ok) { await idb("readwrite", s => s.delete("me")); throw new Error((await r.text()).trim()); }
     location.href = (await r.json()).next || "/files";
   } catch (e) { msg.textContent = e.message; }
   btn.disabled = false;
-}
-document.getElementById("nolock").addEventListener("click", () => {
-  document.getElementById("pinBox").hidden = false; document.getElementById("nolock").hidden = true; document.getElementById("pin").focus();
 });
-document.getElementById("mk").addEventListener("click", joinBrowser);
 </script>
 </body>
 </html>

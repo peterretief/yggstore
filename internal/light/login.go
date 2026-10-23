@@ -637,7 +637,7 @@ func (rl *Relay) adopt(w http.ResponseWriter, r *http.Request, host string) {
 		return
 	}
 	token, ss := rl.Signin.startSession(Session{Box: own.Box, Person: own.Person, Key: own.Key, Device: own.Device, Host: host,
-		Started: now.Unix(), Short: own.Short}, now)
+		Started: now.Unix()}, now)
 	rl.Signin.setVia(own.Hash, ss.Hash)
 	http.SetCookie(w, sessionCookie(token, int(ss.For().Seconds())))
 	setBox(w, own.Box)
@@ -703,7 +703,7 @@ func (rl *Relay) loginBack(w http.ResponseWriter, r *http.Request, host, only st
 	}
 	now := time.Now()
 	token, ss := rl.Signin.startSession(Session{Box: my.Box, Person: my.Person, Key: my.Key, Device: my.Device, Host: host,
-		Started: now.Unix(), Short: my.Short, Via: my.Hash}, now)
+		Started: now.Unix(), Via: my.Hash}, now)
 	rl.logf("light: %s on %s signed in at %s through the login", ss.Person, ss.Box, host)
 	http.SetCookie(w, sessionCookie(token, int(ss.For().Seconds())))
 	http.Redirect(w, r, "/files", http.StatusFound)

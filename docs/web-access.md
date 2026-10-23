@@ -14,15 +14,19 @@ files. That becomes the advanced, direct route, for people who want it.
 
 ## What the person sees
 
-1. **The box's owner adds them** under People on this box, as now. The
-   invite link is an ordinary web address:
-   `https://my.withcare.co.za/join?t=…`. It works once, for a week.
-2. **They open it in any browser,** on their laptop or phone. The page
-   asks them to name the device and **make a passkey**: the device's
-   fingerprint, face or screen-lock PIN. There's no password to choose.
-3. **Their files open,** on the same page box people have today: browse,
-   upload, download, rename, delete, and their website and messages if
-   they have a name.
+1. **The group's admin (or the box's owner) adds them** under People on
+   the box and presses **Set temporary password** (or runs `yggstore hub
+   person add NAME`). The password is shown once, e.g. `kf7m-q2xp-9tcw`,
+   with what they sign in as: their group address, such as
+   `kath@group.example` (or `name@box` without one). The admin gives
+   both to them by phone or in person, never by email. It works for a week.
+2. **They sign in at `https://my.withcare.co.za`** (or their own address)
+   with that address and password, and must choose their own password at
+   once, of at least 10 characters. Their box keeps it, so the box has to
+   be on for that first sign-in.
+3. **Their mail opens** (`/files/mail`), beside their files: browse,
+   upload, download, rename, delete, and **Your website** if they have a
+   name.
 4. **Next time** they go to `https://my.withcare.co.za` and press **Sign
    in**. The browser offers their passkey.
 5. **Another device:** passkeys made on a phone or laptop often sync to
@@ -80,31 +84,36 @@ Their invite link uses it too. Decided 2026-10-16.
   signed in. That's fine for pages they wrote; it's a reason to be careful
   with scripts copied from elsewhere.
 
-## Without a screen lock: a key kept by the browser
+## Passwords
 
-A phone makes a passkey only if it has a screen lock, and even a password
-manager may not get round that. For someone who doesn't want one, the
-invite page has **No screen lock? Keep the key in this browser instead**
-(added 2026-10-16):
+Added 2026-10-23, in place of invite links on the web (an invite is now only
+for a device with Yggdrasil). A password is something people already
+understand, and works on any device, with or without a screen lock.
 
-- The page makes an ECDSA P-256 key with WebCrypto that can't be copied
-  out of the browser, keeps it in the site's own storage (IndexedDB), and
-  signs the box's challenge with it, together with the address
-  (`passkey.BrowserMessage`). The box keeps the public half, marked as a
-  browser key.
-- **A PIN as well** (added the same day, after the first person to use it
-  said it didn't feel safe): the person chooses a PIN of at least 6 digits
-  or letters when making the key, and the sign-in page asks for it. The
-  box checks it, not the browser, and keeps only a salted PBKDF2-SHA256
-  hash, so taking the device apart doesn't let anyone try PINs unseen.
-  The browser's signature is checked first, so only the device can try a
-  PIN at all. 5 wrong PINs in a row lock the key (a new invite gives a new
-  one). A key made before PINs is asked to choose one at its next sign-in.
-- Sessions started with a browser key last an hour unused, not 30 days,
-  so the PIN is asked again after time away.
-- **What it costs:** it lives in that one browser, so clearing the
-  browser's data, forgetting the PIN or changing device means a new invite
-  from the box's owner.
+- **The box keeps the password,** as a salted PBKDF2-SHA256 hash
+  (`internal/password`), and sends the hash to the web nodes with the
+  person's keys. The web nodes check sign-ins, so signing in works while
+  the box is off, except for choosing a password, which the box must take.
+- **A temporary password** works for a week and only to choose their own.
+  A new one (**New temporary password**) ends the old password and every
+  browser it signed in: that is how someone who forgot theirs gets back in.
+- **Signing in:** their group address (`label@domain`) or `name@box`, and
+  the password. The session lasts 30 days unused, renewed while in use.
+- **Limits:** 5 wrong passwords in a row for someone make them wait 15
+  minutes, counted across the web nodes; one address may try 20 sign-ins
+  in 10 minutes. Wrong addresses and wrong passwords get the same answer.
+- **Later:** a passkey added once signed in, and a reset by email to a
+  backup address ([email-login.md](email-login.md)).
+
+## Without a screen lock
+
+A phone makes a passkey only if it has a screen lock. From 2026-10-16 the
+invite page offered a key kept by the browser instead, with a PIN. It was
+removed on 2026-10-23: it lived in one browser, so clearing the browser's
+data, forgetting the PIN or changing device meant a new invite, and the
+first person to use it didn't trust it. Someone without a screen lock signs in
+with a password instead (see [Passwords](#passwords)). The box
+forgets any browser keys it still has.
 
 ## What the box's owner sees
 
@@ -182,28 +191,25 @@ a machine being off (they're in pieces across the group); what only the
 box has is the sign-in details and the stubs that open the files. So:
 
 1. **Sign-in moves to the web nodes** (built 2026-10-17). Every web node keeps each light
-   client's passkeys, browser keys and PIN hashes (public halves and slow
-   hashes only, so copying them is safe), checks sign-ins itself and keeps
+   client's passkeys (public halves only, so copying them is safe), checks sign-ins itself and keeps
    the sessions. Boxes send their people's records to every web node when
    they change, and the web nodes pass them among themselves, so a sign-in
-   works while any one web node is up. Wrong PINs are counted across the
-   web nodes. The web node then names the person to the box
+   works while any one web node is up. The web node then names the person to the box
    (`X-Yggstore-Person`), and the box takes that only over Yggdrasil from
    the group's web nodes, whose addresses can't be forged there.
    - **How:** the box's hub sends `PUT /v1/light/people` to every web
      node's node API when its state changes (and every 10 minutes); a web
      node takes a box's people only from that box's address
      (`light.Store`). Web nodes share sessions (`/v1/light/session`), asking
-     the others for one they don't know, and wrong PINs
-     (`/v1/light/fails`); they tell the box of each key's use, wrong PINs
-     and a PIN chosen for a key made before PINs (`/files/light/seen`).
+     the others for one they don't know; they tell the box of each key's
+     use (`/files/light/seen`).
      Using an invite still goes to the box, which holds the invites; the
      web node that passed it on signs the person in with the new key.
    - **Limits:** a passkey's signature counter isn't checked, since the
      web nodes don't share one; a used challenge is remembered by the web
      node that took it, so within its 5 minutes it could be replayed once at
      the other (it's sent over https, so only someone who had broken that
-     could). Choosing a PIN for a key made before PINs needs the box on.
+     could).
    - **Trade-off:** today the box checks every passkey itself, so a web
      node that was broken into couldn't open anyone's files. After this it
      could pass as anyone. The web nodes already see all web traffic, so

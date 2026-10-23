@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/hub"
-	"github.com/peterretief/yggstore/internal/light"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -51,6 +49,12 @@ type boxPerson struct {
 	// admin turned web access off.
 	Passkeys []boxKey `json:"passkeys"`
 	WebOff   bool     `json:"web_off,omitempty"`
+	// Their password: what they sign in with, and whether it is still the
+	// temporary one (until when), or since when their own.
+	Login    string `json:"login"`
+	Password string `json:"password,omitempty"` // "temporary" or "own"
+	PwUntil  int64  `json:"pw_until,omitempty"`
+	PwSet    int64  `json:"pw_set,omitempty"`
 }
 
 type boxKey struct {
@@ -92,21 +96,6 @@ func (d *Dashboard) onBox() bool {
 	}
 	_, err := os.Stat(d.cfg.HubState)
 	return err == nil
-}
-
-// webInvite is an invite link that opens in any browser, through the
-// group's web nodes (see hub/light.go): at the person's own name if they
-// have one, else at my. and the domain; "" if the group has no domain.
-func (d *Dashboard) webInvite(person, token string) string {
-	list, _ := peers.Load(d.cfg.PeersPath)
-	if pn, ok := peers.PersonNameOf(list, d.cfg.SelfID, person); ok {
-		return "https://" + pn.Name + hub.JoinPath + "?t=" + url.QueryEscape(token)
-	}
-	box, ok := selfEntry(list, d.cfg.SelfID)
-	if domain := peers.GroupDomain(list); domain != "" && ok {
-		return "https://" + light.Host + "." + domain + hub.JoinPath + "?box=" + url.QueryEscape(box.Name) + "&t=" + url.QueryEscape(token)
-	}
-	return ""
 }
 
 // boxURL is where the box's people open their files, over Yggdrasil.
@@ -159,7 +148,13 @@ func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {
 		if f := p.Forward; f != nil {
 			bp.Forward = &boxFwd{To: f.To, Confirmed: f.Confirmed, Allowed: f.Allowed}
 		}
-		bp.Passkeys, bp.WebOff = []boxKey{}, p.WebOff
+		bp.Passkeys, bp.WebOff, bp.Login = []boxKey{}, p.WebOff, hub.LoginOf(list, d.cfg.SelfID, p.Name)
+		if pw := p.Password; pw != nil {
+			bp.Password, bp.PwSet = map[bool]string{true: "temporary", false: "own"}[pw.Temp], pw.Set
+			if pw.Temp {
+				bp.PwUntil = pw.Expires
+			}
+		}
 		for _, k := range p.Passkeys {
 			bp.Passkeys = append(bp.Passkeys, boxKey{Name: k.Name, Used: k.Used})
 		}
@@ -196,7 +191,7 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 		writeJSONResp(w, map[string]string{})
 		return
 	}
-	var token, done string
+	var token, done, pw string
 	_, err := hub.Update(r.Context(), d.cfg.HubState, func(s *hub.HubState) error {
 		switch action {
 		case "add":
@@ -205,14 +200,30 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			req.Name = p.Name
-			token, err = s.Invite(p.Name, time.Now())
-			done = p.Name + " is on the box now: send them their invite link"
+			pw, err = s.SetTempPassword(p.Name, time.Now())
+			done = p.Name + " is on the box now: give them their temporary password"
+			return err
+		case "password":
+			var err error
+			pw, err = s.SetTempPassword(req.Name, time.Now())
+			done = "a new temporary password for " + req.Name + ": their old one, and the browsers it signed in, stop working"
 			return err
 		case "invite":
+			_, had := s.InviteOf(req.Name)
 			var err error
 			token, err = s.Invite(req.Name, time.Now())
-			done = "a new invite link for " + req.Name
+			done = "an invite link for " + req.Name
+			if had {
+				done = req.Name + "'s invite link, the same as before"
+			}
 			return err
+		case "invite-cancel":
+			if _, ok := s.InviteOf(req.Name); !ok {
+				return fmt.Errorf("%s has no invite to cancel", req.Name)
+			}
+			s.DropInvite(req.Name)
+			done = req.Name + "'s invite link is cancelled: it doesn't work any more"
+			return nil
 		case "limit":
 			q, m := int64(-1), -1
 			if req.Quota != nil {
@@ -263,10 +274,11 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 	d.event("ok", "box: "+done)
 	out := map[string]string{}
 	if token != "" {
-		out["link"], out["ygg_link"] = d.webInvite(req.Name, token), d.boxURL()+hub.JoinPath+"?t="+token
-		if out["link"] == "" {
-			out["link"] = out["ygg_link"]
-		}
+		out["ygg_link"] = d.boxURL() + hub.JoinPath + "?t=" + token
+	}
+	if pw != "" {
+		list, _ := peers.Load(d.cfg.PeersPath)
+		out["password"], out["login"], out["at"], out["name"] = pw, hub.LoginOf(list, d.cfg.SelfID, req.Name), hub.SignInAt(list), req.Name
 	}
 	writeJSONResp(w, out)
 }

@@ -16,7 +16,7 @@ group's own addresses can use it. There's no Google and no other group.
 1. A page in the group that needs to know who they are, such as
    `kath.withcare.co.za/files`, sends them to `my.withcare.co.za`.
 2. If they're already signed in there, they go straight back, signed in. If
-   not, they sign in there as today: a passkey, or a browser key and PIN.
+   not, they sign in there as today, with a passkey.
 3. **Your devices** lists one sign-in per browser, with the places it's
    used. Signing out there signs that browser out everywhere.
 
@@ -81,9 +81,7 @@ sequenceDiagram
 
 ## Keys made before this
 
-Passkeys and browser keys belong to the address they were made at, and a
-browser key can't move: Kath's lives in `kath.withcare.co.za`'s storage.
-So:
+Passkeys belong to the address they were made at. So:
 
 - New invites make keys at `my.withcare.co.za`.
 - A key made at someone's own address still signs in there. Signing in there

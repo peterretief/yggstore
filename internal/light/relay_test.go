@@ -149,7 +149,7 @@ func TestRelayPersonHost(t *testing.T) {
 	}
 }
 
-// Two web nodes share sessions and wrong PINs, and take a box's people
+// Two web nodes share sessions, and take a box's people
 // only from that box.
 func TestStoreShared(t *testing.T) {
 	list := []peers.Peer{{Name: "web-a", Addr: "[201::a]:7400"}, {Name: "web-b", Addr: "[201::b]:7400"}, {Name: "box", Addr: "[201::4]:7400"}}
@@ -193,8 +193,6 @@ func TestStoreShared(t *testing.T) {
 	if _, ok := b.session(ctx, token, "my.example.org", now); ok {
 		t.Fatal("a signed-out session still works on web-b")
 	}
-	a.setFails("k1", 3, true)
-	waitUntil(t, func() bool { f, _ := b.key("k1"); return f.Fails == 3 }, "web-b to hear of wrong PINs")
 
 	// Only the box sends its people, and only web nodes share sessions.
 	w := httptest.NewRecorder()

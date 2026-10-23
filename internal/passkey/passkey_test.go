@@ -169,31 +169,3 @@ func TestChallenges(t *testing.T) {
 		t.Fatal("a made-up challenge passed")
 	}
 }
-
-func TestBrowserKey(t *testing.T) {
-	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	spki, _ := x509.MarshalPKIXPublicKey(&k.PublicKey)
-	sign := func(origin, ch string) []byte {
-		h := sha256.Sum256(BrowserMessage(origin, ch))
-		r, s, _ := ecdsa.Sign(rand.Reader, k, h[:])
-		sig := make([]byte, 64)
-		r.FillBytes(sig[:32])
-		s.FillBytes(sig[32:])
-		return sig
-	}
-	ch := NewChallenge(time.Now())
-	if err := VerifyBrowser(spki, origin, ch, sign(origin, ch)); err != nil {
-		t.Fatal(err)
-	}
-	if VerifyBrowser(spki, origin, ch, sign("https://evil.example", ch)) == nil {
-		t.Fatal("a signature for another site passed")
-	}
-	if VerifyBrowser(spki, origin, ch, sign(origin, "other")) == nil {
-		t.Fatal("a signature of another challenge passed")
-	}
-	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	ospki, _ := x509.MarshalPKIXPublicKey(&other.PublicKey)
-	if VerifyBrowser(ospki, origin, ch, sign(origin, ch)) == nil {
-		t.Fatal("another key passed")
-	}
-}

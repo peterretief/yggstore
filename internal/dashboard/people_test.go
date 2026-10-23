@@ -42,11 +42,20 @@ func TestPeopleOnTheBox(t *testing.T) {
 	os.WriteFile(state, []byte("{}"), 0o600)
 
 	w := do("POST", "/api/box/people/add", `{"name":"anna"}`)
-	var added struct{ Link string }
+	var added struct{ Password, Login string }
 	json.Unmarshal(w.Body.Bytes(), &added)
-	if w.Code != 200 || !strings.HasPrefix(added.Link, "http://[200::7]:7490/files/join?t=") {
+	if w.Code != 200 || len(added.Password) != 14 || added.Login == "" {
 		t.Fatalf("add: %d %s", w.Code, w.Body)
 	}
+	w = do("POST", "/api/box/people/invite", `{"name":"anna"}`)
+	var inv struct {
+		YggLink string `json:"ygg_link"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &inv)
+	if w.Code != 200 || !strings.HasPrefix(inv.YggLink, "http://[200::7]:7490/files/join?t=") {
+		t.Fatalf("invite: %d %s", w.Code, w.Body)
+	}
+	do("POST", "/api/box/people/invite-cancel", `{"name":"anna"}`)
 	if w := do("POST", "/api/box/people/add", `{"name":"Anna"}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("adding Anna twice: %d", w.Code)
 	}
@@ -60,7 +69,7 @@ func TestPeopleOnTheBox(t *testing.T) {
 	if !out.On || len(out.People) != 1 {
 		t.Fatalf("people: %+v", out)
 	}
-	if p := out.People[0]; p.Quota != 1<<30 || p.MaxDevices != 2 || !p.Suspended || p.InviteUntil != 0 {
+	if p := out.People[0]; p.Quota != 1<<30 || p.MaxDevices != 2 || !p.Suspended || p.InviteUntil != 0 || p.Password != "temporary" {
 		t.Fatalf("Anna: %+v", p)
 	}
 	st, _ := hub.Load(state)

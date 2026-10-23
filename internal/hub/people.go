@@ -24,10 +24,13 @@ import (
 // they let in, suspends them, and removes them. A removed person's files
 // stay on the box.
 
-// Invite lets one device in as a person, once, within a week.
+// Invite lets one device in as a person, once, within a week. A person
+// has one invite at a time, and asking again gives the same link (Token),
+// so whoever was sent it twice isn't left wondering which one works.
 type Invite struct {
 	Person  string `json:"person"`
-	Hash    string `json:"hash"` // of the token, which only the link has
+	Hash    string `json:"hash"` // of the token
+	Token   string `json:"token,omitempty"`
 	Expires int64  `json:"expires"`
 }
 
@@ -78,8 +81,8 @@ func (s *HubState) AddPerson(name, dir string) (Person, error) {
 	return p, nil
 }
 
-// Invite makes a link token that lets one device in as person, replacing
-// any earlier invite of theirs.
+// Invite gives the link token that lets one device in as person: their
+// invite not yet used, working for another week from now, or a new one.
 func (s *HubState) Invite(person string, now time.Time) (string, error) {
 	i := s.person(person)
 	if i < 0 {
@@ -88,11 +91,17 @@ func (s *HubState) Invite(person string, now time.Time) (string, error) {
 	if p := s.People[i]; p.Removed || p.Suspended {
 		return "", fmt.Errorf("%s is %s: turn them back on first", p.Name, map[bool]string{true: "removed", false: "suspended"}[p.Removed])
 	}
+	for j, in := range s.Invites {
+		if strings.EqualFold(in.Person, person) && now.Unix() < in.Expires && in.Token != "" {
+			s.Invites[j].Expires = now.Add(InviteFor).Unix()
+			return in.Token, nil
+		}
+	}
 	b := make([]byte, 18)
 	rand.Read(b)
 	token := base64.RawURLEncoding.EncodeToString(b)
 	s.DropInvite(s.People[i].Name)
-	s.Invites = append(s.Invites, Invite{Person: s.People[i].Name, Hash: tokenHash(token), Expires: now.Add(InviteFor).Unix()})
+	s.Invites = append(s.Invites, Invite{Person: s.People[i].Name, Hash: tokenHash(token), Token: token, Expires: now.Add(InviteFor).Unix()})
 	return token, nil
 }
 
