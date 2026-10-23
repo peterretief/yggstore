@@ -46,6 +46,9 @@ type Web struct {
 	// Deliver, if set, takes sites' contact forms: it stores a sealed
 	// message for a member's node to collect (mail.Node.Take).
 	Deliver func(ctx context.Context, node string, sealed []byte) (string, error)
+	// Who, if set, says whose an access token from the group's login is
+	// (its claims), for uploads to sites (see UploadPath).
+	Who func(ctx context.Context, token string) (map[string]any, bool)
 
 	mu    sync.Mutex
 	st    webState
@@ -64,7 +67,8 @@ type webEntry struct {
 	Serving   string             `json:"serving,omitempty"`
 	Want      *manifest.Manifest `json:"want,omitempty"` // announced, not fetched yet
 	Error     string             `json:"error,omitempty"`
-	Contact   string             `json:"contact,omitempty"` // the contact form's sharing code; "" if off
+	Contact   string             `json:"contact,omitempty"`   // the contact form's sharing code; "" if off
+	Uploaders []string           `json:"uploaders,omitempty"` // who may add photos and files
 }
 
 // NodeStatus is what a web node reports in its info.
@@ -194,7 +198,7 @@ func (w *Web) handle(s msg.Stored) {
 			e.Owner = s.From // its contact form goes to the name's node
 		}
 		e.Announced = s.Time
-		e.Contact = a.Contact
+		e.Contact, e.Uploaders = a.Contact, a.Uploaders
 		if a.Stub.FileID == e.Serving {
 			e.Want = nil
 		} else {
@@ -409,8 +413,9 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		root, ok = w.roots[name]
 	}
 	var owner, contact string
+	var uploaders []string
 	if e := w.st.Sites[name]; ok && e != nil {
-		owner, contact = e.Owner, e.Contact
+		owner, contact, uploaders = e.Owner, e.Contact, e.Uploaders
 	}
 	w.mu.Unlock()
 	if ok && !servable(w.Peers(), name, owner) {
@@ -422,6 +427,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == ContactPath {
 		w.contact(rw, r, name, owner, contact)
+		return
+	}
+	if r.URL.Path == UploadPath {
+		w.upload(rw, r, name, uploaders)
 		return
 	}
 	rw.Header().Set("Cache-Control", "public, max-age=300")

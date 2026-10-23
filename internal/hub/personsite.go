@@ -18,6 +18,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/client"
+	"github.com/peterretief/yggstore/internal/light"
 	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
@@ -101,6 +102,9 @@ type PeopleSitesConfig struct {
 	Announcer func() (site.Announcer, error)
 	Messages  func() (Messenger, error)
 	MaxBytes  int64 // the most a site may hold
+	// LoginKeys, if set, asks the web nodes for the keys the group's login
+	// signs with, to check uploads to people's sites.
+	LoginKeys func(ctx context.Context) []light.JWK
 	Logf      func(format string, args ...any)
 }
 
@@ -112,6 +116,8 @@ type PeopleSites struct {
 	running  map[string]*personSite // by folder ID
 	notMine  map[string]bool        // node mail no person's key opens
 	returned map[string]time.Time   // names given back, by name, when last asked
+	keys     []light.JWK            // the login's keys (loginKeys)
+	keysAt   time.Time
 	refilled time.Time
 	logged   map[string]string // the last problem logged, per person
 }
@@ -211,7 +217,8 @@ func (ps *PeopleSites) Step(ctx context.Context) {
 			keys[p.Folder] = id
 		}
 	}
-	ps.sortMail(keys, st)
+	ps.sortMail(ctx, keys, st, list)
+	ps.indexAll(st)
 	if time.Since(ps.refilled) > 10*time.Minute {
 		ps.refilled = time.Now()
 		for _, p := range st.People {
@@ -397,7 +404,7 @@ func (ps *PeopleSites) giveBack(ctx context.Context, list []peers.Peer, p Person
 // sortMail moves the messages in the node's mailbox that a person's key
 // opens into that person's mailbox. Only collected messages move (their
 // stub is written last), so the node doesn't fetch them again.
-func (ps *PeopleSites) sortMail(keys map[string]*share.Identity, st HubState) {
+func (ps *PeopleSites) sortMail(ctx context.Context, keys map[string]*share.Identity, st HubState, list []peers.Peer) {
 	if ps.cfg.NodeMail == "" || len(keys) == 0 {
 		return
 	}
@@ -422,8 +429,9 @@ func (ps *PeopleSites) sortMail(keys map[string]*share.Identity, st HubState) {
 			continue
 		}
 		whose := ""
+		var raw []byte
 		for folder, key := range keys {
-			if _, err := mail.Open(key, data); err == nil {
+			if raw, err = mail.Open(key, data); err == nil {
 				whose = folder
 				break
 			}
@@ -439,6 +447,12 @@ func (ps *PeopleSites) sortMail(keys map[string]*share.Identity, st HubState) {
 			if q.Folder == whose {
 				p = q
 			}
+		}
+		if ps.fileUpload(ctx, p, raw, list) {
+			for _, ext := range []string{".json", ".ystub", ".sealed"} {
+				os.Remove(from + ext)
+			}
+			continue
 		}
 		to := filepath.Join(ps.mailDir(p), id)
 		if err := os.MkdirAll(ps.mailDir(p), 0o700); err != nil {
@@ -638,12 +652,37 @@ func (ps *PeopleSites) SetContact(ctx context.Context, p Person, on bool) error 
 	return nil
 }
 
+// SetUploaders sets who may add photos and files to person's site: group
+// addresses, which sign in there with the group's login.
+func (ps *PeopleSites) SetUploaders(ctx context.Context, p Person, list []string) error {
+	r := ps.site(p)
+	if r == nil {
+		return errors.New("you have no website yet")
+	}
+	if len(list) > site.MaxUploaders {
+		return fmt.Errorf("that's more than %d people", site.MaxUploaders)
+	}
+	for _, a := range list {
+		if len(site.CleanUploaders([]string{a})) == 0 {
+			return fmt.Errorf("%q isn't an email address", a)
+		}
+	}
+	if err := r.pub.SetUploaders(ctx, r.name, list); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("your site isn't published yet: try again in a minute")
+		}
+		return err
+	}
+	return nil
+}
+
 // SiteStatus is a person's site for their files page.
 type PersonSiteStatus struct {
-	Name      string `json:"name"`
-	Published int64  `json:"published,omitempty"`
-	Problem   string `json:"problem,omitempty"`
-	Contact   bool   `json:"contact"`
+	Name      string   `json:"name"`
+	Published int64    `json:"published,omitempty"`
+	Problem   string   `json:"problem,omitempty"`
+	Contact   bool     `json:"contact"`
+	Uploaders []string `json:"uploaders"` // who may add photos and files
 }
 
 func (ps *PeopleSites) SiteStatus(p Person) (PersonSiteStatus, bool) {
@@ -651,7 +690,10 @@ func (ps *PeopleSites) SiteStatus(p Person) (PersonSiteStatus, bool) {
 	if r == nil {
 		return PersonSiteStatus{}, false
 	}
-	out := PersonSiteStatus{Name: r.name, Contact: r.pub.Contact(r.name) != ""}
+	out := PersonSiteStatus{Name: r.name, Contact: r.pub.Contact(r.name) != "", Uploaders: r.pub.Uploaders(r.name)}
+	if out.Uploaders == nil {
+		out.Uploaders = []string{}
+	}
 	for _, s := range r.w.Status() {
 		if s.Site == r.name {
 			out.Published, out.Problem = s.Published, s.Problem

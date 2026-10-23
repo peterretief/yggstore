@@ -288,7 +288,28 @@ async function upload(picked) {
   picked = picked.filter(p => !p.rel.split("/").some(n => n.startsWith(".")));
   if (!picked.length) return;
   const tops = [...new Set(picked.filter(p => p.rel.includes("/")).map(p => p.rel.split("/")[0]))];
-  for (const t of tops) {
+  // A folder becomes a website: on "Your websites" one named after the
+  // site's address, and in a site's own folder one with an index.html.
+  // Its files go in at the site's top, in place of those with the same
+  // names.
+  const one = tops.length === 1 && picked.every(p => p.rel.includes("/"));
+  const sites = here === "Your websites" ? entries.filter(e => e.folder).map(e => e.name) : [];
+  const named = one && sites.find(s => s.toLowerCase() === tops[0].toLowerCase());
+  const site = named ? join(here, named)
+    : /^Your websites\/[^/]+$/.test(here) && one && picked.some(p => p.rel === tops[0] + "/index.html") ? here : "";
+  let to = here, asSite = false;
+  if (site) {
+    if (!picked.some(p => p.rel === tops[0] + "/index.html")) { $("upMsg").textContent = `${tops[0]} has no index.html, the page a website opens on.`; return; }
+    if (!confirm(`Make the folder ${tops[0]} your website${named ? "" : " " + base(site)}? Its files go in place of the ones there with the same names.`)) return;
+    picked = picked.map(p => ({file: p.file, rel: p.rel.slice(tops[0].length + 1)}));
+    to = site; asSite = true;
+  } else if (here === "Your websites") {
+    $("upMsg").textContent = sites.length
+      ? `Upload a folder named after your website (${sites.join(", ")}), with an index.html in it.`
+      : "You have no website yet: ask the box's owner for one.";
+    return;
+  }
+  for (const t of asSite ? [] : tops) {
     const there = entries.find(e => e.name === t);
     if (there && !there.folder) { $("upMsg").textContent = `There's already a file called ${t} here.`; return; }
     if (there && !confirm(`There's already a folder called ${t} here. Add these files into it? Files with the same names are kept beside the ones there.`)) return;
@@ -296,8 +317,8 @@ async function upload(picked) {
   const failed = [];
   for (const [i, p] of picked.entries()) {
     const f = p.file, sub = p.rel.split("/").slice(0, -1).join("/");
-    let replace = false;
-    if (!sub) {
+    let replace = asSite;
+    if (!sub && !asSite) {
       const there = entries.find(e => e.name === f.name && !e.folder);
       if (there) {
         if (there.note) { failed.push(f.name + " (still being made; try again in a minute)"); continue; }
@@ -307,7 +328,7 @@ async function upload(picked) {
     }
     const of = picked.length > 1 ? ` (${i + 1} of ${picked.length})` : "";
     $("upMsg").textContent = `Uploading ${p.rel}${of}…`;
-    const dir = join(here, sub);
+    const dir = join(to, sub);
     const headers = {...H, "X-Id": id, "X-Link": link, "X-Dir": encodeURIComponent(dir), "X-Name": encodeURIComponent(f.name), "X-Replace": replace ? "1" : "0"};
     try {
       const pct = n => $("upMsg").textContent = `Uploading ${p.rel}${of}: ${n}%`;
@@ -316,7 +337,8 @@ async function upload(picked) {
       else await send("put", f, headers);
     } catch (e) { failed.push(p.rel + ": " + e.message); }
   }
-  const done = live ? "Uploaded: in your files now, and stored in the group within a minute or so."
+  const done = asSite ? `Uploaded: ${base(to)} shows it within a minute or so.`
+    : live ? "Uploaded: in your files now, and stored in the group within a minute or so."
     : "Uploaded. They appear in your files, as stubs, within a few minutes.";
   $("upMsg").textContent = failed.length ? `${picked.length - failed.length} of ${picked.length} uploaded. Not uploaded: ${failed.join("; ")}` : done;
   list(here);

@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	netmail "net/mail"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/peterretief/yggstore/internal/manifest"
@@ -56,6 +58,9 @@ type Announcement struct {
 	// form is on, and its messages are sealed for that code and go to the
 	// publishing node's mailbox (see ContactPath).
 	Contact string `json:"contact,omitempty"`
+	// Uploaders, if set, are the group addresses (anna@example.org) that may
+	// add photos and files to the site (see UploadPath).
+	Uploaders []string `json:"uploaders,omitempty"`
 }
 
 var domain = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
@@ -120,5 +125,24 @@ func decode(s msg.Stored) (Announcement, bool) {
 			a.Contact = ""
 		}
 	}
+	a.Uploaders = CleanUploaders(a.Uploaders)
 	return a, true
+}
+
+// MaxUploaders is how many addresses a site's upload list holds.
+const MaxUploaders = 200
+
+// CleanUploaders keeps a list's valid addresses, lower-cased, once each.
+func CleanUploaders(list []string) []string {
+	var out []string
+	for _, a := range list {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if p, err := netmail.ParseAddress(a); err != nil || p.Address != a || len(a) > 254 || slices.Contains(out, a) {
+			continue
+		}
+		if out = append(out, a); len(out) == MaxUploaders {
+			break
+		}
+	}
+	return out
 }

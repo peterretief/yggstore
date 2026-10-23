@@ -245,8 +245,12 @@ func TestLoginForApps(t *testing.T) {
 		json.NewDecoder(w.Body).Decode(&out)
 		return w, out
 	}
-	if w, _ := tok(1, code, strings.Repeat("x", 50)); w.Code != http.StatusBadRequest {
-		t.Fatalf("a wrong verifier: %d", w.Code)
+	if w, _ := tok(1, code, strings.Repeat("x", 50)); w.Code != http.StatusBadRequest || w.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("a wrong verifier: %d, its error readable by a site's page: %q", w.Code, w.Header().Get("Access-Control-Allow-Origin"))
+	}
+	// A site's page asks from the browser, which may check first.
+	if w := g.do(0, "OPTIONS", "https://my.example.org/login/token", nil, nil); w.Code != http.StatusNoContent || w.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("preflight: %d %v", w.Code, w.Header())
 	}
 	// That used the code up: a new one, taken at the other web node.
 	w = auth("wiki.example.org", "https://wiki.example.org/cb")
@@ -291,5 +295,30 @@ func TestLoginForApps(t *testing.T) {
 	w = g.do(0, "GET", "https://my.example.org/login/authorize?client_id=wiki.example.org&redirect_uri=https%3A%2F%2Fwiki.example.org%2Fcb&response_type=code&code_challenge="+challenge+"&code_challenge_method=S256", nil, nil)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Sign in") {
 		t.Fatalf("authorize signed out: %d", w.Code)
+	}
+}
+
+// A box checks uploads to people's sites with the web nodes' public keys,
+// so a member that isn't a web node may ask for one; nothing else.
+func TestLoginKeyForMembers(t *testing.T) {
+	g := newLoginGroup(t)
+	ask := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		if !g.stores[0].Serve(w, r, "200::77") {
+			t.Fatalf("%s: not answered", path)
+		}
+		return w
+	}
+	w := ask("/v1/light/login-key")
+	var k JWK
+	if w.Code != http.StatusOK || json.NewDecoder(w.Body).Decode(&k) != nil || k.Kid == "" {
+		t.Fatalf("a box asking for the key: %d", w.Code)
+	}
+	if keys := LoginKeys(t.Context(), http.DefaultClient, nil); len(keys) != 0 {
+		t.Fatal("keys from no web nodes")
+	}
+	if w := ask("/v1/light/ticket/x"); w.Code == http.StatusOK {
+		t.Fatalf("a box got a web node's ticket: %d", w.Code)
 	}
 }

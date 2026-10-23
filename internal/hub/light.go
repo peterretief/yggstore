@@ -20,7 +20,7 @@ import (
 
 // Light clients (see docs/web-access.md and package light): people on the
 // box who use it from any browser, through the group's web nodes, signing
-// in with a passkey or a browser key and PIN. The box makes their keys with
+// in with a passkey. The box makes their keys with
 // an invite and keeps them (the public half), and sends them to every web
 // node (pushLight), which signs people in and keeps the sessions. A
 // request a web node relays names the person it signed in, and the box
@@ -29,20 +29,15 @@ import (
 // Passkey is one of a person's passkeys.
 type Passkey struct {
 	passkey.Key
-	RP    string `json:"rp,omitempty"`   // the address it signs in at
-	Kind  string `json:"kind,omitempty"` // "" for a passkey, KindBrowser for a key kept by a browser
-	Name  string `json:"name"`           // the device, as they named it
+	RP    string `json:"rp,omitempty"` // the address it signs in at
+	Name  string `json:"name"`         // the device, as they named it
 	Added int64  `json:"added"`
 	Used  int64  `json:"used,omitempty"`
 	Count uint32 `json:"count,omitempty"`
-	// A browser key also needs a PIN, which the box checks (pinHash), so
-	// having the device isn't enough.
-	PIN      string `json:"pin,omitempty"`
-	PINFails int    `json:"pin_fails,omitempty"`
+	// Kind "browser" is a key a browser kept, with a PIN: they're gone
+	// (2026-10-23), and Load forgets any left.
+	Kind string `json:"kind,omitempty"`
 }
-
-// KindBrowser marks a key a browser keeps (see light.KindBrowser).
-const KindBrowser = light.KindBrowser
 
 // WebAccess is whether the person may sign in through the web.
 func (p Person) WebAccess() bool { return p.Active() && !p.WebOff }
@@ -233,7 +228,7 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// register makes a passkey or browser key with an invite. The web node
+// register makes a passkey with an invite. The web node
 // that passed it on signs the person in with it.
 func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only string, now time.Time) {
 	var req light.SignInRequest
@@ -244,8 +239,7 @@ func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only st
 	dec := func(s string) []byte { b, _ := passkey.B64.DecodeString(s); return b }
 	origin := "https://" + rp
 	clientData := dec(req.ClientData)
-	browser := req.Kind == KindBrowser
-	if !browser && passkey.ChallengeOf(clientData) != req.Challenge {
+	if passkey.ChallengeOf(clientData) != req.Challenge {
 		http.Error(w, "the challenge doesn't match", http.StatusBadRequest)
 		return
 	}
@@ -256,20 +250,7 @@ func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only st
 	var made Passkey
 	var who string
 	_, err := Update(r.Context(), f.u.cfg.StatePath, func(s *HubState) error {
-		var k passkey.Key
-		var err error
-		if browser {
-			if len(req.ID) < 16 || len(req.ID) > 64 {
-				return errors.New("the browser key has no proper ID")
-			}
-			if err := passkey.PINOK(req.PIN); err != nil {
-				return err
-			}
-			err = passkey.VerifyBrowser(dec(req.SPKI), origin, req.Challenge, dec(req.Signature))
-			k = passkey.Key{ID: req.ID, SPKI: dec(req.SPKI), Alg: passkey.ES256}
-		} else {
-			k, err = passkey.Register(clientData, dec(req.AuthData), dec(req.SPKI), req.Alg, req.ID, req.Challenge, origin, rp)
-		}
+		k, err := passkey.Register(clientData, dec(req.AuthData), dec(req.SPKI), req.Alg, req.ID, req.Challenge, origin, rp)
 		if err != nil {
 			return err
 		}
@@ -284,9 +265,6 @@ func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only st
 			return errors.New("This invite is for someone else, not for " + rp + ".")
 		}
 		made = Passkey{Key: k, RP: rp, Name: device}
-		if browser {
-			made.Kind, made.PIN = KindBrowser, passkey.PINHash(req.PIN)
-		}
 		p, err := s.UseInviteWeb(req.T, made, now)
 		if err != nil {
 			return err
@@ -300,16 +278,11 @@ func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only st
 		return
 	}
 	f.u.lightChanged()
-	verb := "made a passkey"
-	if browser {
-		verb = "made a browser key"
-	}
-	f.u.cfg.Logf("hub: %s %s through the web (%s, from %s)", who, verb, made.Name, r.Header.Get("X-Forwarded-For"))
+	f.u.cfg.Logf("hub: %s made a passkey through the web (%s, from %s)", who, made.Name, r.Header.Get("X-Forwarded-For"))
 	jsonOK(w, light.Registered{Person: who, Key: made.light()})
 }
 
-// seenKey takes a web node's word of one of p's keys: used to sign in,
-// its wrong PINs in a row, or a PIN chosen for a key made before PINs.
+// seenKey takes a web node's word of one of p's keys: used to sign in.
 func (f *filesPage) seenKey(w http.ResponseWriter, r *http.Request, p Person, now time.Time) {
 	var seen light.Seen
 	if r.Method != http.MethodPost || json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&seen) != nil {
@@ -323,16 +296,9 @@ func (f *filesPage) seenKey(w http.ResponseWriter, r *http.Request, p Person, no
 			if k.ID != seen.Key {
 				continue
 			}
-			if seen.PIN != "" {
-				if k.Kind != KindBrowser || k.PIN != "" {
-					return errors.New("this key has a PIN, or needs none")
-				}
-				k.PIN = seen.PIN
-			}
 			if seen.Used {
 				k.Used = now.Unix()
 			}
-			k.PINFails = seen.PINFails
 			return nil
 		}
 		return errors.New("no such key")
@@ -392,7 +358,7 @@ const when = t => t ? new Date(t * 1000).toLocaleString() : "never";
 const post = u => fetch(u, {method: "POST", headers: {"X-Yggstore": "1"}});
 async function load() {
   const d = await (await fetch("?op=list", {cache: "no-store"})).json();
-  document.getElementById("keys").innerHTML = d.passkeys.map(k => "<li><b>" + esc(k.name) + "</b>" + (k.kind === "browser" ? " (kept by that browser)" : "") + ", made " + when(k.added) + ", last used " + when(k.used) +
+  document.getElementById("keys").innerHTML = d.passkeys.map(k => "<li><b>" + esc(k.name) + "</b>" + ", made " + when(k.added) + ", last used " + when(k.used) +
     (d.passkeys.length > 1 ? " <button data-forget='" + esc(k.id) + "'>Forget</button>" : "") + "</li>").join("");
   document.getElementById("sessions").innerHTML = d.sessions.map(s => "<li><b>" + esc(s.device) + "</b>" + (s.me ? " (this browser)" : "") +
     (s.places && s.places.length ? ", at " + s.places.map(esc).join(", ") : "") +
@@ -432,7 +398,7 @@ func (f *filesPage) serveAs(w http.ResponseWriter, r *http.Request, p Person) {
 
 // light is the key as the web nodes are told it.
 func (k Passkey) light() light.Key {
-	return light.Key{Key: k.Key, RP: k.RP, Kind: k.Kind, Name: k.Name, PIN: k.PIN, PINFails: k.PINFails, Added: k.Added, Used: k.Used}
+	return light.Key{Key: k.Key, RP: k.RP, Name: k.Name, Added: k.Added, Used: k.Used}
 }
 
 // LightPeople is what the web nodes are told of the box's people: everyone

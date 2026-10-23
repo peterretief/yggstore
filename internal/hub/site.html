@@ -65,7 +65,18 @@ function siteCard() {
     <p class="sub">To change your page, open <a href="/files">your files</a>, then <b>Your websites</b> and <b>${esc(st.name)}</b>.
       Each change goes online within a minute.</p>
     <p><label><input type="checkbox" id="contact" style="width:auto" ${s && s.contact ? "checked" : ""} ${s ? "" : "disabled"}>
-      A contact form on your page</label><br><span class="sub">Visitors write to you without seeing your address; their messages come in below.</span></p>`;
+      A contact form on your page</label><br><span class="sub">Visitors write to you without seeing your address; their messages come in below.</span></p>
+    ${s ? upCard(s.uploaders || []) : ""}`;
+}
+function upCard(list) {
+  const rows = list.map(a => `<div class="row"><span class="name">${esc(a)}</span>
+    <button class="plain" data-unlist="${esc(a)}">Take off</button></div>`).join("");
+  return `<h2>Who may add photos</h2>
+    <p class="sub">These people can sign in on your site with the group's login and add photos and files to it, if your site has a page for
+      that. Anyone visiting can see what's added; you can delete it under <b>Your websites</b>, in its <b>uploads</b> folder.</p>
+    ${rows || `<p class="sub">Nobody yet, so nobody can add anything.</p>`}
+    <p><input id="upAdd" type="email" placeholder="their address in the group, such as tim@${esc(st.domain || "the-group.org")}">
+      <button id="upGo">Add</button></p>`;
 }
 function fwdCard() {
   const f = st.forward;
@@ -101,7 +112,7 @@ async function show(id) {
 async function load() {
   try { st = await (await fetch("?op=status", {cache: "no-store"})).json(); }
   catch (e) { $("err").textContent = "The box isn't answering."; return; }
-  $("siteCard").innerHTML = siteCard();
+  if (!document.activeElement || document.activeElement.id !== "upAdd") $("siteCard").innerHTML = siteCard();
   $("msgCard").hidden = $("fwdCard").hidden = $("note").hidden = !st.name;
   $("msgs").innerHTML = msgs();
   if (!document.activeElement || !["to", "code"].includes(document.activeElement.id)) $("fwd").innerHTML = fwdCard();
@@ -115,6 +126,9 @@ document.addEventListener("click", async ev => {
   if (t.id === "fwdGo") act("forward", {to: $("to").value});
   if (t.id === "confirm") act("confirm", {code: $("code").value});
   if (t.id === "unfwd") act("unforward");
+  const list = (st.site && st.site.uploaders) || [];
+  if (t.id === "upGo" && $("upAdd").value.trim()) act("uploaders", {list: [...list, $("upAdd").value.trim()]});
+  if (t.dataset.unlist) act("uploaders", {list: list.filter(a => a !== t.dataset.unlist)});
 });
 document.addEventListener("change", ev => {
   if (ev.target.id === "contact") act("contact", {on: ev.target.checked});

@@ -229,7 +229,10 @@ func cmdHub(ctx context.Context, args []string) error {
 				l, err := localMsgs()
 				return localAnnouncer{l}, err
 			},
-			Messages: func() (hub.Messenger, error) { return localMsgs() }})
+			Messages: func() (hub.Messenger, error) { return localMsgs() },
+			LoginKeys: func(ctx context.Context) []light.JWK {
+				return light.LoginKeys(ctx, wc.HTTP, webNodes(ctx, wc, *peersPath))
+			}})
 		go people.Run(ctx)
 		// Sites moved to or from people on the box.
 		go sitemove.NewAgent(sitemove.Config{Self: self, Client: wc, Holder: hub.MoveHolder{PS: people},

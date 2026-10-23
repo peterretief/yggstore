@@ -366,7 +366,7 @@ func TestPushLight(t *testing.T) {
 	statePath := filepath.Join(dir, "hub.json")
 	Update(context.Background(), statePath, func(s *HubState) error {
 		s.AddPerson("anna", u.cfg.Dir)
-		s.People[s.person("anna")].Passkeys = []Passkey{{Key: passkey.Key{ID: "k1"}, Name: "phone", Kind: KindBrowser, PIN: "pbkdf2-sha256$x$y"}}
+		s.People[s.person("anna")].Passkeys = []Passkey{{Key: passkey.Key{ID: "k1"}, Name: "phone"}}
 		s.AddPerson("ben", u.cfg.Dir) // no key: not sent
 		return nil
 	})
@@ -382,7 +382,7 @@ func TestPushLight(t *testing.T) {
 		}
 		return light.People{}
 	}
-	if ps := wait(); len(ps.People) != 1 || ps.People[0].Name != "anna" || !ps.People[0].Web || ps.People[0].Keys[0].PIN == "" {
+	if ps := wait(); len(ps.People) != 1 || ps.People[0].Name != "anna" || !ps.People[0].Web || ps.People[0].Keys[0].ID != "k1" {
 		t.Fatalf("sent %+v", ps)
 	}
 	time.Sleep(10 * time.Millisecond) // a new modification time
@@ -458,133 +458,19 @@ func TestLightOwnAddress(t *testing.T) {
 	}
 }
 
-// A device that can't make a passkey keeps a key in the browser instead,
-// with a PIN the web node checks and counts.
-func TestLightBrowserKey(t *testing.T) {
-	g := newLightGroup(t)
-	token := g.invite(t, "kath")
-	b := g.browser(t, "")
-	a, _ := begin(t, b, "/files/join?box=box&t="+token, token)
-	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	spki, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	sign := func(ch string) string {
-		hh := sha256.Sum256(passkey.BrowserMessage("https://"+rpHost, ch))
-		r, s, _ := ecdsa.Sign(rand.Reader, key, hh[:])
-		sig := make([]byte, 64)
-		r.FillBytes(sig[:32])
-		s.FillBytes(sig[32:])
-		return passkey.B64.EncodeToString(sig)
+// Browser keys are gone: one kept from before is forgotten, so it signs
+// nobody in.
+func TestLightBrowserKeysGone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hub.json")
+	os.WriteFile(path, []byte(`{"people":[{"name":"kath","passkeys":[
+		{"id":"k1","name":"laptop","kind":"browser","pin":"pbkdf2-sha256$x$y"},
+		{"id":"k2","name":"phone"}]}]}`), 0o600)
+	st, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	id := "browser-key-id-0001"
-	register := func(pin string) *http.Response {
-		reg, _ := json.Marshal(map[string]any{"kind": KindBrowser, "t": token, "name": "kath's phone", "challenge": a.Challenge, "id": id,
-			"spki": passkey.B64.EncodeToString(spki), "signature": sign(a.Challenge), "pin": pin})
-		return b.do("POST", light.Base+"/register", string(reg))
-	}
-	if r := register("111111"); r.StatusCode == 200 {
-		t.Fatal("registered with a PIN that's too easy")
-	}
-	a, _ = begin(t, b, "", token)
-	if r := register("482913"); r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" {
-		t.Fatalf("register a browser key: %d %s", r.StatusCode, text(r))
-	}
-	st, _ := Load(g.statePath)
-	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].Kind != KindBrowser || !passkey.PINMatches(p.Passkeys[0].PIN, "482913") {
+	if p, _ := st.PersonNamed("kath"); len(p.Passkeys) != 1 || p.Passkeys[0].ID != "k2" {
 		t.Fatalf("kept %+v", p.Passkeys)
-	}
-	if r := b.do("GET", "/files/devices?op=list", ""); strings.Contains(text(r), "pbkdf2") {
-		t.Fatal("the devices list shows the PIN's hash")
-	}
-	g.push(t)
-
-	pin := "482913"
-	b2 := g.browser(t, "")
-	signin := func(kind, sig string, extra map[string]string) *http.Response {
-		ch := passkey.NewChallenge(time.Now())
-		if sig == "" {
-			sig = sign(ch)
-		}
-		body := map[string]string{"kind": kind, "challenge": ch, "id": id, "signature": sig, "pin": pin}
-		for k, v := range extra {
-			body[k] = v
-		}
-		bb, _ := json.Marshal(body)
-		delete(b2.cookies, light.SessionCookie)
-		return b2.do("POST", light.Base+"/signin", string(bb))
-	}
-	if r := signin("", "", nil); r.StatusCode == 200 {
-		t.Fatal("a browser key signed in as a passkey")
-	}
-	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	ch := passkey.NewChallenge(time.Now())
-	hh := sha256.Sum256(passkey.BrowserMessage("https://"+rpHost, ch))
-	r1, s1, _ := ecdsa.Sign(rand.Reader, other, hh[:])
-	bad := make([]byte, 64)
-	r1.FillBytes(bad[:32])
-	s1.FillBytes(bad[32:])
-	if r := signin(KindBrowser, passkey.B64.EncodeToString(bad), nil); r.StatusCode == 200 {
-		t.Fatal("another key signed in")
-	}
-	// Wrong PINs are counted, and the box hears of them; a right one
-	// starts again.
-	pin = "000001"
-	for i := 0; i < passkey.MaxPINFails-1; i++ {
-		if r := signin(KindBrowser, "", nil); r.StatusCode != 403 || b2.cookies[light.SessionCookie] != "" {
-			t.Fatalf("wrong PIN %d: %d %s", i, r.StatusCode, text(r))
-		}
-	}
-	waitFor(t, func() bool {
-		st, _ := Load(g.statePath)
-		p, _ := st.PersonNamed("kath")
-		return p.Passkeys[0].PINFails == passkey.MaxPINFails-1
-	}, "the box to hear of the wrong PINs")
-	pin = "482913"
-	if r := signin(KindBrowser, "", nil); r.StatusCode != 200 || b2.cookies[light.SessionCookie] == "" {
-		t.Fatalf("sign in with the browser key: %d %s", r.StatusCode, text(r))
-	}
-	if r := b2.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
-		t.Fatalf("files after signing in: %d", r.StatusCode)
-	}
-	if r := b2.do("GET", "/files/devices?op=list", ""); !strings.Contains(text(r), `"short":true`) {
-		t.Fatal("a browser key's session isn't short")
-	}
-	// MaxPINFails wrong PINs in a row lock the key, even to the right PIN,
-	// and even once the box has said it again.
-	pin = "000001"
-	for i := 0; i < passkey.MaxPINFails; i++ {
-		signin(KindBrowser, "", nil)
-	}
-	waitFor(t, func() bool {
-		st, _ := Load(g.statePath)
-		p, _ := st.PersonNamed("kath")
-		return p.Passkeys[0].PINFails == passkey.MaxPINFails
-	}, "the box to hear of the lock")
-	g.push(t)
-	pin = "482913"
-	if r := signin(KindBrowser, "", nil); r.StatusCode != 403 || !strings.Contains(text(r), "locked") {
-		t.Fatalf("a locked key: %d", r.StatusCode)
-	}
-	// A key made before PINs: the web node asks for one to be chosen, and
-	// the box keeps it.
-	Update(context.Background(), g.statePath, func(s *HubState) error {
-		k := &s.People[s.person("kath")].Passkeys[0]
-		k.PIN, k.PINFails = "", 0
-		return nil
-	})
-	g.push(t)
-	if r := signin(KindBrowser, "", nil); r.StatusCode != http.StatusPreconditionRequired || b2.cookies[light.SessionCookie] != "" {
-		t.Fatalf("no PIN yet: %d %s", r.StatusCode, text(r))
-	}
-	if r := signin(KindBrowser, "", map[string]string{"new_pin": "735102"}); r.StatusCode != 200 || b2.cookies[light.SessionCookie] == "" {
-		t.Fatalf("choose a PIN: %d %s", r.StatusCode, text(r))
-	}
-	st, _ = Load(g.statePath)
-	if p, _ := st.PersonNamed("kath"); !passkey.PINMatches(p.Passkeys[0].PIN, "735102") {
-		t.Fatal("the box didn't keep the chosen PIN")
-	}
-	pin = "735102"
-	if r := signin(KindBrowser, "", nil); r.StatusCode != 200 {
-		t.Fatalf("sign in with the chosen PIN: %d %s", r.StatusCode, text(r))
 	}
 }
 

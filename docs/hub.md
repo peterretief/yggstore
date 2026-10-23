@@ -414,6 +414,10 @@ approves the name.
      relay.
 
    She edits the site itself on her files page, under **Your websites**.
+   The easiest way is to make the whole site on her computer, in a folder
+   named after its address (`anna.example.org`) with an `index.html` in
+   it, and upload that folder on **Your websites**: its files go in at
+   the site's top, in place of those with the same names.
 
 Her mail and contact form are sealed for her own sharing key, not the
 box's, so nobody else in the group can read them. The key is kept on the

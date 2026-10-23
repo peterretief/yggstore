@@ -103,12 +103,13 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 		return
 	}
 	var req struct {
-		On   bool   `json:"on"`
-		ID   string `json:"id"`
-		To   string `json:"to"`
-		Code string `json:"code"`
+		On   bool     `json:"on"`
+		ID   string   `json:"id"`
+		To   string   `json:"to"`
+		Code string   `json:"code"`
+		List []string `json:"list"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -117,6 +118,8 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 	switch op {
 	case "contact":
 		err = ps.SetContact(ctx, p, req.On)
+	case "uploaders":
+		err = ps.SetUploaders(ctx, p, req.List)
 	case "delete":
 		err = box.Delete(ctx, f.u.cfg.Client, req.ID)
 	case "forward":

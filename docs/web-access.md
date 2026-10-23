@@ -80,31 +80,15 @@ Their invite link uses it too. Decided 2026-10-16.
   signed in. That's fine for pages they wrote; it's a reason to be careful
   with scripts copied from elsewhere.
 
-## Without a screen lock: a key kept by the browser
+## Without a screen lock
 
-A phone makes a passkey only if it has a screen lock, and even a password
-manager may not get round that. For someone who doesn't want one, the
-invite page has **No screen lock? Keep the key in this browser instead**
-(added 2026-10-16):
-
-- The page makes an ECDSA P-256 key with WebCrypto that can't be copied
-  out of the browser, keeps it in the site's own storage (IndexedDB), and
-  signs the box's challenge with it, together with the address
-  (`passkey.BrowserMessage`). The box keeps the public half, marked as a
-  browser key.
-- **A PIN as well** (added the same day, after the first person to use it
-  said it didn't feel safe): the person chooses a PIN of at least 6 digits
-  or letters when making the key, and the sign-in page asks for it. The
-  box checks it, not the browser, and keeps only a salted PBKDF2-SHA256
-  hash, so taking the device apart doesn't let anyone try PINs unseen.
-  The browser's signature is checked first, so only the device can try a
-  PIN at all. 5 wrong PINs in a row lock the key (a new invite gives a new
-  one). A key made before PINs is asked to choose one at its next sign-in.
-- Sessions started with a browser key last an hour unused, not 30 days,
-  so the PIN is asked again after time away.
-- **What it costs:** it lives in that one browser, so clearing the
-  browser's data, forgetting the PIN or changing device means a new invite
-  from the box's owner.
+A phone makes a passkey only if it has a screen lock. From 2026-10-16 the
+invite page offered a key kept by the browser instead, with a PIN. It was
+removed on 2026-10-23: it lived in one browser, so clearing the browser's
+data, forgetting the PIN or changing device meant a new invite, and the
+first person to use it didn't trust it. Someone without a screen lock will
+sign in by email instead (see [email-login.md](email-login.md)). The box
+forgets any browser keys it still has.
 
 ## What the box's owner sees
 
@@ -182,28 +166,25 @@ a machine being off (they're in pieces across the group); what only the
 box has is the sign-in details and the stubs that open the files. So:
 
 1. **Sign-in moves to the web nodes** (built 2026-10-17). Every web node keeps each light
-   client's passkeys, browser keys and PIN hashes (public halves and slow
-   hashes only, so copying them is safe), checks sign-ins itself and keeps
+   client's passkeys (public halves only, so copying them is safe), checks sign-ins itself and keeps
    the sessions. Boxes send their people's records to every web node when
    they change, and the web nodes pass them among themselves, so a sign-in
-   works while any one web node is up. Wrong PINs are counted across the
-   web nodes. The web node then names the person to the box
+   works while any one web node is up. The web node then names the person to the box
    (`X-Yggstore-Person`), and the box takes that only over Yggdrasil from
    the group's web nodes, whose addresses can't be forged there.
    - **How:** the box's hub sends `PUT /v1/light/people` to every web
      node's node API when its state changes (and every 10 minutes); a web
      node takes a box's people only from that box's address
      (`light.Store`). Web nodes share sessions (`/v1/light/session`), asking
-     the others for one they don't know, and wrong PINs
-     (`/v1/light/fails`); they tell the box of each key's use, wrong PINs
-     and a PIN chosen for a key made before PINs (`/files/light/seen`).
+     the others for one they don't know; they tell the box of each key's
+     use (`/files/light/seen`).
      Using an invite still goes to the box, which holds the invites; the
      web node that passed it on signs the person in with the new key.
    - **Limits:** a passkey's signature counter isn't checked, since the
      web nodes don't share one; a used challenge is remembered by the web
      node that took it, so within its 5 minutes it could be replayed once at
      the other (it's sent over https, so only someone who had broken that
-     could). Choosing a PIN for a key made before PINs needs the box on.
+     could).
    - **Trade-off:** today the box checks every passkey itself, so a web
      node that was broken into couldn't open anyone's files. After this it
      could pass as anyone. The web nodes already see all web traffic, so

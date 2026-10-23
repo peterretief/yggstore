@@ -17,8 +17,6 @@ p { margin: 8px 0; }
 .sub { color: var(--muted); font-size: 14px; }
 button { font: inherit; font-weight: 600; width: 100%; padding: 12px; margin-top: 16px; border-radius: 8px; border: 0; background: var(--info); color: #fff; cursor: pointer; }
 button:disabled { opacity: .6; }
-label { display: block; font-size: 14px; color: var(--muted); margin-top: 16px; }
-input { display: block; width: 100%; font: inherit; padding: 10px 12px; margin-top: 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
 button.plain { background: none; color: var(--info); border: 1px solid var(--line); font-weight: 500; }
 #msg { min-height: 1.5em; margin-top: 12px; color: var(--bad); font-size: 14px; }
 </style>
@@ -28,15 +26,6 @@ button.plain { background: none; color: var(--info); border: 1px solid var(--lin
   <div class="card">
     <h1>Your files</h1>
     <p class="sub">Sign in with the passkey you made on this phone or computer: your fingerprint, face or screen lock. There's no password.</p>
-    <div id="keyBox" hidden>
-      <label for="pin" id="pinLabel">Your PIN</label>
-      <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="64">
-      <div id="pin2Box" hidden>
-        <label for="pin2">Type it again</label>
-        <input id="pin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="64">
-      </div>
-      <button id="keyGo">Sign in</button>
-    </div>
     <button id="go">Sign in</button>
     <div id="msg" role="status"></div>
     <div id="groupBox" hidden><button class="plain" id="group">Made your passkey at <span id="groupHost">the group's login</span>? Sign in there</button></div>
@@ -76,64 +65,8 @@ if (location.pathname.startsWith("/files/login")) {
   document.getElementById("groupBox").hidden = false;
   document.getElementById("group").addEventListener("click", () => { location.href = "/files/login/start"; });
 }
-// A browser key (for a device that can't make a passkey) is kept here, in
-// this site's own storage, where it can't be copied out.
-function idb(mode, f) {
-  return new Promise((ok, bad) => {
-    const o = indexedDB.open("yggstore", 1);
-    o.onupgradeneeded = () => o.result.createObjectStore("keys");
-    o.onerror = () => bad(o.error);
-    o.onsuccess = () => {
-      const tx = o.result.transaction("keys", mode), r = f(tx.objectStore("keys"));
-      tx.oncomplete = () => ok(r && r.result); tx.onerror = () => bad(tx.error);
-    };
-  });
-}
-const keyMsg = ch => new TextEncoder().encode("yggstore browser key\n" + location.origin + "\n" + ch);
-// With a key kept in this browser, sign in with it and its PIN (which the
-// box checks). A key made before PINs is given one the first time.
-let key = null, choosing = false;
-async function keySignIn() {
-  const msg = document.getElementById("msg"), btn = document.getElementById("keyGo");
-  const pin = document.getElementById("pin").value;
-  msg.textContent = "";
-  if (choosing) {
-    if (pin.length < 6) { msg.textContent = "Choose a PIN of at least 6 digits or letters."; return; }
-    if (pin !== document.getElementById("pin2").value) { msg.textContent = "The two PINs aren't the same. Type them again."; return; }
-  } else if (!pin) { msg.textContent = "Type your PIN."; return; }
-  btn.disabled = true;
-  try {
-    const ch = await (await fetch(base + "/challenge", {cache: "no-store"})).json();
-    const sig = await crypto.subtle.sign({name: "ECDSA", hash: "SHA-256"}, key.key, keyMsg(ch.challenge));
-    const r = await fetch(base + "/signin", {method: "POST", headers: {"Content-Type": "application/json", "X-Yggstore": "1"}, body: JSON.stringify(
-      Object.assign({kind: "browser", challenge: ch.challenge, id: key.id, signature: b64(sig), user_handle: key.user}, choosing ? {new_pin: pin} : {pin}))});
-    if (r.status === 428) {
-      choosing = true;
-      document.getElementById("pinLabel").textContent = "Choose a PIN (at least 6 digits or letters). You'll type it to open your files from now on.";
-      document.getElementById("pin2Box").hidden = false;
-      document.getElementById("pin").value = ""; document.getElementById("pin").autocomplete = "new-password";
-      document.getElementById("pin").focus();
-      msg.style.color = "inherit"; msg.textContent = "Your files now need a PIN as well as this browser.";
-    } else if (!r.ok) {
-      throw new Error((await r.text()).trim());
-    } else {
-      done(await r.json());
-      return;
-    }
-  } catch (e) { msg.style.color = ""; msg.textContent = e.message; document.getElementById("pin").value = ""; }
-  btn.disabled = false;
-}
-(async () => {
-  try { key = await idb("readonly", s => s.get("me")); } catch (e) { return; }
-  if (!key) return;
-  document.querySelector(".card .sub").textContent = "This browser keeps your key. Type your PIN to open your files.";
-  document.getElementById("keyBox").hidden = false;
-  const go = document.getElementById("go");
-  go.textContent = "Use a passkey instead"; go.className = "plain";
-  document.getElementById("keyGo").addEventListener("click", keySignIn);
-  document.getElementById("pin").addEventListener("keydown", e => { if (e.key === "Enter" && !choosing) keySignIn(); });
-  document.getElementById("pin").focus();
-})();
+// Browser keys are gone (2026-10-23): forget any this browser kept.
+try { indexedDB.deleteDatabase("yggstore"); } catch (e) {}
 </script>
 </body>
 </html>

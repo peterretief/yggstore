@@ -184,27 +184,13 @@ func (s *Store) loginKeys(ctx context.Context) []JWK {
 func (s *Store) askKeys() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	for _, n := range s.others(ctx) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+n+"/v1/light/login-key", nil)
-		if err != nil {
-			continue
+	for _, k := range LoginKeys(ctx, s.Client, s.others(ctx)) {
+		s.lock()
+		if s.st.LoginKeys[k.Kid] != k {
+			s.st.LoginKeys[k.Kid] = k
+			s.saveLocked()
 		}
-		resp, err := s.Client.Do(req)
-		if err != nil {
-			continue
-		}
-		var k JWK
-		if resp.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&k) == nil && k.Kid != "" {
-			if _, ok := k.public(); ok {
-				s.lock()
-				if s.st.LoginKeys[k.Kid] != k {
-					s.st.LoginKeys[k.Kid] = k
-					s.saveLocked()
-				}
-				s.mu.Unlock()
-			}
-		}
-		resp.Body.Close()
+		s.mu.Unlock()
 	}
 }
 
@@ -470,6 +456,15 @@ func (rl *Relay) exchange(ctx context.Context, code, client, redirect, verifier 
 
 // token is the token endpoint: a code and its verifier for an ID token.
 func (rl *Relay) token(w http.ResponseWriter, r *http.Request) {
+	// A site's own pages swap their code here from the browser. It takes no
+	// cookie, only the code and its PKCE verifier, so any page may ask.
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Methods", "POST")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -557,6 +552,29 @@ func (rl *Relay) sign(claims map[string]any) (string, error) {
 
 // verify checks a JWT one of the web nodes signed, giving its claims.
 func (rl *Relay) verify(ctx context.Context, token string) (map[string]any, bool) {
+	c, ok := VerifyToken(token, rl.Signin.loginKeys(ctx))
+	if !ok {
+		return nil, false
+	}
+	if exp, _ := c["exp"].(float64); int64(exp) < time.Now().Unix() || c["iss"] != rl.issuer() {
+		return nil, false
+	}
+	return c, true
+}
+
+// Who says whose an access token is: its claims, if it's one of the
+// login's, still good.
+func (rl *Relay) Who(ctx context.Context, token string) (map[string]any, bool) {
+	c, ok := rl.verify(ctx, token)
+	if !ok || c["use"] != "access" {
+		return nil, false
+	}
+	return c, true
+}
+
+// VerifyToken checks that one of keys signed token (ES256), and gives its
+// claims. It doesn't look at when the token ends or who issued it.
+func VerifyToken(token string, keys []JWK) (map[string]any, bool) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, false
@@ -571,7 +589,7 @@ func (rl *Relay) verify(ctx context.Context, token string) (map[string]any, bool
 		return nil, false
 	}
 	h := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	for _, k := range rl.Signin.loginKeys(ctx) {
+	for _, k := range keys {
 		pub, ok := k.public()
 		if !ok || k.Kid != head.Kid || !ecdsa.Verify(pub, h[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])) {
 			continue
@@ -581,12 +599,33 @@ func (rl *Relay) verify(ctx context.Context, token string) (map[string]any, bool
 		if err != nil || json.NewDecoder(bytes.NewReader(bb)).Decode(&c) != nil {
 			return nil, false
 		}
-		if exp, _ := c["exp"].(float64); int64(exp) < time.Now().Unix() || c["iss"] != rl.issuer() {
-			return nil, false
-		}
 		return c, true
 	}
 	return nil, false
+}
+
+// LoginKeys asks web nodes (their node addresses, host:port) for the keys
+// they sign the login's tokens with.
+func LoginKeys(ctx context.Context, c *http.Client, nodes []string) []JWK {
+	var out []JWK
+	for _, n := range nodes {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+n+"/v1/light/login-key", nil)
+		if err != nil {
+			continue
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			continue
+		}
+		var k JWK
+		if resp.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&k) == nil && k.Kid != "" {
+			if _, ok := k.public(); ok {
+				out = append(out, k)
+			}
+		}
+		resp.Body.Close()
+	}
+	return out
 }
 
 // userinfo says who an access token is for.
@@ -637,7 +676,7 @@ func (rl *Relay) adopt(w http.ResponseWriter, r *http.Request, host string) {
 		return
 	}
 	token, ss := rl.Signin.startSession(Session{Box: own.Box, Person: own.Person, Key: own.Key, Device: own.Device, Host: host,
-		Started: now.Unix(), Short: own.Short}, now)
+		Started: now.Unix()}, now)
 	rl.Signin.setVia(own.Hash, ss.Hash)
 	http.SetCookie(w, sessionCookie(token, int(ss.For().Seconds())))
 	setBox(w, own.Box)
@@ -703,7 +742,7 @@ func (rl *Relay) loginBack(w http.ResponseWriter, r *http.Request, host, only st
 	}
 	now := time.Now()
 	token, ss := rl.Signin.startSession(Session{Box: my.Box, Person: my.Person, Key: my.Key, Device: my.Device, Host: host,
-		Started: now.Unix(), Short: my.Short, Via: my.Hash}, now)
+		Started: now.Unix(), Via: my.Hash}, now)
 	rl.logf("light: %s on %s signed in at %s through the login", ss.Person, ss.Box, host)
 	http.SetCookie(w, sessionCookie(token, int(ss.For().Seconds())))
 	http.Redirect(w, r, "/files", http.StatusFound)

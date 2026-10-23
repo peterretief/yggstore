@@ -386,8 +386,9 @@ func cmdServe(ctx context.Context, args []string) error {
 		}
 		signin = &light.Store{Dir: filepath.Join(*dataDir, "light"), Peers: live.List, Client: &http.Client{Timeout: 30 * time.Second}, Log: log.Printf,
 			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }}
+		login := &light.Relay{Peers: live.List, Signin: signin, Log: log.Printf}
 		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work,
-			Light: &light.Relay{Peers: live.List, Signin: signin, Log: log.Printf}}
+			Light: login, Who: login.Who}
 		if mailNode.Token != "" {
 			web.Mail = mailNode
 		}

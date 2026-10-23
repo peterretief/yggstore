@@ -7,8 +7,8 @@ name per person".
 ## Why
 
 Tim is on localbox-004 with tim.withcare.co.za. He also runs a business
-site, messagemate.co.za. A copy of it is on the group as
-messagemate-test.withcare.co.za, published from the desktop. He wants to
+site, business.example. A copy of it is on the group as
+business-test.withcare.co.za, published from the desktop. He wants to
 download its files, edit them and upload them again himself.
 
 Today he can't, for two reasons:
@@ -30,8 +30,8 @@ A site can be either of these:
 
 | Kind | Example | Who vets it |
 | --- | --- | --- |
-| A name under the group's domain | messagemate-test.withcare.co.za | the group admin approves it, the same way as the address |
-| A domain of their own | messagemate.co.za | the group admin approves it **and** routes the domain to the group's tunnel. Whoever controls the domain points its DNS there. |
+| A name under the group's domain | business-test.withcare.co.za | the group admin approves it, the same way as the address |
+| A domain of their own | business.example | the group admin approves it **and** routes the domain to the group's tunnel. Whoever controls the domain points its DNS there. |
 
 Each site works the same way as the address's site does today:
 - It's a folder in their files, `websites/NAME`, under **Your websites**.
@@ -54,7 +54,7 @@ There's still one `people_names` entry per name. A site is marked
 ```json
 "people_names": [
   {"name": "tim.withcare.co.za", "person": "Tim", "code": "ys1…"},
-  {"name": "messagemate-test.withcare.co.za", "person": "Tim", "code": "ys1…", "site": true}
+  {"name": "business-test.withcare.co.za", "person": "Tim", "code": "ys1…", "site": true}
 ]
 ```
 
@@ -79,31 +79,31 @@ node runs an older version, and it says which ones.
 On the box's dashboard, under **People on this box**, Tim's row gets
 **Add a site**. The box admin types the name and the request goes to the
 group admin, the same way the address did. The group admin sees "a site
-messagemate-test.withcare.co.za for Tim, on localbox-004 (peter)", with
+business-test.withcare.co.za for Tim, on localbox-004 (peter)", with
 Approve and Decline.
 
 ## Moving a site someone already publishes
 
-For messagemate-test.withcare.co.za, the desktop publishes the copy now.
+For business-test.withcare.co.za, the desktop publishes the copy now.
 Once Tim's site is approved:
 
 1. The box takes the files the web nodes are serving now. They become
-   Tim's `websites/messagemate-test.withcare.co.za`, so nothing is lost
+   Tim's `websites/business-test.withcare.co.za`, so nothing is lost
    and he starts from what's live.
 2. The box publishes the site. The web nodes take it from the box because
    the box now holds the name.
 3. The desktop stops publishing its copy. Its contact messages now go to
    Tim's Messages instead of Peter's mailbox.
 
-## messagemate.co.za itself
+## business.example itself
 
 This plan makes it possible but doesn't do it. The live site stays where
 it is until Tim's business decides to move it. If it moves:
 - its DNS points at the group's tunnel;
-- the admin approves messagemate.co.za as Tim's site;
+- the admin approves business.example as Tim's site;
 - the box publishes it.
 
-The mail records for messagemate.co.za aren't touched. Tim's mail there
+The mail records for business.example aren't touched. Tim's mail there
 stays where it is.
 
 ## Build order, once approved
@@ -118,7 +118,7 @@ stays where it is.
 5. The files page and the site card, for several sites.
 6. Moving a published site to a person: take the files the web nodes
    serve, then the old publisher stops.
-7. Try it with Tim and messagemate-test.withcare.co.za.
+7. Try it with Tim and business-test.withcare.co.za.
 
 ## To decide
 

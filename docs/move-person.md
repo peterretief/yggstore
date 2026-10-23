@@ -14,7 +14,7 @@ on a box rather than one website.
 
 Tim uses the group through a box. His account is on localbox-004, at
 Peter's place: his address tim@group.example and its mail, his own site
-tim.withcare.co.za, the test site messagemate-test, his passkey and his
+tim.withcare.co.za, the test site business-test, his passkey and his
 files. But the box at his office is localmail, and that's where his laptop
 will sync.
 
@@ -35,7 +35,7 @@ Everything that is the person's moves together:
 | Their sites, with every version | `people/FOLDER/sites` | the same, announced from the new box ([move-site.md](move-site.md)) |
 | Their forwarding | the hub's state | the same: confirmed addresses stay confirmed |
 | Their files | their folder's stubs and history (`users/NAME`) | a folder with the **same Syncthing folder ID**, filled with the same stubs |
-| Their passkeys and browser keys | the hub's state (public halves) | the same keys, so they sign in as before |
+| Their passkeys | the hub's state (public halves) | the same keys, so they sign in as before |
 | Their devices: Syncthing IDs and the addresses that open `/files` | the hub's state | the same, already let in |
 
 What stays:
@@ -58,7 +58,7 @@ default). Then it shows what will happen:
 
 > **Tim** moves from **localbox-004** to **localmail**, as **Tim**. With
 > him go his address tim@group.example and its messages, his sites
-> tim.withcare.co.za and messagemate-test.withcare.co.za with their
+> tim.withcare.co.za and business-test.withcare.co.za with their
 > versions, his stored files, and his passkey. He's in no teams.
 > Nothing he uses goes offline. His devices connect to localmail from its
 > network once (the box's one-line command), and pick up the same folder.

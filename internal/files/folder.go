@@ -204,7 +204,8 @@ func extractTar(r io.Reader, dest string) error {
 // safeRel rejects archive paths that would land outside the destination.
 func safeRel(name string) (string, error) {
 	clean := filepath.Clean(filepath.FromSlash(strings.TrimSuffix(name, "/")))
-	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+	// IsLocal also rejects "\x" and "C:x" on Windows, and names like NUL.
+	if clean == "." || !filepath.IsLocal(clean) || strings.HasPrefix(name, "/") {
 		return "", fmt.Errorf("unsafe path in archive: %q", name)
 	}
 	return clean, nil

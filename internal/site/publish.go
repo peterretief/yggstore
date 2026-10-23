@@ -48,6 +48,8 @@ type Version struct {
 type state struct {
 	Current string `json:"current"`           // FileID being served
 	Contact string `json:"contact,omitempty"` // sharing code the contact form's messages go to; "" if off
+	// Uploaders are the group addresses that may add photos and files.
+	Uploaders []string `json:"uploaders,omitempty"`
 }
 
 func (p *Publisher) siteDir(name string) string { return filepath.Join(p.Dir, name) }
@@ -78,11 +80,20 @@ func (p *Publisher) Sites() []string {
 }
 
 // Versions lists a site's versions, newest first.
+// notPublished is a site with no versions here; it counts as
+// os.ErrNotExist.
+type notPublished string
+
+func (e notPublished) Error() string {
+	return "no site " + string(e) + " was published from this machine"
+}
+func (notPublished) Is(target error) bool { return target == os.ErrNotExist }
+
 func (p *Publisher) Versions(name string) ([]Version, error) {
 	dir := filepath.Join(p.siteDir(name), "versions")
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("no site %s was published from this machine", name)
+		return nil, notPublished(name)
 	}
 	if err != nil {
 		return nil, err
@@ -273,6 +284,29 @@ func (p *Publisher) SetContact(ctx context.Context, name, code string) error {
 	if err := p.writeState(name, s); err != nil {
 		return err
 	}
+	return p.announceCurrent(ctx, name, vs)
+}
+
+// SetUploaders sets who may add photos and files to a site (group
+// addresses; none turns uploads off), and announces the current version
+// again so web nodes know.
+func (p *Publisher) SetUploaders(ctx context.Context, name string, list []string) error {
+	vs, err := p.Versions(name)
+	if err != nil {
+		return err
+	}
+	s := p.readState(name)
+	s.Uploaders = CleanUploaders(list)
+	if err := p.writeState(name, s); err != nil {
+		return err
+	}
+	return p.announceCurrent(ctx, name, vs)
+}
+
+// Uploaders is who may add photos and files to a site.
+func (p *Publisher) Uploaders(name string) []string { return p.readState(name).Uploaders }
+
+func (p *Publisher) announceCurrent(ctx context.Context, name string, vs []Version) error {
 	for _, v := range vs {
 		if v.Current {
 			m, err := files.ReadStub(v.stub)
@@ -291,7 +325,7 @@ func (p *Publisher) Contact(name string) string { return p.readState(name).Conta
 
 func (p *Publisher) announce(ctx context.Context, name string, m manifest.Manifest) (Version, error) {
 	s := p.readState(name)
-	typ, body, err := encode(Announcement{Site: name, Stub: &m, Contact: s.Contact})
+	typ, body, err := encode(Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders})
 	if err != nil {
 		return Version{}, err
 	}

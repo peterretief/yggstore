@@ -188,6 +188,9 @@ func Load(path string) (HubState, error) {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return st, fmt.Errorf("%s: %w", path, err)
 	}
+	for i := range st.People {
+		st.People[i].Passkeys = slices.DeleteFunc(st.People[i].Passkeys, func(k Passkey) bool { return k.Kind == "browser" })
+	}
 	return st, nil
 }
 
