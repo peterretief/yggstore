@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/passkey"
+	"github.com/peterretief/yggstore/internal/password"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -45,8 +46,9 @@ type Relay struct {
 
 	proxy *httputil.ReverseProxy
 	mu    sync.Mutex
-	down  map[string]bool      // boxes that didn't answer, by address, until they do
-	heard map[string]time.Time // when each box last answered
+	down  map[string]bool        // boxes that didn't answer, by address, until they do
+	heard map[string]time.Time   // when each box last answered
+	tries map[string][]time.Time // password sign-ins per address (see password.go)
 }
 
 // QuietFor is how long a box may go unheard before the relay checks it's
@@ -312,6 +314,9 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == Base+"/signin" && r.Method == http.MethodPost:
 		rl.signIn(w, r, host, only)
 		return
+	case p == Base+"/password" && r.Method == http.MethodPost:
+		rl.passwordSignIn(w, r, host, only)
+		return
 	case p == Base+"/signout":
 		if c, err := r.Cookie(SessionCookie); err == nil && rl.Signin != nil {
 			rl.Signin.end(tokenHash(c.Value), true)
@@ -391,6 +396,7 @@ func (rl *Relay) signedIn(w http.ResponseWriter, r *http.Request, host, only str
 
 // SignInRequest is what the sign-in and invite pages send.
 type SignInRequest struct {
+	Link       bool   `json:"link"` // an invite used to sign in, with no passkey
 	T          string `json:"t"`
 	Name       string `json:"name"`
 	Challenge  string `json:"challenge"`
@@ -410,10 +416,11 @@ type Registered struct {
 }
 
 // Seen is what a web node tells a box about a key after a sign-in: that it
-// was used.
+// was used, or the password chosen in place of the one Key names.
 type Seen struct {
-	Key  string `json:"key"`
-	Used bool   `json:"used,omitempty"`
+	Key      string             `json:"key"`
+	Used     bool               `json:"used,omitempty"`
+	Password *password.Password `json:"password,omitempty"`
 }
 
 // SeenPath is where a box hears of a key's use.
@@ -470,6 +477,9 @@ func (rl *Relay) checkKey(req SignInRequest, host, only, origin string) (found, 
 		return f, errNoKey
 	}
 	k := f.Key
+	if k.Link {
+		return f, errors.New("This browser signed in with an invite link, which works once. Ask the box's owner for a new one.")
+	}
 	if k.RP != "" && !strings.EqualFold(k.RP, host) {
 		return f, fmt.Errorf("This key is for %s.", k.RP)
 	}

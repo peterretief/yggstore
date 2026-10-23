@@ -32,19 +32,15 @@ a { color: var(--accent); }
 <body>
 <main>
   <h1>Your website</h1>
-  <div class="sub">Your page on the web, and the messages it brings you. <a href="/files">Back to your files</a></div>
+  <div class="sub">Your page on the web. <a href="/files">Your files</a> · <a href="/files/mail">Your mail</a></div>
   <div class="card" id="siteCard"><span class="sub">Loading…</span></div>
-  <div class="card" id="msgCard" hidden><h2>Messages</h2><div id="msgs"></div><div id="msg"></div></div>
-  <div class="card" id="fwdCard" hidden><h2>Forward to your email</h2><div id="fwd"></div></div>
   <div class="err" id="err"></div>
-  <p class="sub" id="note" hidden>Your messages are sealed for your own key, which is kept on this box: nobody else in the group can read them,
-    but the box's owner could. Keep anything secret out of them.</p>
 </main>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const when = ms => new Date(ms).toLocaleString();
-let st, open = "";
+let st;
 async function act(op, body) {
   $("err").textContent = "";
   const r = await fetch("?op=" + op, {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"}, body: JSON.stringify(body || {})});
@@ -61,11 +57,11 @@ function siteCard() {
     : `<span class="sub">being put online…</span>`;
   return `<h2><a href="https://${esc(st.name)}/" target="_blank" rel="noopener">${esc(st.name)}</a></h2>
     <p>${pub}${s && s.problem ? `<br><span class="err">${esc(s.problem)}</span>` : ""}</p>
-    <p>Your email address is <b>${esc(st.address)}</b>: mail to it comes in below.</p>
+    <p>Your email address is <b>${esc(st.address)}</b>: mail to it comes in to <a href="/files/mail">your mail</a>.</p>
     <p class="sub">To change your page, open <a href="/files">your files</a>, then <b>Your websites</b> and <b>${esc(st.name)}</b>.
       Each change goes online within a minute.</p>
     <p><label><input type="checkbox" id="contact" style="width:auto" ${s && s.contact ? "checked" : ""} ${s ? "" : "disabled"}>
-      A contact form on your page</label><br><span class="sub">Visitors write to you without seeing your address; their messages come in below.</span></p>
+      A contact form on your page</label><br><span class="sub">Visitors write to you without seeing your address; their messages come in to your mail.</span></p>
     ${s ? upCard(s.uploaders || []) : ""}`;
 }
 function upCard(list) {
@@ -78,54 +74,13 @@ function upCard(list) {
     <p><input id="upAdd" type="email" placeholder="their address in the group, such as tim@${esc(st.domain || "the-group.org")}">
       <button id="upGo">Add</button></p>`;
 }
-function fwdCard() {
-  const f = st.forward;
-  if (f && f.confirmed && f.allowed) return `<p><span class="ok">On</span>: every message is also sent to <b>${esc(f.to)}</b>.</p>
-    <button class="plain" id="unfwd">Stop forwarding</button>`;
-  if (f && f.confirmed) return `<p>Confirmed <b>${esc(f.to)}</b>. Waiting for the box's owner to allow it; then every new message is sent there too.</p>
-    <button class="plain" id="unfwd">Cancel</button>`;
-  if (f) return `<p>A code went to <b>${esc(f.to)}</b>. Type it here:</p>
-    <p><input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digits"> <button id="confirm">Confirm</button>
-    <button class="plain" id="unfwd">Cancel</button></p>`;
-  return `<p class="sub">Have your messages sent on to an address you already read, such as your Gmail. A code goes to it first, to show it's yours,
-    and the box's owner allows it.</p>
-    <p><input id="to" type="email" placeholder="you@example.com"> <button id="fwdGo">Send me a code</button></p>`;
-}
-function msgs() {
-  if (!st.messages.length) return `<p class="sub">None yet.</p>`;
-  return st.messages.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name"><b>${esc(m.subject || "(no subject)")}</b><br>
-    <span class="sub">${esc(m.from)} · ${when(m.received)}</span>${m.error ? `<br><span class="err">${esc(m.error)}</span>` : ""}</span></div>`).join("");
-}
-async function show(id) {
-  open = id;
-  if (!id) { $("msg").innerHTML = ""; return; }
-  const r = await fetch("?op=message&id=" + encodeURIComponent(id), {cache: "no-store"});
-  if (!r.ok) { $("msg").innerHTML = `<p class="err">${esc((await r.text()).trim())}</p>`; return; }
-  const m = await r.json();
-  const to = m.reply_to || m.from;
-  $("msg").innerHTML = `<div class="card"><h2>${esc(m.subject || "(no subject)")}</h2>
-    <div class="sub">From ${esc(m.from)}${m.reply_to ? ` (replies go to ${esc(m.reply_to)})` : ""} · ${when(m.received)}</div>
-    <pre>${esc(m.text)}</pre>
-    <a href="mailto:${encodeURIComponent(to).replace(/%40/g, "@")}?subject=${encodeURIComponent("Re: " + (m.subject || ""))}"><button>Reply</button></a>
-    <button class="plain" id="del" data-id="${esc(m.id)}">Delete</button> <button class="plain" id="close">Close</button></div>`;
-}
 async function load() {
   try { st = await (await fetch("?op=status", {cache: "no-store"})).json(); }
   catch (e) { $("err").textContent = "The box isn't answering."; return; }
   if (!document.activeElement || document.activeElement.id !== "upAdd") $("siteCard").innerHTML = siteCard();
-  $("msgCard").hidden = $("fwdCard").hidden = $("note").hidden = !st.name;
-  $("msgs").innerHTML = msgs();
-  if (!document.activeElement || !["to", "code"].includes(document.activeElement.id)) $("fwd").innerHTML = fwdCard();
 }
 document.addEventListener("click", async ev => {
   const t = ev.target;
-  const row = t.closest(".row[data-id]");
-  if (row) return show(row.dataset.id);
-  if (t.id === "close") return show("");
-  if (t.id === "del" && confirm("Delete this message?")) { if (await act("delete", {id: t.dataset.id})) show(""); }
-  if (t.id === "fwdGo") act("forward", {to: $("to").value});
-  if (t.id === "confirm") act("confirm", {code: $("code").value});
-  if (t.id === "unfwd") act("unforward");
   const list = (st.site && st.site.uploaders) || [];
   if (t.id === "upGo" && $("upAdd").value.trim()) act("uploaders", {list: [...list, $("upAdd").value.trim()]});
   if (t.dataset.unlist) act("uploaders", {list: list.filter(a => a !== t.dataset.unlist)});

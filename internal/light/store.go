@@ -20,6 +20,7 @@ import (
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/passkey"
+	"github.com/peterretief/yggstore/internal/password"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -40,8 +41,9 @@ const SessionFor = 30 * 24 * time.Hour
 // Key is one of a person's passkeys, as a box tells the web nodes.
 type Key struct {
 	passkey.Key
-	RP    string `json:"rp,omitempty"` // the address it signs in at
-	Name  string `json:"name"`         // the device, as they named it
+	RP    string `json:"rp,omitempty"`   // the address it signs in at
+	Name  string `json:"name"`           // the device, as they named it
+	Link  bool   `json:"link,omitempty"` // signed in with the invite link: no passkey
 	Added int64  `json:"added,omitempty"`
 	Used  int64  `json:"used,omitempty"`
 }
@@ -51,6 +53,8 @@ type Person struct {
 	Name string `json:"name"`
 	Web  bool   `json:"web"` // may sign in on the web now
 	Keys []Key  `json:"keys"`
+	// Password is their password's hash, if they have one.
+	Password *password.Password `json:"password,omitempty"`
 	// Recovery is their recovery ID: the web nodes' record of their
 	// latest recovery copy, for their files while the box is off.
 	Recovery string `json:"recovery,omitempty"`
@@ -110,6 +114,9 @@ type Store struct {
 type storeState struct {
 	Boxes    map[string][]Person `json:"boxes"` // by box name
 	Sessions []Session           `json:"sessions"`
+	// Fails are wrong passwords in a row, per "box/person", as the web
+	// nodes saw them (see password.go).
+	Fails map[string]Fails `json:"password_fails,omitempty"`
 	// Tickets are the login's codes, not yet used (see login.go).
 	Tickets []Ticket `json:"tickets,omitempty"`
 	// Gone are codes used up and sessions ended, by hash, until when
@@ -142,6 +149,9 @@ func (s *Store) lock() {
 	}
 	if s.st.Boxes == nil {
 		s.st.Boxes = map[string][]Person{}
+	}
+	if s.st.Fails == nil {
+		s.st.Fails = map[string]Fails{}
 	}
 	if s.st.Gone == nil {
 		s.st.Gone = map[string]int64{}
@@ -206,6 +216,9 @@ func (s *Store) allowedLocked(ss Session) bool {
 			if k.ID == ss.Key {
 				return p.Web
 			}
+		}
+		if p.Password != nil && p.Password.ID() == ss.Key {
+			return p.Web
 		}
 	}
 	return false
@@ -548,6 +561,17 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 		json.NewEncoder(w).Encode(got)
 	case isSession && r.Method == http.MethodDelete:
 		s.end(hash, false)
+		w.WriteHeader(http.StatusNoContent)
+	case path == "fails" && r.Method == http.MethodPost:
+		var req struct {
+			Who string `json:"who"`
+			Fails
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&req); err != nil || req.Who == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return true
+		}
+		s.setFails(req.Who, req.Fails, false)
 		w.WriteHeader(http.StatusNoContent)
 	case path == "ticket" && r.Method == http.MethodPut:
 		var t Ticket

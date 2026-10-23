@@ -63,9 +63,13 @@ func PersonKey(statePath string, p Person) (*share.Identity, error) {
 
 // Forward is where a person's mail is forwarded to.
 type Forward struct {
-	To        string `json:"to"`
-	CodeHash  string `json:"code_hash,omitempty"` // of the code sent to To, until it is confirmed
-	SentAt    int64  `json:"sent_at,omitempty"`   // when the code was sent (unix)
+	To       string `json:"to"`
+	CodeHash string `json:"code_hash,omitempty"` // of the code sent to To, until it is confirmed
+	// Code is that code, so asking again sends the same one: a second
+	// email with a different code leaves people unsure which works.
+	Code      string `json:"code,omitempty"`
+	SentAt    int64  `json:"sent_at,omitempty"`   // when the code was made (unix)
+	Resent    int64  `json:"resent,omitempty"`    // when it was last sent again
 	Tries     int    `json:"tries,omitempty"`     // wrong codes typed
 	Confirmed bool   `json:"confirmed,omitempty"` // the code came back: the address is theirs
 	Allowed   bool   `json:"allowed,omitempty"`   // the box's admin allowed it
@@ -76,8 +80,8 @@ type Forward struct {
 func (f *Forward) On() bool { return f != nil && f.Confirmed && f.Allowed }
 
 const (
-	codeFor    = time.Hour   // how long a code works
-	codeEvery  = time.Minute // the least time between two codes
+	codeFor    = time.Hour        // how long a code works
+	codeEvery  = 10 * time.Minute // the least time between two emails of it
 	codeTries  = 5
 	forwardMax = 20 // messages forwarded in one pass
 )
@@ -566,11 +570,11 @@ func (ps *PeopleSites) SendCode(ctx context.Context, p Person, name, to string) 
 	if strings.EqualFold(strings.SplitN(a.Address, "@", 2)[1], strings.SplitN(peers.MailAddress(name), "@", 2)[1]) {
 		return errors.New("forward to an address outside the group: mail to the group's own addresses comes here anyway")
 	}
-	if f := p.Forward; f != nil && !f.Confirmed && time.Since(time.Unix(f.SentAt, 0)) < codeEvery {
-		return errors.New("a code was sent a moment ago: wait a minute before asking for another")
+	now := time.Now()
+	code, sentAt, err := codeToSend(p.Forward, a.Address, now)
+	if err != nil {
+		return err
 	}
-	n, _ := rand.Int(rand.Reader, big.NewInt(1000000))
-	code := fmt.Sprintf("%06d", n.Int64())
 	online, err := ps.cfg.Online(ctx)
 	if err != nil {
 		return err
@@ -590,10 +594,29 @@ func (ps *PeopleSites) SendCode(ctx context.Context, p Person, name, to string) 
 		if i < 0 {
 			return errors.New("you're no longer on this box")
 		}
-		s.People[i].Forward = &Forward{To: a.Address, CodeHash: tokenHash(code), SentAt: time.Now().Unix()}
+		if f := s.People[i].Forward; f != nil && f.Code == code {
+			f.Resent = now.Unix() // the same code: wrong tries still count
+			return nil
+		}
+		s.People[i].Forward = &Forward{To: a.Address, CodeHash: tokenHash(code), Code: code, SentAt: sentAt}
 		return nil
 	})
 	return err
+}
+
+// codeToSend is the code to email to, and when it was made: the one sent
+// before while it has a while left to work, or a new one. The same code
+// goes at most every codeEvery.
+func codeToSend(f *Forward, to string, now time.Time) (string, int64, error) {
+	if f != nil && !f.Confirmed && strings.EqualFold(f.To, to) && f.Code != "" && now.Sub(time.Unix(f.SentAt, 0)) < codeFor-codeEvery {
+		if last := time.Unix(max(f.SentAt, f.Resent), 0); now.Sub(last) < codeEvery {
+			return "", 0, fmt.Errorf("The code went to %s at %s. Email can take a few minutes: look in your spam or junk folder too. You can send it again from %s.",
+				f.To, last.Format("15:04"), last.Add(codeEvery).Format("15:04"))
+		}
+		return f.Code, f.SentAt, nil
+	}
+	n, _ := rand.Int(rand.Reader, big.NewInt(1000000))
+	return fmt.Sprintf("%06d", n.Int64()), now.Unix(), nil
 }
 
 // Confirm checks the code sent to the forwarding address.
@@ -609,7 +632,7 @@ func Confirm(f *Forward, code string, now time.Time) error {
 		f.Tries++
 		return errors.New("that isn't the code that was sent")
 	}
-	f.Confirmed, f.CodeHash, f.Tries, f.Since = true, "", 0, now.UnixMilli()
+	f.Confirmed, f.CodeHash, f.Code, f.Tries, f.Since = true, "", "", 0, now.UnixMilli()
 	return nil
 }
 

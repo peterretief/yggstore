@@ -3,6 +3,7 @@ package hub
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
@@ -34,6 +35,10 @@ type Passkey struct {
 	Added int64  `json:"added"`
 	Used  int64  `json:"used,omitempty"`
 	Count uint32 `json:"count,omitempty"`
+	// Link is a browser signed in by opening its invite link, with no
+	// passkey: it can't sign in again, and its sessions last while it is
+	// kept.
+	Link bool `json:"link,omitempty"`
 	// Kind "browser" is a key a browser kept, with a PIN: they're gone
 	// (2026-10-23), and Load forgets any left.
 	Kind string `json:"kind,omitempty"`
@@ -228,8 +233,9 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// register makes a passkey with an invite. The web node
-// that passed it on signs the person in with it.
+// register makes a passkey with an invite, or uses the invite to sign the
+// browser in without one (req.Link). The web node that passed it on signs
+// the person in with it.
 func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only string, now time.Time) {
 	var req light.SignInRequest
 	if json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req) != nil {
@@ -239,19 +245,26 @@ func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only st
 	dec := func(s string) []byte { b, _ := passkey.B64.DecodeString(s); return b }
 	origin := "https://" + rp
 	clientData := dec(req.ClientData)
-	if passkey.ChallengeOf(clientData) != req.Challenge {
-		http.Error(w, "the challenge doesn't match", http.StatusBadRequest)
-		return
-	}
-	if err := f.challenges.Use(req.Challenge, now); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	if !req.Link {
+		if passkey.ChallengeOf(clientData) != req.Challenge {
+			http.Error(w, "the challenge doesn't match", http.StatusBadRequest)
+			return
+		}
+		if err := f.challenges.Use(req.Challenge, now); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	var made Passkey
 	var who string
 	_, err := Update(r.Context(), f.u.cfg.StatePath, func(s *HubState) error {
-		k, err := passkey.Register(clientData, dec(req.AuthData), dec(req.SPKI), req.Alg, req.ID, req.Challenge, origin, rp)
-		if err != nil {
+		var k passkey.Key
+		var err error
+		if req.Link {
+			id := make([]byte, 18)
+			rand.Read(id)
+			k.ID = passkey.B64.EncodeToString(id)
+		} else if k, err = passkey.Register(clientData, dec(req.AuthData), dec(req.SPKI), req.Alg, req.ID, req.Challenge, origin, rp); err != nil {
 			return err
 		}
 		device := strings.TrimSpace(req.Name)
@@ -264,7 +277,7 @@ func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only st
 		if p, err := s.CheckInvite(req.T, now); err == nil && only != "" && !strings.EqualFold(p.Name, only) {
 			return errors.New("This invite is for someone else, not for " + rp + ".")
 		}
-		made = Passkey{Key: k, RP: rp, Name: device}
+		made = Passkey{Key: k, RP: rp, Name: device, Link: req.Link}
 		p, err := s.UseInviteWeb(req.T, made, now)
 		if err != nil {
 			return err
@@ -278,11 +291,16 @@ func (f *filesPage) register(w http.ResponseWriter, r *http.Request, rp, only st
 		return
 	}
 	f.u.lightChanged()
-	f.u.cfg.Logf("hub: %s made a passkey through the web (%s, from %s)", who, made.Name, r.Header.Get("X-Forwarded-For"))
+	verb := "made a passkey"
+	if made.Link {
+		verb = "signed in with their invite link"
+	}
+	f.u.cfg.Logf("hub: %s %s through the web (%s, from %s)", who, verb, made.Name, r.Header.Get("X-Forwarded-For"))
 	jsonOK(w, light.Registered{Person: who, Key: made.light()})
 }
 
-// seenKey takes a web node's word of one of p's keys: used to sign in.
+// seenKey takes a web node's word of one of p's keys: used to sign in, or
+// a password they chose.
 func (f *filesPage) seenKey(w http.ResponseWriter, r *http.Request, p Person, now time.Time) {
 	var seen light.Seen
 	if r.Method != http.MethodPost || json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&seen) != nil {
@@ -291,6 +309,9 @@ func (f *filesPage) seenKey(w http.ResponseWriter, r *http.Request, p Person, no
 	}
 	_, err := Update(r.Context(), f.u.cfg.StatePath, func(s *HubState) error {
 		i := s.person(p.Name)
+		if seen.Password != nil {
+			return s.People[i].ChoosePassword(seen.Key, *seen.Password)
+		}
 		for j := range s.People[i].Passkeys {
 			k := &s.People[i].Passkeys[j]
 			if k.ID != seen.Key {
@@ -328,7 +349,7 @@ func (f *filesPage) lightDevices(w http.ResponseWriter, r *http.Request, p Perso
 				}
 			}
 			if len(kept) == 0 {
-				return errors.New("this is your last passkey: keep it, or you can't sign in")
+				return errors.New("this is your last way in: keep it, or you can't sign in")
 			}
 			s.People[i].Passkeys = kept
 			return nil
@@ -346,8 +367,8 @@ func (f *filesPage) lightDevices(w http.ResponseWriter, r *http.Request, p Perso
 
 func (f *filesPage) lightDevicesPage(w http.ResponseWriter) {
 	page(w, "Your devices", `<h1>Your devices</h1>
-<p>You sign in with a passkey. These are your passkeys, and the browsers signed in with them.</p>
-<h2 style="font-size:1em">Passkeys</h2><ul id="keys"><li>…</li></ul>
+<p>These are your passkeys and invite links, and the browsers signed in with them.</p>
+<h2 style="font-size:1em">Ways in</h2><ul id="keys"><li>…</li></ul>
 <h2 style="font-size:1em">Signed in</h2><ul id="sessions"><li>…</li></ul>
 <p><a href="`+FilesPath+`">Back to your files</a> · <a href="#" id="out">Sign out here</a></p>
 <p style="color:#666;font-size:.9em">A new phone or computer: passkeys often reach your other devices through your Apple, Google or Microsoft account.
@@ -358,7 +379,7 @@ const when = t => t ? new Date(t * 1000).toLocaleString() : "never";
 const post = u => fetch(u, {method: "POST", headers: {"X-Yggstore": "1"}});
 async function load() {
   const d = await (await fetch("?op=list", {cache: "no-store"})).json();
-  document.getElementById("keys").innerHTML = d.passkeys.map(k => "<li><b>" + esc(k.name) + "</b>" + ", made " + when(k.added) + ", last used " + when(k.used) +
+  document.getElementById("keys").innerHTML = d.passkeys.map(k => "<li><b>" + esc(k.name) + "</b>" + (k.link ? " (invite link)" : "") + ", made " + when(k.added) + ", last used " + when(k.used) +
     (d.passkeys.length > 1 ? " <button data-forget='" + esc(k.id) + "'>Forget</button>" : "") + "</li>").join("");
   document.getElementById("sessions").innerHTML = d.sessions.map(s => "<li><b>" + esc(s.device) + "</b>" + (s.me ? " (this browser)" : "") +
     (s.places && s.places.length ? ", at " + s.places.map(esc).join(", ") : "") +
@@ -366,7 +387,7 @@ async function load() {
 }
 document.addEventListener("click", async ev => {
   const b = ev.target;
-  if (b.dataset.forget && confirm("Forget this passkey? It won't sign in any more.")) { const r = await post("?op=forget&id=" + encodeURIComponent(b.dataset.forget)); if (!r.ok) alert(await r.text()); load(); }
+  if (b.dataset.forget && confirm("Forget this? It won't sign in any more, and the browsers it signed in are signed out.")) { const r = await post("?op=forget&id=" + encodeURIComponent(b.dataset.forget)); if (!r.ok) alert(await r.text()); load(); }
   if (b.dataset.out) { await post("?op=signout&id=" + encodeURIComponent(b.dataset.out)); load(); }
   if (b.id === "out") { ev.preventDefault(); await post("`+light.Base+`/signout"); location.href = "`+FilesPath+`"; }
 });
@@ -382,10 +403,10 @@ func (f *filesPage) serveAs(w http.ResponseWriter, r *http.Request, p Person) {
 		live := &workhere.Live{Outbox: p.Path, Client: f.client, Holding: func() bool { return f.u.Holding(name) },
 			Devices: FilesPath + "/devices", Room: func(size int64) error { return f.room(p, size) }}
 		if f.u.cfg.People != nil {
-			live.Site = SitePath
+			live.Site, live.Mail = SitePath, MailPath
 		}
 		live.ServeHTTP(w, r)
-	case SitePath:
+	case SitePath, MailPath:
 		if f.u.cfg.People == nil {
 			http.NotFound(w, r)
 			return
@@ -398,18 +419,18 @@ func (f *filesPage) serveAs(w http.ResponseWriter, r *http.Request, p Person) {
 
 // light is the key as the web nodes are told it.
 func (k Passkey) light() light.Key {
-	return light.Key{Key: k.Key, RP: k.RP, Name: k.Name, Added: k.Added, Used: k.Used}
+	return light.Key{Key: k.Key, RP: k.RP, Name: k.Name, Link: k.Link, Added: k.Added, Used: k.Used}
 }
 
 // LightPeople is what the web nodes are told of the box's people: everyone
-// with a key, and whether they may sign in now.
+// with a key or a password, and whether they may sign in now.
 func (s HubState) LightPeople() light.People {
 	out := light.People{People: []light.Person{}}
 	for _, p := range s.People {
-		if len(p.Passkeys) == 0 {
+		if !p.CanSignIn() {
 			continue
 		}
-		lp := light.Person{Name: p.Name, Web: p.WebAccess(), Recovery: p.RecoveryID}
+		lp := light.Person{Name: p.Name, Web: p.WebAccess(), Recovery: p.RecoveryID, Password: p.Password}
 		for _, k := range p.Passkeys {
 			lp.Keys = append(lp.Keys, k.light())
 		}

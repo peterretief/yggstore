@@ -294,7 +294,7 @@ func (u *Users) keepCopies(ctx context.Context) {
 	for {
 		if st, err := Load(u.cfg.StatePath); err == nil {
 			for _, p := range st.People {
-				if p.RecoveryID != "" || !p.WebAccess() || len(p.Passkeys) == 0 || time.Since(tried[p.Name]) < CopiesRetry {
+				if p.RecoveryID != "" || !p.WebAccess() || !p.CanSignIn() || time.Since(tried[p.Name]) < CopiesRetry {
 					continue
 				}
 				tried[p.Name] = time.Now()

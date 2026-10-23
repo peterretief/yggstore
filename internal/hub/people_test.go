@@ -62,6 +62,30 @@ func TestInviteLetsTheFirstDeviceIn(t *testing.T) {
 	}
 }
 
+// A person has one invite at a time: asking again gives the same link,
+// working for another week, so two emails never hold different links.
+// Once used, run out or cancelled, the next is new.
+func TestInviteOneAtATime(t *testing.T) {
+	var s HubState
+	s.AddPerson("anna", t.TempDir())
+	now := time.Now()
+	first, _ := s.Invite("anna", now)
+	again, _ := s.Invite("Anna", now.Add(6*24*time.Hour))
+	if again != first || len(s.Invites) != 1 {
+		t.Fatalf("a second link: %q %q, %d invites", first, again, len(s.Invites))
+	}
+	if until, _ := s.InviteOf("anna"); until.Unix() != now.Add(6*24*time.Hour+InviteFor).Unix() {
+		t.Fatalf("works until %v", until)
+	}
+	if later, _ := s.Invite("anna", now.Add(6*24*time.Hour+InviteFor+time.Hour)); later == first {
+		t.Fatal("a run-out link was given again")
+	}
+	s.DropInvite("anna")
+	if next, _ := s.Invite("anna", now); next == first || len(s.Invites) != 1 {
+		t.Fatal("cancelling didn't end the link")
+	}
+}
+
 // Limits: how many devices, and how much stored; suspending shuts the
 // person out, and removing them for good, their files staying.
 func TestLimitsSuspendRemove(t *testing.T) {

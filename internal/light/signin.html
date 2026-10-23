@@ -17,6 +17,8 @@ p { margin: 8px 0; }
 .sub { color: var(--muted); font-size: 14px; }
 button { font: inherit; font-weight: 600; width: 100%; padding: 12px; margin-top: 16px; border-radius: 8px; border: 0; background: var(--info); color: #fff; cursor: pointer; }
 button:disabled { opacity: .6; }
+label { display: block; font-size: 14px; color: var(--muted); margin-top: 16px; }
+input { display: block; width: 100%; font: inherit; padding: 10px 12px; margin-top: 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
 button.plain { background: none; color: var(--info); border: 1px solid var(--line); font-weight: 500; }
 #msg { min-height: 1.5em; margin-top: 12px; color: var(--bad); font-size: 14px; }
 </style>
@@ -24,13 +26,26 @@ button.plain { background: none; color: var(--info); border: 1px solid var(--lin
 <body>
 <main>
   <div class="card">
-    <h1>Your files</h1>
-    <p class="sub">Sign in with the passkey you made on this phone or computer: your fingerprint, face or screen lock. There's no password.</p>
-    <button id="go">Sign in</button>
+    <h1>Your mail and files</h1>
+    <form id="pwForm">
+      <label for="login">Your email address</label>
+      <input id="login" type="email" autocomplete="username" required>
+      <label for="pw" id="pwLabel">Password</label>
+      <input id="pw" type="password" autocomplete="current-password" required>
+      <div id="newBox" hidden>
+        <p class="sub">That was a temporary password. Choose your own now: at least 10 characters. A few words together is easy to remember.</p>
+        <label for="new">Your new password</label>
+        <input id="new" type="password" autocomplete="new-password">
+        <label for="new2">Type it again</label>
+        <input id="new2" type="password" autocomplete="new-password">
+      </div>
+      <button id="pwGo" type="submit">Sign in</button>
+    </form>
     <div id="msg" role="status"></div>
+    <button id="go" class="plain">Sign in with a passkey instead</button>
     <div id="groupBox" hidden><button class="plain" id="group">Made your passkey at <span id="groupHost">the group's login</span>? Sign in there</button></div>
   </div>
-  <p class="sub" style="margin-top:16px">First time? Open the invite link the box's owner sent you. Lost your passkey? Ask them for a new invite.</p>
+  <p class="sub" style="margin-top:16px">First time? Use the temporary password the group's admin gave you. Forgotten your password? Ask them for a new one.</p>
 </main>
 <script>
 const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -38,7 +53,36 @@ const unb64 = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/"))
 const base = "/files/light";
 // Signed in: on to my. as well (next), back to the app that asked (the
 // group's login page), or the files.
-const done = d => { location.href = d.next || (location.pathname.startsWith("/login/") ? location.href : "/files"); };
+const done = d => { location.href = d.next || (location.pathname.startsWith("/login/") ? location.href : d.home || "/files"); };
+// With a password: a temporary one is swapped for their own (428 asks).
+let choosing = false;
+document.getElementById("pwForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const msg = document.getElementById("msg"), btn = document.getElementById("pwGo"), v = id => document.getElementById(id).value;
+  msg.textContent = "";
+  const body = {login: v("login").trim(), password: v("pw")};
+  if (choosing) {
+    if (v("new").length < 10) { msg.textContent = "Choose a password of at least 10 characters."; return; }
+    if (v("new") !== v("new2")) { msg.textContent = "The two new passwords aren't the same. Type them again."; return; }
+    body.new = v("new");
+  }
+  btn.disabled = true;
+  try {
+    const r = await fetch(base + "/password", {method: "POST", headers: {"Content-Type": "application/json", "X-Yggstore": "1"}, body: JSON.stringify(body)});
+    if (r.status === 428) {
+      choosing = true;
+      document.getElementById("newBox").hidden = false;
+      document.getElementById("pwGo").textContent = "Save my password and sign in";
+      document.getElementById("new").focus();
+    } else if (!r.ok) {
+      throw new Error((await r.text()).trim() || "not signed in (" + r.status + ")");
+    } else {
+      done(await r.json());
+      return;
+    }
+  } catch (e) { msg.textContent = e.message; }
+  btn.disabled = false;
+});
 async function signIn() {
   const msg = document.getElementById("msg"), go = document.getElementById("go");
   if (!window.PublicKeyCredential) { msg.textContent = "This browser can't use passkeys. Try an up-to-date Chrome, Safari, Edge or Firefox."; return; }

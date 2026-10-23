@@ -19,6 +19,7 @@ label { display: block; font-size: 14px; color: var(--muted); margin-top: 16px; 
 input { display: block; width: 100%; font: inherit; padding: 10px 12px; margin-top: 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
 button { font: inherit; font-weight: 600; width: 100%; padding: 12px; margin-top: 16px; border-radius: 8px; border: 0; background: var(--info); color: #fff; cursor: pointer; }
 button:disabled { opacity: .6; }
+button.plain { background: none; color: var(--info); border: 1px solid var(--line); font-weight: 500; }
 #msg { min-height: 1.5em; margin-top: 12px; color: var(--bad); font-size: 14px; }
 </style>
 </head>
@@ -26,12 +27,13 @@ button:disabled { opacity: .6; }
 <main>
   <div class="card">
     <h1>Open your files</h1>
-    <p>This sets up this phone or computer to open your files on the box, from anywhere, in the browser.</p>
-    <p class="sub">You'll make a <b>passkey</b>: your device asks for your fingerprint, face or screen lock, and that's how you sign in from now on.
-      There's no password to remember. The invite link works once.</p>
+    <p>This signs this phone or computer in to your mail and files, from anywhere, in the browser.</p>
+    <p class="sub">The invite link works once. This browser stays signed in while you use it.</p>
     <label for="name">Name this device</label>
     <input id="name" maxlength="60" placeholder="e.g. my phone" autocomplete="off">
-    <button id="go">Make a passkey and open my files</button>
+    <button id="link">Open my mail and files</button>
+    <button id="go" class="plain">Make a passkey instead</button>
+    <p class="sub">A passkey signs you in with your fingerprint, face or screen lock, so you can sign in again on this device later.</p>
     <div id="msg" role="status"></div>
   </div>
   <p class="sub" style="margin-top:16px">Your files are stored encrypted on the group's machines. Over the web, what you open or upload passes through
@@ -67,6 +69,17 @@ async function join() {
   go.disabled = false;
 }
 document.getElementById("go").addEventListener("click", join);
+// Without a passkey: the invite itself signs this browser in.
+document.getElementById("link").addEventListener("click", async () => {
+  const msg = document.getElementById("msg"), btn = document.getElementById("link");
+  btn.disabled = true; msg.textContent = "";
+  try {
+    const r = await post("/register", {link: true, t, name: document.getElementById("name").value.trim()});
+    if (!r.ok) throw new Error((await r.text()).trim());
+    location.href = (await r.json()).next || "/files";
+  } catch (e) { msg.textContent = e.message; }
+  btn.disabled = false;
+});
 </script>
 </body>
 </html>

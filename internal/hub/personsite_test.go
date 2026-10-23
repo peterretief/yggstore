@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,33 @@ func TestForwardCode(t *testing.T) {
 	s.AllowForward("Anna", false)
 	if s.People[0].Forward != nil {
 		t.Fatal("still forwarding")
+	}
+}
+
+// Asking again for a forwarding code sends the same one, not too often,
+// so two emails never hold different codes.
+func TestForwardCodeAgain(t *testing.T) {
+	now := time.Now()
+	code, at, err := codeToSend(nil, "anna@example.com", now)
+	if err != nil || len(code) != 6 || at != now.Unix() {
+		t.Fatalf("first: %q %d %v", code, at, err)
+	}
+	f := &Forward{To: "anna@example.com", Code: code, CodeHash: tokenHash(code), SentAt: at}
+	if _, _, err := codeToSend(f, "anna@example.com", now.Add(time.Minute)); err == nil || !strings.Contains(err.Error(), "spam") {
+		t.Fatalf("again at once: %v", err)
+	}
+	if c, a, err := codeToSend(f, "Anna@example.com", now.Add(codeEvery)); err != nil || c != code || a != at {
+		t.Fatalf("again later: %q %d %v", c, a, err)
+	}
+	f.Resent = now.Add(codeEvery).Unix()
+	if _, _, err := codeToSend(f, "anna@example.com", now.Add(codeEvery+time.Minute)); err == nil {
+		t.Fatal("sent again soon after resending")
+	}
+	if c, _, _ := codeToSend(f, "other@example.com", now.Add(time.Minute)); c == "" {
+		t.Fatal("no code for another address")
+	}
+	if c, a, _ := codeToSend(f, "anna@example.com", now.Add(codeFor)); a == at {
+		t.Fatalf("an almost run-out code was sent again: %q", c)
 	}
 }
 

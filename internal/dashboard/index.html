@@ -1513,7 +1513,7 @@ async function refreshPeople() {
     const devs = p.devices.map(v => `<div class="sub">${esc(v.name || "a device")} · last on ${esc(when(v.last_seen))}
       <span class="mono">${esc(v.addr)}</span> <button class="del" data-pact="device-remove" data-name="${esc(p.name)}" data-addr="${esc(v.addr)}">Remove</button></div>`).join("");
     const acts = p.removed ? `<button data-pact="add" data-name="${esc(p.name)}">Bring back</button>`
-      : `<button data-pact="invite" data-name="${esc(p.name)}">${p.invite_until ? "New invite link" : "Invite link"}</button>
+      : `<button data-pact="password" data-name="${esc(p.name)}" data-has="${p.password || ""}">${p.password ? "New temporary password" : "Set temporary password"}</button>
         <button data-pact="${p.suspended ? "resume" : "suspend"}" data-name="${esc(p.name)}">${p.suspended ? "Let back in" : "Suspend"}</button>
         <button class="del" data-pact="remove" data-name="${esc(p.name)}">Remove</button>`;
     const site = p.removed ? "" : p.site
@@ -1530,16 +1530,26 @@ async function refreshPeople() {
       : f.confirmed ? `<div>wants their mail forwarded to <b>${esc(f.to)}</b> (they confirmed it's theirs)
         <button data-pact="forward-allow" data-name="${esc(p.name)}">Allow</button> <button class="del" data-pact="forward-stop" data-name="${esc(p.name)}">Refuse</button></div>`
       : "";
-    const web = peopleLink && peopleLink.link !== peopleLink.ygg_link;
-    const link = peopleLink && peopleLink.name === p.name ? `<div style="margin-top:6px">Send ${esc(p.name)} this link. It works once, for a week,
-      ${web ? "in any browser: they make a passkey and their files open" : `on a device with <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noreferrer">Yggdrasil</a>`}:
-      <div class="mono" style="user-select:all;margin-top:4px">${esc(peopleLink.link)}</div>
-      ${web ? `<details><summary class="sub">Advanced: the link for a device with Yggdrasil</summary><div class="mono" style="user-select:all">${esc(peopleLink.ygg_link)}</div></details>` : ""}</div>` : "";
+    const shown = peopleLink && peopleLink.name === p.name ? peopleLink : null;
+    const link = shown && shown.password ? `<div class="card" style="margin-top:6px;padding:10px">Give ${esc(p.name)} these yourself, by phone or in person
+      (not by email). The password is shown only now. It works for a week, and at the first sign-in they choose their own.
+      <div style="margin-top:6px">Sign in at <b>${esc(shown.at || "their files page")}</b><br>as <b class="mono" style="user-select:all">${esc(shown.login)}</b><br>
+      password <b class="mono" style="user-select:all;font-size:1.15em">${esc(shown.password)}</b></div></div>`
+      : shown && shown.ygg_link ? `<div style="margin-top:6px">For a device with <a href="https://yggdrasil-network.github.io/installation.html" target="_blank" rel="noreferrer">Yggdrasil</a>.
+      It works once, for a week; sending it again sends this same link.
+      <div class="mono" style="user-select:all;margin-top:4px">${esc(shown.ygg_link)}</div></div>` : "";
+    const ygg = p.removed ? "" : `<details style="margin-top:4px"><summary class="sub">A device with Yggdrasil</summary>
+      <button data-pact="invite" data-name="${esc(p.name)}">${p.invite_until ? "Show its invite link" : "Invite link"}</button>
+      ${p.invite_until ? `<button class="del" data-pact="invite-cancel" data-name="${esc(p.name)}">Cancel invite</button>` : ""}</details>`;
+    const pwLine = p.password === "own" ? `signs in as <b>${esc(p.login)}</b> with their own password (since ${new Date(p.pw_set * 1000).toLocaleDateString()})`
+      : p.password === "temporary" ? (p.pw_until * 1000 > Date.now() ? `signs in as <b>${esc(p.login)}</b>; temporary password, works until ${new Date(p.pw_until * 1000).toLocaleDateString()}`
+        : `signs in as <b>${esc(p.login)}</b>; the temporary password has run out: set a new one`)
+      : `no password yet: set a temporary one so they can sign in`;
     const webLine = p.removed ? "" : `<div class="sub">${p.web_off ? `web access off <button data-pact="web-on" data-name="${esc(p.name)}">Turn on</button>`
-      : `${p.passkeys.length ? `passkeys: ${p.passkeys.map(k => esc(k.name) + (k.used ? ", last used " + new Date(k.used * 1000).toLocaleDateString() : "")).join("; ")}` : "no passkey yet"}
+      : `${pwLine}${p.passkeys.length ? `<br>passkeys: ${p.passkeys.map(k => esc(k.name) + (k.used ? ", last used " + new Date(k.used * 1000).toLocaleDateString() : "")).join("; ")}` : ""}<br>
         <button class="del" data-pact="web-off" data-name="${esc(p.name)}">Turn web access off</button>`}</div>`;
     return `<tr><td><b>${esc(p.name)}</b> ${state}${p.invite_until && !p.removed ? `<div class="sub">invite works until ${esc(new Date(p.invite_until * 1000).toLocaleDateString())}</div>` : ""}
-        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${webLine}${site}${fwd}${link}</td>
+        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${webLine}${site}${fwd}${link}${ygg}</td>
       <td class="num">${size(p.bytes)}${p.quota ? ` of ${size(p.quota)}` : ""}${over ? ` <span class="pill bad">over</span>` : ""}<div class="sub">${p.files} files</div></td>
       <td class="sub">${p.devices.length ? "last on " + esc(when(last)) : ""}</td>
       <td class="actions">${acts}${p.removed ? "" : `<details style="margin-top:6px"><summary class="sub">Limits</summary>
@@ -1549,8 +1559,8 @@ async function refreshPeople() {
         <button data-pact="limit" data-name="${esc(p.name)}">Save</button></div></details>`}</td></tr>`;
   }).join("");
   $("people").innerHTML = `<div class="sub">People on this box open their own files from anywhere, in the browser, over Yggdrasil
-      (<span class="mono">${esc(st.files_at)}</span>). Each sees only their own. Add someone and send them their invite link; after their first device,
-      they let in their others themselves, within the limits you set.</div>
+      (<span class="mono">${esc(st.files_at)}</span>). Each sees only their own. Add someone and give them their temporary password yourself; they sign in
+      on the web with it and choose their own.</div>
     ${rows ? `<table style="margin-top:10px"><thead><tr><th>Person</th><th>Stores</th><th>Seen</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : `<div class="sub" style="margin-top:10px">Nobody yet.</div>`}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><input id="personName" placeholder="name, e.g. anna" style="flex:1;min-width:160px">
@@ -1564,6 +1574,9 @@ $("people").addEventListener("click", async ev => {
   const body = {name};
   if (act === "remove" && !confirm(`Remove ${name}? Their devices are shut out; their files stay on the box.`)) return;
   if (act === "suspend" && !confirm(`Suspend ${name}? They can't open their files until you let them back in.`)) return;
+  if (act === "invite-cancel" && !confirm(`Cancel ${name}'s invite? The link stops working. Only do this if it went to the wrong person: otherwise send the same link again.`)) return;
+  if (act === "invite-cancel" && peopleLink && peopleLink.name === name) peopleLink = null;
+  if (act === "password" && b.dataset.has && !confirm(`Give ${name} a new temporary password? Their password now, and the browsers it signed in, stop working.`)) return;
   if (act === "device-remove") body.addr = b.dataset.addr;
   if (act === "name") body.label = (document.querySelector(`[data-label="${CSS.escape(name)}"]`).value.trim() || name).toLowerCase();
   if (act === "forward-allow" && !confirm(`Forward ${name}'s mail to ${b.closest("div").querySelector("b").textContent}?`)) return;
@@ -1575,7 +1588,8 @@ $("people").addEventListener("click", async ev => {
   const r = await post("api/box/people/" + act, {body: JSON.stringify(body)});
   if (!r.ok) { $("peopleMsg").textContent = (await r.text()).trim(); return; }
   const out = await r.json().catch(() => ({}));
-  peopleLink = out.link ? {name: name, link: out.link, ygg_link: out.ygg_link} : peopleLink;
+  peopleLink = out.password ? {name: out.name || name, password: out.password, login: out.login, at: out.at}
+    : out.ygg_link ? {name: name, ygg_link: out.ygg_link} : peopleLink;
   if (document.activeElement) document.activeElement.blur();
   peopleKey = ""; refreshPeople();
 });

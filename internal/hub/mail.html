@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Your mail</title>
+<style>
+:root { --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --sub: #5b6475; --line: #dde1e8; --accent: #2f6fde; --ok: #1f8a4c; --bad: #c0392b; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171d; --panel: #1c2028; --text: #e6e9ef; --sub: #9aa3b2; --line: #2c323d; --accent: #6b9bff; --ok: #4cc27f; --bad: #ff6b5b; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 26px; margin: 0 0 6px; }
+.sub { color: var(--sub); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 18px; }
+.card h2 { font-size: 17px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.row { display: flex; gap: 10px; padding: 10px 4px; border-top: 1px solid var(--line); cursor: pointer; }
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--bg); }
+.row .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.row .when { color: var(--sub); font-size: 14px; white-space: nowrap; }
+.ok { color: var(--ok); font-weight: 600; }
+input { width: 100%; max-width: 22em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+button { padding: 6px 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+button.plain { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 12px 0; }
+.files a { display: inline-block; margin: 0 12px 6px 0; }
+.err { color: var(--bad); margin-top: 10px; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your mail</h1>
+  <div class="sub"><span id="addr"></span><a href="/files">Your files</a> · <a href="/files/site">Your website</a></div>
+  <div id="open"></div>
+  <div class="card" id="inbox"><span class="sub">Loading…</span></div>
+  <div class="card" id="fwdCard" hidden><h2>Forward to your email</h2><div id="fwd"></div></div>
+  <div class="err" id="err"></div>
+  <p class="sub" id="note" hidden>Your mail is sealed for your own key, which is kept on this box: nobody else in the group can read it,
+    but the box's owner could. Keep anything secret out of it.</p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const when = ms => new Date(ms).toLocaleString();
+const size = n => n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " bytes";
+let st, open = "";
+async function act(op, body) {
+  $("err").textContent = "";
+  const r = await fetch("?op=" + op, {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"}, body: JSON.stringify(body || {})});
+  if (!r.ok) { $("err").textContent = (await r.text()).trim(); return false; }
+  await load();
+  return true;
+}
+function inbox() {
+  if (!st.address) return `<h2>No email address yet</h2><p class="sub">The box's owner can ask the group for a name for you, such as
+    <b>yourname@${esc(st.domain || "the-group.org")}</b>. Once the group's admin approves it, your mail comes in here.</p>`;
+  if (!st.messages.length) return `<p class="sub">No mail yet. Mail to <b>${esc(st.address)}</b> comes in here.</p>`;
+  return st.messages.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name"><b>${esc(m.subject || "(no subject)")}</b><br>
+    <span class="sub">${esc(m.from)}</span>${m.error ? `<br><span class="err">${esc(m.error)}</span>` : ""}</span>
+    <span class="when">${when(m.received)}</span></div>`).join("");
+}
+function fwdCard() {
+  const f = st.forward;
+  if (f && f.confirmed && f.allowed) return `<p><span class="ok">On</span>: your mail is also sent to <b>${esc(f.to)}</b>.</p>
+    <button class="plain" id="unfwd">Stop forwarding</button>`;
+  if (f && f.confirmed) return `<p>Confirmed <b>${esc(f.to)}</b>. Waiting for the box's owner to allow it; then new mail is sent there too.</p>
+    <button class="plain" id="unfwd">Cancel</button>`;
+  if (f) {
+    const hm = t => new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    const again = f.sent + 600, wait = Date.now() / 1000 < again;
+    return `<p>A code went to <b>${esc(f.to)}</b> at ${hm(f.sent)}. Email can take a few minutes:
+      look in your <b>spam or junk folder</b> too. Type it here:</p>
+    <p><input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digits"> <button id="confirm">Confirm</button>
+    <button class="plain" id="resend" data-to="${esc(f.to)}" ${wait ? "disabled" : ""}>Send it again</button> <button class="plain" id="unfwd">Cancel</button></p>
+    <p class="sub">${wait ? `Not there by ${hm(again)}? Then you can send it again. ` : ""}Sending it again sends the same code, so either email works.</p>`;
+  }
+  return `<p class="sub">Have your mail sent on to an address you already read, such as your Gmail. A code goes to it first, to show it's yours,
+    and the box's owner allows it.</p>
+    <p><input id="to" type="email" placeholder="you@example.com"> <button id="fwdGo">Send me a code</button></p>`;
+}
+async function show(id) {
+  open = id;
+  if (!id) { $("open").innerHTML = ""; return; }
+  const r = await fetch("?op=message&id=" + encodeURIComponent(id), {cache: "no-store"});
+  if (!r.ok) { $("open").innerHTML = `<p class="err">${esc((await r.text()).trim())}</p>`; return; }
+  const m = await r.json();
+  const to = m.reply_to || m.from;
+  const files = (m.attachments || []).map((a, n) =>
+    `<a href="?op=attachment&id=${encodeURIComponent(m.id)}&n=${n}">${esc(a.name)}</a> <span class="sub">${size(a.size)}</span>`).join(" ");
+  $("open").innerHTML = `<div class="card"><h2>${esc(m.subject || "(no subject)")}</h2>
+    <div class="sub">From ${esc(m.from)}${m.reply_to ? ` (replies go to ${esc(m.reply_to)})` : ""}<br>To ${esc(m.to)}${m.cc ? `, cc ${esc(m.cc)}` : ""} · ${when(m.received)}</div>
+    <pre>${esc(m.text)}</pre>
+    ${files ? `<div class="files">${files}</div>` : ""}
+    <a href="mailto:${encodeURIComponent(to).replace(/%40/g, "@")}?subject=${encodeURIComponent("Re: " + (m.subject || ""))}"><button>Reply</button></a>
+    <button class="plain" id="del" data-id="${esc(m.id)}">Delete</button> <button class="plain" id="close">Close</button></div>`;
+  window.scrollTo(0, 0);
+}
+async function load() {
+  try { st = await (await fetch("?op=status", {cache: "no-store"})).json(); }
+  catch (e) { $("err").textContent = "The box isn't answering."; return; }
+  $("addr").innerHTML = st.address ? `<b>${esc(st.address)}</b> · ` : "";
+  $("inbox").innerHTML = inbox();
+  $("fwdCard").hidden = $("note").hidden = !st.address;
+  if (!document.activeElement || !["to", "code"].includes(document.activeElement.id)) $("fwd").innerHTML = fwdCard();
+}
+document.addEventListener("click", async ev => {
+  const t = ev.target;
+  const row = t.closest(".row[data-id]");
+  if (row) return show(row.dataset.id);
+  if (t.id === "close") return show("");
+  if (t.id === "del" && confirm("Delete this message?")) { if (await act("delete", {id: t.dataset.id})) show(""); }
+  if (t.id === "fwdGo") act("forward", {to: $("to").value});
+  if (t.id === "resend") act("forward", {to: t.dataset.to});
+  if (t.id === "confirm") act("confirm", {code: $("code").value});
+  if (t.id === "unfwd") act("unforward");
+});
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

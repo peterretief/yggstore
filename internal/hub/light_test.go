@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/light"
+	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/passkey"
 	"github.com/peterretief/yggstore/internal/peers"
 )
@@ -455,6 +457,162 @@ func TestLightOwnAddress(t *testing.T) {
 	// Signing in again at her address works.
 	if r := signInPasskey(at("anna.example.org"), ph); r.StatusCode != 200 {
 		t.Fatalf("signing in at her address: %d %s", r.StatusCode, text(r))
+	}
+}
+
+// Opening an invite signs that browser in without a passkey. The invite
+// works once, and the link's way in can't sign in again; forgetting it
+// signs the browser out.
+func TestLightInviteLink(t *testing.T) {
+	g := newLightGroup(t)
+	token := g.invite(t, "anna")
+	b := g.browser(t, "")
+	if r := b.do("GET", "/files/join?box=box&t="+token, ""); r.StatusCode != 200 || !strings.Contains(text(r), "Open my mail and files") {
+		t.Fatalf("invite page: %d", r.StatusCode)
+	}
+	if r := b.do("POST", light.Base+"/register", `{"link":true,"t":"`+token+`","name":"laptop"}`); r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" {
+		t.Fatalf("register: %d %s", r.StatusCode, text(r))
+	}
+	if r := b.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
+		t.Fatalf("list: %d %s", r.StatusCode, text(r))
+	}
+	if r := g.browser(t, "").do("POST", light.Base+"/register", `{"link":true,"t":"`+token+`"}`); r.StatusCode == 200 {
+		t.Fatal("the invite worked twice")
+	}
+	st, _ := Load(g.statePath)
+	anna, _ := st.PersonNamed("anna")
+	if len(anna.Passkeys) != 1 || !anna.Passkeys[0].Link || anna.Passkeys[0].Name != "laptop" {
+		t.Fatalf("keys %+v", anna.Passkeys)
+	}
+	id := anna.Passkeys[0].ID
+	r := g.browser(t, "").do("POST", light.Base+"/signin", `{"challenge":"x","id":"`+id+`"}`)
+	if r.StatusCode == 200 {
+		t.Fatal("a link's way in signed in again")
+	}
+
+	// A passkey as well, then forgetting the link signs its browser out.
+	token = g.invite(t, "anna")
+	b2 := g.browser(t, "")
+	b2.do("GET", "/files/join?box=box&t="+token, "")
+	a, _ := begin(t, b2, "", token)
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if r := makePasskey(b2, &phone{key: key, id: []byte("anna-phone-1")}, token, a); r.StatusCode != 200 {
+		t.Fatalf("passkey: %d %s", r.StatusCode, text(r))
+	}
+	if r := b2.do("POST", "/files/devices?op=forget&id="+url.QueryEscape(id), ""); r.StatusCode != 204 {
+		t.Fatalf("forget: %d %s", r.StatusCode, text(r))
+	}
+	g.push(t)
+	waitFor(t, func() bool { return b.do("POST", "/files?op=list", `{"path":""}`).StatusCode == 401 }, "the link's browser to be signed out")
+}
+
+// Signed in on the web, a person reads their mail at /files/mail, and
+// its attachments only download.
+func TestLightMail(t *testing.T) {
+	g := newLightGroup(t, peers.PersonName{Name: "anna.example.org", Person: "anna", Code: "ys1annaannaanna"})
+	dir := filepath.Dir(g.statePath)
+	g.u.cfg.People = NewPeopleSites(PeopleSitesConfig{StatePath: g.statePath, PeersPath: g.u.cfg.PeersPath, Self: boxYgg,
+		Dir: filepath.Join(dir, "people"), Logf: t.Logf})
+	token := g.invite(t, "anna")
+	st, _ := Load(g.statePath)
+	anna, _ := st.PersonNamed("anna")
+	box, err := g.u.cfg.People.Mailbox(anna)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := "From: ben@example.com\r\nTo: anna@example.org\r\nSubject: the plan\r\nMIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nsee attached\r\n" +
+		"--b\r\nContent-Type: text/html\r\nContent-Disposition: attachment; filename=\"plan.html\"\r\n\r\n<script>x</script>\r\n--b--\r\n"
+	sealed, err := mail.Seal(box.ID.Code(), []byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(box.Dir, 0o700)
+	os.WriteFile(filepath.Join(box.Dir, "m1.sealed"), sealed, 0o600)
+	os.WriteFile(filepath.Join(box.Dir, "m1.json"), []byte(`{"received":1}`), 0o600)
+
+	b := g.browser(t, "")
+	b.do("GET", "/files/join?box=box&t="+token, "")
+	if r := b.do("POST", light.Base+"/register", `{"link":true,"t":"`+token+`"}`); r.StatusCode != 200 {
+		t.Fatalf("register: %d %s", r.StatusCode, text(r))
+	}
+	if r := b.do("GET", MailPath, ""); r.StatusCode != 200 || !strings.Contains(text(r), "<title>Your mail</title>") {
+		t.Fatalf("mail page: %d", r.StatusCode)
+	}
+	if body := text(b.do("GET", MailPath+"?op=status", "")); !strings.Contains(body, `"address":"anna@example.org"`) || !strings.Contains(body, "the plan") {
+		t.Fatalf("status: %s", body)
+	}
+	if body := text(b.do("GET", MailPath+"?op=message&id=m1", "")); !strings.Contains(body, "see attached") || !strings.Contains(body, "plan.html") {
+		t.Fatalf("message: %s", body)
+	}
+	r := b.do("GET", MailPath+"?op=attachment&id=m1&n=0", "")
+	if body := text(r); r.StatusCode != 200 || body != "<script>x</script>" || r.Header.Get("Content-Type") != "application/octet-stream" ||
+		!strings.HasPrefix(r.Header.Get("Content-Disposition"), "attachment") {
+		t.Fatalf("attachment: %d %q %v", r.StatusCode, body, r.Header)
+	}
+	if r := g.browser(t, "").do("GET", MailPath+"?op=status", ""); r.StatusCode == 200 {
+		t.Fatal("mail without signing in")
+	}
+}
+
+// The admin sets a temporary password; she signs in with her group
+// address and it, must choose her own first, which her box keeps. Wrong
+// passwords make her wait, and a new temporary one signs her out.
+func TestLightPassword(t *testing.T) {
+	g := newLightGroup(t, peers.PersonName{Name: "anna.example.org", Person: "anna", Code: "ys1annaannaanna"})
+	g.invite(t, "anna") // adds her
+	var temp string
+	Update(context.Background(), g.statePath, func(s *HubState) error {
+		var err error
+		temp, err = s.SetTempPassword("anna", time.Now())
+		return err
+	})
+	g.push(t)
+	pw := func(b *browser, body string) *http.Response { return b.do("POST", light.Base+"/password", body) }
+	b := g.browser(t, "")
+	if r := pw(b, `{"login":"anna@example.org","password":"`+temp+`"}`); r.StatusCode != http.StatusPreconditionRequired {
+		t.Fatalf("temporary alone: %d %s", r.StatusCode, text(r))
+	}
+	if r := pw(b, `{"login":"anna@example.org","password":"`+temp+`","new":"short"}`); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a short new one: %d", r.StatusCode)
+	}
+	r := pw(b, `{"login":"Anna@Example.org","password":"`+temp+`","new":"tea at four on fridays"}`)
+	if r.StatusCode != 200 || b.cookies[light.SessionCookie] == "" || !strings.Contains(text(r), "/files/mail") {
+		t.Fatalf("choosing her own: %d %s", r.StatusCode, text(r))
+	}
+	if r := b.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != 200 {
+		t.Fatalf("list: %d %s", r.StatusCode, text(r))
+	}
+	st, _ := Load(g.statePath)
+	anna, _ := st.PersonNamed("anna")
+	if anna.Password == nil || anna.Password.Temp || !anna.Password.Matches("tea at four on fridays") {
+		t.Fatalf("the box keeps %+v", anna.Password)
+	}
+	g.push(t)
+	if r := pw(g.browser(t, ""), `{"login":"anna@example.org","password":"`+temp+`"}`); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("the temporary one still works: %d", r.StatusCode)
+	}
+	if r := pw(g.browser(t, ""), `{"login":"anna@localbox","password":"tea at four on fridays"}`); r.StatusCode != http.StatusForbidden {
+		t.Fatalf("a made-up login: %d", r.StatusCode)
+	}
+	b2 := g.browser(t, "")
+	if r := pw(b2, `{"login":"anna@box","password":"tea at four on fridays"}`); r.StatusCode != 200 {
+		t.Fatalf("name@box: %d %s", r.StatusCode, text(r))
+	}
+
+	// Wrong passwords: after MaxFails, even the right one waits.
+	for i := 0; i < light.MaxFails; i++ {
+		pw(g.browser(t, ""), `{"login":"anna@example.org","password":"wrong wrong wrong"}`)
+	}
+	if r := pw(g.browser(t, ""), `{"login":"anna@example.org","password":"tea at four on fridays"}`); r.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("after too many wrong: %d %s", r.StatusCode, text(r))
+	}
+
+	// A new temporary password signs her browsers out.
+	Update(context.Background(), g.statePath, func(s *HubState) error { _, err := s.SetTempPassword("anna", time.Now()); return err })
+	g.push(t)
+	if r := b.do("POST", "/files?op=list", `{"path":""}`); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("still signed in after a new temporary password: %d", r.StatusCode)
 	}
 }
 

@@ -14,15 +14,19 @@ files. That becomes the advanced, direct route, for people who want it.
 
 ## What the person sees
 
-1. **The box's owner adds them** under People on this box, as now. The
-   invite link is an ordinary web address:
-   `https://my.withcare.co.za/join?t=…`. It works once, for a week.
-2. **They open it in any browser,** on their laptop or phone. The page
-   asks them to name the device and **make a passkey**: the device's
-   fingerprint, face or screen-lock PIN. There's no password to choose.
-3. **Their files open,** on the same page box people have today: browse,
-   upload, download, rename, delete, and their website and messages if
-   they have a name.
+1. **The group's admin (or the box's owner) adds them** under People on
+   the box and presses **Set temporary password** (or runs `yggstore hub
+   person add NAME`). The password is shown once, e.g. `kf7m-q2xp-9tcw`,
+   with what they sign in as: their group address, such as
+   `kath@group.example` (or `name@box` without one). The admin gives
+   both to them by phone or in person, never by email. It works for a week.
+2. **They sign in at `https://my.withcare.co.za`** (or their own address)
+   with that address and password, and must choose their own password at
+   once, of at least 10 characters. Their box keeps it, so the box has to
+   be on for that first sign-in.
+3. **Their mail opens** (`/files/mail`), beside their files: browse,
+   upload, download, rename, delete, and **Your website** if they have a
+   name.
 4. **Next time** they go to `https://my.withcare.co.za` and press **Sign
    in**. The browser offers their passkey.
 5. **Another device:** passkeys made on a phone or laptop often sync to
@@ -80,14 +84,35 @@ Their invite link uses it too. Decided 2026-10-16.
   signed in. That's fine for pages they wrote; it's a reason to be careful
   with scripts copied from elsewhere.
 
+## Passwords
+
+Added 2026-10-23, in place of invite links on the web (an invite is now only
+for a device with Yggdrasil). A password is something people already
+understand, and works on any device, with or without a screen lock.
+
+- **The box keeps the password,** as a salted PBKDF2-SHA256 hash
+  (`internal/password`), and sends the hash to the web nodes with the
+  person's keys. The web nodes check sign-ins, so signing in works while
+  the box is off, except for choosing a password, which the box must take.
+- **A temporary password** works for a week and only to choose their own.
+  A new one (**New temporary password**) ends the old password and every
+  browser it signed in: that is how someone who forgot theirs gets back in.
+- **Signing in:** their group address (`label@domain`) or `name@box`, and
+  the password. The session lasts 30 days unused, renewed while in use.
+- **Limits:** 5 wrong passwords in a row for someone make them wait 15
+  minutes, counted across the web nodes; one address may try 20 sign-ins
+  in 10 minutes. Wrong addresses and wrong passwords get the same answer.
+- **Later:** a passkey added once signed in, and a reset by email to a
+  backup address ([email-login.md](email-login.md)).
+
 ## Without a screen lock
 
 A phone makes a passkey only if it has a screen lock. From 2026-10-16 the
 invite page offered a key kept by the browser instead, with a PIN. It was
 removed on 2026-10-23: it lived in one browser, so clearing the browser's
 data, forgetting the PIN or changing device meant a new invite, and the
-first person to use it didn't trust it. Someone without a screen lock will
-sign in by email instead (see [email-login.md](email-login.md)). The box
+first person to use it didn't trust it. Someone without a screen lock signs in
+with a password instead (see [Passwords](#passwords)). The box
 forgets any browser keys it still has.
 
 ## What the box's owner sees
