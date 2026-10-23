@@ -46,6 +46,10 @@ const (
 	apiPerSite      = 20000 // requests per site a day, per web node
 )
 
+// handlerTime is HandlerTime, longer only in tests built with -race,
+// where everything runs many times slower.
+var handlerTime = HandlerTime
+
 var handlerName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 // handlers runs sites' modules.
@@ -77,7 +81,9 @@ func (h *handlers) runtime() (wazero.Runtime, error) {
 			}
 		}
 		h.rt = wazero.NewRuntimeWithConfig(ctx, cfg)
-		_, h.err = wasi_snapshot_preview1.Instantiate(ctx, h.rt)
+		if _, h.err = wasi_snapshot_preview1.Instantiate(ctx, h.rt); h.err == nil {
+			h.err = hostModule(ctx, h.rt) // the site's data: datastore.go
+		}
 		h.mods = map[string]*compiled{}
 	})
 	return h.rt, h.err
@@ -212,8 +218,9 @@ func (w *Web) api(rw http.ResponseWriter, r *http.Request, site, root, owner str
 		http.Error(rw, "The site's code couldn't be started.", http.StatusBadGateway)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), HandlerTime)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerTime)
 	defer cancel()
+	ctx = context.WithValue(ctx, callKey{}, &call{w: w, site: site, root: root, ctx: ctx})
 	out, err := w.code.run(ctx, mod, r, site, ip, body)
 	if err != nil {
 		w.logf("web: %s%s: %v", site, r.URL.Path, err)

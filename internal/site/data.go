@@ -126,11 +126,12 @@ func splitStatements(sqlText string) []string {
 type siteData struct {
 	dir string
 
-	mu   sync.Mutex // writes, replays and rebuilds
-	log  *sql.DB
-	read *sql.DB // read.db, to write to
-	ro   *sql.DB // read.db, for queries: read-only
-	hash string  // the site SQL read.db was built with
+	mu    sync.Mutex // writes, replays and rebuilds
+	log   *sql.DB
+	read  *sql.DB // read.db, to write to
+	ro    *sql.DB // read.db, for queries: read-only
+	hash  string  // the site SQL read.db was built with
+	dirty bool    // the log has entries read.db may not have
 }
 
 func openSiteData(dir string) (*siteData, error) {
@@ -150,7 +151,7 @@ func openSiteData(dir string) (*siteData, error) {
 	}
 	log.Exec(`CREATE INDEX IF NOT EXISTS entries_order ON entries (t, node, seq)`)
 	log.Exec(`CREATE INDEX IF NOT EXISTS entries_got ON entries (got)`)
-	return &siteData{dir: dir, log: log}, nil
+	return &siteData{dir: dir, log: log, dirty: true}, nil
 }
 
 func (d *siteData) close() {
@@ -224,7 +225,13 @@ func (d *siteData) addLocked(entries []Entry, now time.Time) ([]Entry, error) {
 			fresh = append(fresh, e)
 		}
 	}
-	return fresh, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if len(fresh) > 0 {
+		d.dirty = true
+	}
+	return fresh, nil
 }
 
 // since gives the entries this web node got after got (unix ms), oldest
@@ -258,6 +265,9 @@ func (d *siteData) replay(s siteSQL) error {
 	if d.read == nil || d.hash != s.hash {
 		return d.rebuildLocked(s)
 	}
+	if !d.dirty {
+		return nil
+	}
 	todo, early, err := d.unappliedLocked(d.read)
 	if err != nil {
 		return err
@@ -265,7 +275,11 @@ func (d *siteData) replay(s siteSQL) error {
 	if early {
 		return d.rebuildLocked(s)
 	}
-	return applyEntries(d.read, s, todo)
+	if err := applyEntries(d.read, s, todo); err != nil {
+		return err
+	}
+	d.dirty = false
+	return nil
 }
 
 // unappliedLocked is the log's entries read.db hasn't had, in order, and
@@ -367,7 +381,7 @@ func (d *siteData) rebuildLocked(s siteSQL) error {
 	if d.ro, err = sql.Open("sqlite3", "file:"+path+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)"); err != nil {
 		return err
 	}
-	d.hash = s.hash
+	d.hash, d.dirty = s.hash, false
 	return nil
 }
 

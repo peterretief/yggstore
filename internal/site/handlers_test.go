@@ -85,18 +85,22 @@ func TestHandlers(t *testing.T) {
 	if rec := request(web, "POST", "courses.example", "/api/hello/echo", "shout"); rec.Code != http.StatusCreated || rec.Body.String() != "SHOUT" || rec.Header().Get("X-Seen-Agent") != "tester/1" {
 		t.Fatalf("echo: %d %v %q", rec.Code, rec.Header(), rec.Body)
 	}
-	for path, want := range map[string]int{
+	checks := map[string]int{
 		"/api/hello/slow":  http.StatusGatewayTimeout,
 		"/api/hello/big":   http.StatusBadGateway,
 		"/api/hello/crash": http.StatusBadGateway,
 		"/api/hello.wasm":  http.StatusNotFound,
 		"/api/nothing":     http.StatusNotFound,
-	} {
+	}
+	if handlerTime != HandlerTime {
+		delete(checks, "/api/hello/slow") // its 10 s are within the race detector's longer time
+	}
+	for path, want := range checks {
 		start := time.Now()
 		if rec := request(web, "GET", "courses.example", path, ""); rec.Code != want {
 			t.Errorf("%s: %d, want %d (%s)", path, rec.Code, want, rec.Body)
 		}
-		if took := time.Since(start); took > HandlerTime+2*time.Second {
+		if took := time.Since(start); took > handlerTime+2*time.Second {
 			t.Errorf("%s took %v", path, took)
 		}
 	}

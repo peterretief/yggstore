@@ -369,6 +369,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	var webStatus func() json.RawMessage
 	var work *workhere.Store
 	var signin *light.Store
+	var siteWeb *site.Web
 	if *webAddr != "" {
 		work = &workhere.Store{Dir: filepath.Join(*dataDir, "work"), Client: &http.Client{Timeout: 5 * time.Minute}, Log: log.Printf,
 			Shards: client.New(), Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },
@@ -388,7 +389,11 @@ func cmdServe(ctx context.Context, args []string) error {
 			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }}
 		login := &light.Relay{Peers: live.List, Signin: signin, Log: log.Printf}
 		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work,
-			Light: login, Who: login.Who}
+			Light: login, Who: login.Who,
+			// Sites' data: entries shared with the other web nodes.
+			Self: *name, DataClient: &http.Client{Timeout: 30 * time.Second},
+			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }}
+		siteWeb = web
 		if mailNode.Token != "" {
 			web.Mail = mailNode
 		}
@@ -435,7 +440,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
-		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), Version: versionString(),
+		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), SiteData: siteDataOpt(siteWeb), Version: versionString(),
 		Join: func(caller string, req invite.Request) (invite.Response, error) {
 			own := ""
 			if id, err := share.Load(*keyPath); err == nil {
@@ -921,6 +926,15 @@ func mailOutHandler(r *mail.Relay) interface {
 
 // workOpt is the node's recovery records, if it is a web node: a nil
 // *workhere.Store would be a non-nil interface.
+func siteDataOpt(w *site.Web) interface {
+	Serve(http.ResponseWriter, *http.Request, string) bool
+} {
+	if w == nil {
+		return nil
+	}
+	return w
+}
+
 func lightOpt(s *light.Store) interface {
 	Serve(http.ResponseWriter, *http.Request, string) bool
 } {

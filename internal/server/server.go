@@ -103,6 +103,11 @@ type Options struct {
 	Light interface {
 		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
 	}
+	// SiteData, if set, takes sites' data from the other web nodes and
+	// gives them what they missed (/v1/site-data/…; see package site).
+	SiteData interface {
+		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
+	}
 	// Version is the node's yggstore, reported in its info.
 	Version string
 }
@@ -202,6 +207,9 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			return
 		}
 		if opts.Light != nil && opts.Light.Serve(w, r, caller) {
+			return
+		}
+		if opts.SiteData != nil && opts.SiteData.Serve(w, r, caller) {
 			return
 		}
 		switch {

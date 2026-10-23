@@ -52,8 +52,16 @@ type Web struct {
 	// NoCode: this web node doesn't run sites' handlers (see ApiPath); the
 	// other web nodes do.
 	NoCode bool
+	// Self names this web node in the entries it takes for sites' data
+	// (its node name); Others are the group's web nodes' node API
+	// addresses, which share them (see datastore.go), reached with
+	// DataClient.
+	Self       string
+	Others     func(ctx context.Context) []string
+	DataClient *http.Client
 
 	code  handlers
+	data  dataSites
 	mu    sync.Mutex
 	st    webState
 	roots map[string]string // site → folder being served
@@ -126,6 +134,8 @@ func (w *Web) Run(ctx context.Context) error {
 		return err
 	}
 	w.code.dir = w.Dir // compiled handlers are kept in Dir/wasm-cache
+	go w.others()      // find the other web nodes before the first write needs them
+	go w.pullLoop(ctx)
 	w.mu.Lock()
 	w.load()
 	w.mu.Unlock()
@@ -206,7 +216,7 @@ func (w *Web) handle(s msg.Stored) {
 		}
 		e.Announced = s.Time
 		if a.Code && !e.Code && e.Serving != "" && !w.NoCode {
-			go w.code.warm(filepath.Join(w.Dir, "sites", a.Site, e.Serving)) // code just turned on
+			go w.warm(a.Site, filepath.Join(w.Dir, "sites", a.Site, e.Serving)) // code just turned on
 		}
 		e.Contact, e.Uploaders, e.Code = a.Contact, a.Uploaders, a.Code
 		if a.Stub.FileID == e.Serving {
@@ -326,7 +336,7 @@ func (w *Web) fetchWanted(ctx context.Context) {
 			w.roots[name] = filepath.Join(w.Dir, "sites", name, m.FileID)
 			w.logf("web: now serving %s version %s (%d files)", name, m.FileID[:8], m.FileCount)
 			if e.Code && !w.NoCode {
-				go w.code.warm(w.roots[name]) // so the first request needn't wait
+				go w.warm(name, w.roots[name]) // so the first request needn't wait
 			}
 			w.cleanup(name, old, m.FileID)
 		}
