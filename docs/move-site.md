@@ -8,13 +8,13 @@ mail) and doesn't change how sites are published or served.
 ## Why
 
 Tim's laptop is about to connect to localmail, the box at his office. He
-wants to edit messagemate-test.withcare.co.za, the copy of his business
+wants to edit business-test.withcare.co.za, the copy of his business
 site, from that laptop. Today the copy is published from the desktop, so
 it isn't in anything localmail syncs, and there's no way to hand it over:
 
 - A name under the group's domain is served only from the machine the
   member list gives it to (`peers.SiteKeeper`), or from an admin.
-  messagemate-test isn't given to anyone: it works only because the
+  business-test isn't given to anyone: it works only because the
   desktop is the admin.
 - The machine that publishes a site keeps every version's stub
   (`~/.yggstore/sites/NAME/versions/`). Nobody else has them, so nobody
@@ -24,7 +24,7 @@ it isn't in anything localmail syncs, and there's no way to hand it over:
 - Contact form messages go to the publishing machine's mailbox.
 
 The same move comes up again for Tim's own tim.withcare.co.za (from
-localbox-004 to localmail), and for messagemate.co.za itself if the
+localbox-004 to localmail), and for business.example itself if the
 business moves its live site onto the group.
 
 ## What the admin sees
@@ -43,7 +43,7 @@ changed and whether its contact form is on. Each row has **Move**.
 
 Then it shows what will happen, for example:
 
-> messagemate-test.withcare.co.za moves from **desktop** to **Tim, on
+> business-test.withcare.co.za moves from **desktop** to **Tim, on
 > the box localmail**. Its 1 version moves with it. The site stays online
 > throughout, and so does its contact form: new messages go to Tim's
 > Messages on localmail once the move is done. Move it?
@@ -65,10 +65,10 @@ own.
    [more-sites.md](more-sites.md)):
 
    ```json
-   {"name": "localmail", "sites": ["messagemate-test.withcare.co.za"], "code": "ys1…"}
+   {"name": "localmail", "sites": ["business-test.withcare.co.za"], "code": "ys1…"}
    ```
 
-   A site name has no mailbox: messagemate-test@withcare.co.za doesn't
+   A site name has no mailbox: business-test@withcare.co.za doesn't
    become an address. The check `peers.validNames` refuses a name held
    twice, so it's taken off the old holder in the same push.
 
@@ -130,7 +130,7 @@ shows **contact form not yet checked**.
 
 ### Domains outside the group's
 
-For a site on a domain of its own, such as messagemate.co.za, the web
+For a site on a domain of its own, such as business.example, the web
 nodes don't look at the member list: the site belongs to whoever
 published it first (`Web.mayChange`). For these, the admin's dashboard
 also sends the web nodes a signed `site-owner` message (site, new owner).
@@ -174,7 +174,7 @@ The move refuses to start:
 - How a site is stored, published, checked and rolled back.
 - The website folders, and how edits in them are published.
 - Routing, DNS and the Cloudflare tunnels.
-- The live messagemate.co.za, which is served by Apache on localmail and
+- The live business.example, which is served by Apache on localmail and
   isn't a group site at all. Moving it onto the group is a separate
   decision for the business.
 
@@ -194,7 +194,7 @@ The move refuses to start:
 
 Step 5 can wait until a site on its own domain needs to move.
 
-**First real use:** move messagemate-test.withcare.co.za from the desktop
+**First real use:** move business-test.withcare.co.za from the desktop
 to Tim, as a person on localmail. Before it:
 
 1. Tim's laptop connects to localmail (the one-line command), and the box
@@ -203,7 +203,7 @@ to Tim, as a person on localmail. Before it:
    short restart of its yggstore node; the mail server isn't touched).
 
 Then Tim edits the site from his laptop in
-`~/yggstore/websites/messagemate-test.withcare.co.za`, the site changes
+`~/yggstore/websites/business-test.withcare.co.za`, the site changes
 within a minute, and a test order sent through its contact form reaches
 his Messages and is forwarded to tim@business.example.
 
@@ -222,7 +222,7 @@ someone gets a site as well as an address: older nodes allow one name per
 person, and refuse the whole member list. The move then waits at **named**
 until they're updated.
 
-The first move, on 2026-10-19: messagemate-test from the desktop to Tim on
+The first move, on 2026-10-19: business-test from the desktop to Tim on
 localbox-004, for testing with his tim@group.example Messages. A test
 message through its contact form reached his mailbox within seconds.
 
@@ -232,7 +232,7 @@ and `sites.html` (the admin's page, and the machine's own sites) and
 
 ## Decided (2026-10-19)
 
-1. **messagemate-test goes to Tim as a person on localmail**, not to the
+1. **business-test goes to Tim as a person on localmail**, not to the
    box for everyone. Tim is the only one connected to localmail today, so
    either would do, but a person's site can't clash with someone else on
    the box editing it later.
