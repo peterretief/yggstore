@@ -637,7 +637,11 @@ func cmdHubControl(ctx context.Context, args []string) error {
 					if v.Current {
 						mark = "  <- online now"
 					}
-					fmt.Printf("  %s  %s  %d files, %d bytes%s\n", v.ID[:8], time.Unix(v.StoredAt, 0).Format("2 Jan 15:04"), v.Files, v.Bytes, mark)
+					files := fmt.Sprintf("%d files", v.Files)
+					if v.Files == 1 {
+						files = "1 file"
+					}
+					fmt.Printf("  %s  %s  %s, %d bytes%s\n", v.ID[:8], time.Unix(v.StoredAt, 0).Format("2 Jan 15:04"), files, v.Bytes, mark)
 				}
 			}
 			return nil
