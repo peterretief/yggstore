@@ -50,6 +50,8 @@ type state struct {
 	Contact string `json:"contact,omitempty"` // sharing code the contact form's messages go to; "" if off
 	// Uploaders are the group addresses that may add photos and files.
 	Uploaders []string `json:"uploaders,omitempty"`
+	// Code: the web nodes run the site's handlers (api/NAME.wasm).
+	Code bool `json:"code,omitempty"`
 }
 
 func (p *Publisher) siteDir(name string) string { return filepath.Join(p.Dir, name) }
@@ -303,6 +305,24 @@ func (p *Publisher) SetUploaders(ctx context.Context, name string, list []string
 	return p.announceCurrent(ctx, name, vs)
 }
 
+// SetCode asks the web nodes to run a site's handlers (api/NAME.wasm),
+// or to stop, and announces the current version again so they know.
+func (p *Publisher) SetCode(ctx context.Context, name string, on bool) error {
+	vs, err := p.Versions(name)
+	if err != nil {
+		return err
+	}
+	s := p.readState(name)
+	s.Code = on
+	if err := p.writeState(name, s); err != nil {
+		return err
+	}
+	return p.announceCurrent(ctx, name, vs)
+}
+
+// Code is whether a site's handlers run.
+func (p *Publisher) Code(name string) bool { return p.readState(name).Code }
+
 // Uploaders is who may add photos and files to a site.
 func (p *Publisher) Uploaders(name string) []string { return p.readState(name).Uploaders }
 
@@ -325,7 +345,7 @@ func (p *Publisher) Contact(name string) string { return p.readState(name).Conta
 
 func (p *Publisher) announce(ctx context.Context, name string, m manifest.Manifest) (Version, error) {
 	s := p.readState(name)
-	typ, body, err := encode(Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders})
+	typ, body, err := encode(Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders, Code: s.Code})
 	if err != nil {
 		return Version{}, err
 	}

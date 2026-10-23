@@ -49,7 +49,11 @@ type Web struct {
 	// Who, if set, says whose an access token from the group's login is
 	// (its claims), for uploads to sites (see UploadPath).
 	Who func(ctx context.Context, token string) (map[string]any, bool)
+	// NoCode: this web node doesn't run sites' handlers (see ApiPath); the
+	// other web nodes do.
+	NoCode bool
 
+	code  handlers
 	mu    sync.Mutex
 	st    webState
 	roots map[string]string // site → folder being served
@@ -69,6 +73,7 @@ type webEntry struct {
 	Error     string             `json:"error,omitempty"`
 	Contact   string             `json:"contact,omitempty"`   // the contact form's sharing code; "" if off
 	Uploaders []string           `json:"uploaders,omitempty"` // who may add photos and files
+	Code      bool               `json:"code,omitempty"`      // run its handlers (see ApiPath)
 }
 
 // NodeStatus is what a web node reports in its info.
@@ -85,6 +90,7 @@ type SiteStatus struct {
 	Error   string `json:"error,omitempty"`
 	Owner   string `json:"owner,omitempty"` // the node that publishes it
 	Contact bool   `json:"contact,omitempty"`
+	Code    bool   `json:"code,omitempty"`
 }
 
 func (w *Web) statePath() string { return filepath.Join(w.Dir, "web.json") }
@@ -119,6 +125,7 @@ func (w *Web) Run(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Join(w.Dir, "sites"), 0o755); err != nil {
 		return err
 	}
+	w.code.dir = w.Dir // compiled handlers are kept in Dir/wasm-cache
 	w.mu.Lock()
 	w.load()
 	w.mu.Unlock()
@@ -198,7 +205,10 @@ func (w *Web) handle(s msg.Stored) {
 			e.Owner = s.From // its contact form goes to the name's node
 		}
 		e.Announced = s.Time
-		e.Contact, e.Uploaders = a.Contact, a.Uploaders
+		if a.Code && !e.Code && e.Serving != "" && !w.NoCode {
+			go w.code.warm(filepath.Join(w.Dir, "sites", a.Site, e.Serving)) // code just turned on
+		}
+		e.Contact, e.Uploaders, e.Code = a.Contact, a.Uploaders, a.Code
 		if a.Stub.FileID == e.Serving {
 			e.Want = nil
 		} else {
@@ -315,6 +325,9 @@ func (w *Web) fetchWanted(ctx context.Context) {
 			e.Serving, e.Want, e.Error = m.FileID, nil, ""
 			w.roots[name] = filepath.Join(w.Dir, "sites", name, m.FileID)
 			w.logf("web: now serving %s version %s (%d files)", name, m.FileID[:8], m.FileCount)
+			if e.Code && !w.NoCode {
+				go w.code.warm(w.roots[name]) // so the first request needn't wait
+			}
 			w.cleanup(name, old, m.FileID)
 		}
 		w.save()
@@ -363,7 +376,7 @@ func (w *Web) Status() []SiteStatus {
 	defer w.mu.Unlock()
 	var out []SiteStatus
 	for name, e := range w.st.Sites {
-		s := SiteStatus{Site: name, Serving: e.Serving, Error: e.Error, Owner: e.Owner, Contact: e.Contact != ""}
+		s := SiteStatus{Site: name, Serving: e.Serving, Error: e.Error, Owner: e.Owner, Contact: e.Contact != "", Code: e.Code}
 		if e.Want != nil {
 			s.Waiting = e.Want.FileID
 		}
@@ -414,8 +427,9 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	var owner, contact string
 	var uploaders []string
+	code := false
 	if e := w.st.Sites[name]; ok && e != nil {
-		owner, contact, uploaders = e.Owner, e.Contact, e.Uploaders
+		owner, contact, uploaders, code = e.Owner, e.Contact, e.Uploaders, e.Code
 	}
 	w.mu.Unlock()
 	if ok && !servable(w.Peers(), name, owner) {
@@ -431,6 +445,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == UploadPath {
 		w.upload(rw, r, name, uploaders)
+		return
+	}
+	if p := r.URL.Path; p == strings.TrimSuffix(ApiPath, "/") || strings.HasPrefix(p, ApiPath) {
+		w.api(rw, r, name, root, owner, code)
 		return
 	}
 	rw.Header().Set("Cache-Control", "public, max-age=300")

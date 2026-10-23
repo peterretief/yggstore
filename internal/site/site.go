@@ -61,6 +61,9 @@ type Announcement struct {
 	// Uploaders, if set, are the group addresses (anna@example.org) that may
 	// add photos and files to the site (see UploadPath).
 	Uploaders []string `json:"uploaders,omitempty"`
+	// Code asks the web nodes to run the site's handlers: a request for
+	// /api/NAME runs api/NAME.wasm (see ApiPath).
+	Code bool `json:"code,omitempty"`
 }
 
 var domain = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)

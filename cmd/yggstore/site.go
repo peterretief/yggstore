@@ -31,6 +31,8 @@ const siteUsage = `yggstore site: static websites hosted on the group
   yggstore site list                            sites published from this machine
   yggstore site versions DOMAIN                 a site's versions, newest first
   yggstore site rollback DOMAIN [VERSION]       serve an earlier version (default: the one before)
+  yggstore site code DOMAIN on|off              run the site's handlers: /api/NAME runs api/NAME.wasm
+                                                on the web nodes (see docs/site-code.md)
   yggstore site contact DOMAIN on|off           the site's contact form: messages posted to
                                                 /_yggstore/contact arrive in this machine's
                                                 mailbox (see docs/sites.md)
@@ -193,6 +195,22 @@ func cmdSite(ctx context.Context, args []string) error {
 			fmt.Printf("%s: contact form off.\n", domain)
 		} else {
 			fmt.Printf("%s: contact form on. Messages posted to https://%s%s arrive in this machine's mailbox.\n", domain, domain, site.ContactPath)
+		}
+	case "code":
+		if fs.NArg() != 2 || (arg(1) != "on" && arg(1) != "off") {
+			return errors.New("usage: yggstore site code DOMAIN on|off")
+		}
+		domain := site.Normalise(arg(0))
+		if err := announcer(); err != nil {
+			return err
+		}
+		if err := pub.SetCode(ctx, domain, arg(1) == "on"); err != nil {
+			return err
+		}
+		if arg(1) == "off" {
+			fmt.Printf("%s: its handlers don't run any more; /api/ addresses are a 404.\n", domain)
+		} else {
+			fmt.Printf("%s: the web nodes run its handlers: https://%s%sNAME runs api/NAME.wasm from the version being served.\n", domain, domain, site.ApiPath)
 		}
 	case "owner":
 		if fs.NArg() != 2 {

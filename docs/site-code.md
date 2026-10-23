@@ -4,7 +4,7 @@ Status: proposed on 2026-10-22; on 2026-10-23 planned together with the
 starter (one project, two halves; see [one project](#one-project-two-halves)),
 with Kath's site as the first real use; the data design decided the
 same day (a write log and a read database, merged by replay). Stage 1 is
-being built.
+built (see [what's built](#whats-built-stage-1-2026-10-23)).
 
 ## What we want
 
@@ -108,6 +108,30 @@ Code is a bigger step than files, so it's off until the group's admin
 turns it on for a site, as names are approved now. A web node's owner can
 also refuse to run code at all; the other web nodes serve those sites'
 handlers.
+
+### What's built (stage 1, 2026-10-23)
+
+- **The web nodes run handlers** (`internal/site/handlers.go`): a request
+  for `/api/NAME` or `/api/NAME/…` on a site whose code is on runs
+  `api/NAME.wasm` from the version being served, with wazero. A handler is
+  any Go `http.Handler` served with `net/http/cgi`, built with
+  `GOOS=wasip1 GOARCH=wasm`. The request's headers go in as `HTTP_…`
+  (not `Authorization`, and not the address headers; `REMOTE_ADDR` is the
+  visitor's).
+- **Limits:** 2 seconds and 64 MB per request, a 64 KB request and a 1 MB
+  reply; 120 requests a minute per visitor and 20,000 a day per site, per
+  web node. Too slow is a 504, a crash or too big a reply a 502, and the
+  next request runs as usual.
+- **Compiled once:** a version's modules are compiled when it arrives, or
+  when code is turned on, and kept compiled in `web/wasm-cache` across
+  restarts; compiling isn't counted in the 2 seconds.
+- **Turned on by the publisher:** `yggstore site code SITE on|off`. For
+  now only sites the group's admin node publishes run code; anyone else's
+  answer 403 until there is a way for the admin to approve a site. A web
+  node started with `NoCode` (not yet a flag) answers 503 and the others
+  serve the request.
+- **Not yet:** the admin's approval for other sites, building `api/` in
+  the starter's `npm run build`, `db.Query` and `db.Record` (stage 3).
 
 ## Data that lasts
 
