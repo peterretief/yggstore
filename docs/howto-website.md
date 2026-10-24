@@ -190,17 +190,24 @@ Watching garden.withcare.co.za: each change is published to https://garden.withc
 
 When a site needs more than pages (a list from a database, a form, code), make it a project from the starter. A project is a site folder with a `package.json`; a push builds it first.
 
-1. Turn the garden into a project: move your Markdown into `pages/`, then copy the starter in:
+1. Turn the garden into a project. In a project the home page is `index.html` (the starter's), so keep a copy of the words in `index.md` to put there. Then move your Markdown into `pages/`, copy the starter in, and move the pictures into `public/`:
 
    ```sh
    cd garden.withcare.co.za
-   mkdir pages && git mv visit.md _layout.html pages/ && git rm -q index.md
+   mkdir pages && mv visit.md _layout.html pages/ && rm index.md
    git -C ../../YGGSITE-STARTER archive HEAD | tar -x --skip-old-files
-   rm push.config.example.json
+   mkdir -p public && mv img public/
+   rm push.config.example.json pages/news.md
    cd ..
+   git add garden.withcare.co.za && git commit -m "garden: a project"
    ```
 
-   `--skip-old-files` keeps your pages and layout where the starter has its own. In a project the home page is `index.html` (the starter's), so put the home page's words there. Delete the starter's pages you don't want, and take them out of the `pages` list in `vite.config.js`.
+   - `--skip-old-files` keeps your layout where the starter has its own.
+   - In a project, only files in `public/` go up exactly as they are, so pictures go in `public/img/` and are still `/img/beds.jpg` on the pages. Left in `img/`, they show in the preview but not on the live site.
+   - `pages/news.md` is the starter's sample page. Keep it if you want a news page.
+   - Delete the starter's pages you don't want, and take them out of the `pages` list in `vite.config.js`.
+
+   The menu is in `pages/_layout.html` for every Markdown page, and in each HTML page (`index.html`, `about/index.html` and so on, and `404.html`), which has its own copy. Add a page to each, e.g. `<a href="/visit/">Visit</a>`.
 2. Open the preview, then go to http://localhost:5173:
 
    ```sh
