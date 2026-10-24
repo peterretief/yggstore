@@ -107,12 +107,13 @@ The courses live in a SQLite file built from SQL in the project, published with 
    import { openDb, rows } from "./db.js";
    
    const list = document.getElementById("courses");
-   const db = await openDb();
-   for (const c of rows(db, "SELECT * FROM courses ORDER BY starts")) {
-     const li = document.createElement("li");
-     li.textContent = `${c.title}, from ${c.starts}, ${c.weeks} weeks`;
-     list.append(li);
-   }
+   openDb().then((db) => {
+     for (const c of rows(db, "SELECT * FROM courses ORDER BY starts")) {
+       const li = document.createElement("li");
+       li.textContent = `${c.title}, from ${c.starts}, ${c.weeks} weeks`;
+       list.append(li);
+     }
+   });
    ```
 
 `npm run db` rebuilds the file (the preview and every build do it too); restart the preview after changing the SQL. `src/events.js` is a fuller example, with a search box.
@@ -151,9 +152,11 @@ The price is worked out by Go code, built with TinyGo into `public/wasm/app.wasm
    ```js
    import { loadWasm } from "./wasm.js";
    
-   const ygg = await loadWasm();
-   const people = document.getElementById("people"); // <input id="people" type="number" value="1" min="1">
-   const show = (c) => `R ${ygg.price(c.weeks, c.price, Number(people.value) || 1)}`;
+   loadWasm().then((ygg) => {
+     const people = document.getElementById("people"); // <input id="people" type="number" value="1" min="1">
+     const show = (c) => `R ${ygg.price(c.weeks, c.price, Number(people.value) || 1)}`;
+     // … each course's price is show(course)
+   });
    ```
 
 The module is about 80 KB. Keep the Go pure (numbers and strings in and out): it can't reach the network or files. Anything a visitor mustn't be able to change, such as a final price, has to be checked again on the server (step 7).

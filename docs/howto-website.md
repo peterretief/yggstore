@@ -12,9 +12,10 @@ The examples build one site, `garden.withcare.co.za`, a step at a time. Use your
 | --- | --- |
 | 1–2 | One page, live |
 | 3–5 | Pages written in Markdown, a shared look, published as you save |
-| 6 | A live preview while you work, and code that runs in the browser |
-| 7–8 | A form whose answers are kept, on every web node |
-| 9 | Back to any earlier version |
+| 6 | A live preview while you work, and data shown from the site's own database |
+| 7 | Go code that runs in the visitor's browser |
+| 8–9 | A form whose answers are kept, on every web node |
+| 10 | Back to any earlier version |
 
 All commands run from `/media/peter/storage1/YGGSITES`.
 
@@ -183,7 +184,7 @@ Watching garden.withcare.co.za: each change is published to https://garden.withc
 
 - Ctrl-C stops it.
 - Add `--delete` to also remove pages you deleted from the folder. Without it, a deleted page stays online.
-- At most one new version a minute goes online; every version is kept (step 9).
+- At most one new version a minute goes online; every version is kept (step 10).
 - Commit in git now and then, as a record of what you changed.
 
 ## Step 6: a project, with a live preview
@@ -227,12 +228,13 @@ When a site needs more than pages (a list from a database, a form, code), make i
    ```js
    import { openDb, rows } from "./db.js";
    
-   const db = await openDb();
-   for (const d of rows(db, "SELECT * FROM days")) {
-     const li = document.createElement("li");
-     li.textContent = `${d.day}: ${d.open}`;
-     document.getElementById("days").append(li);
-   }
+   openDb().then((db) => {
+     for (const d of rows(db, "SELECT * FROM days")) {
+       const li = document.createElement("li");
+       li.textContent = `${d.day}: ${d.open}`;
+       document.getElementById("days").append(li);
+     }
+   });
    ```
 
    The database is built into `public/data/site.db` and read in the visitor's browser. Visitors can't change it; you change the SQL and publish again. Restart the preview after changing the SQL.
@@ -244,10 +246,92 @@ When a site needs more than pages (a list from a database, a form, code), make i
 | `about/index.html` and so on | HTML pages, listed in `vite.config.js` |
 | `src/` | the pages' JavaScript and `style.css` |
 | `db/schema.sql`, `db/seed.sql` | the published, read-only database |
-| `wasm/main.go` | Go that runs in the browser (`npm run wasm`) |
-| `api/` | code that runs on the web nodes (step 7) |
+| `wasm/main.go` | Go that runs in the browser (step 7) |
+| `api/` | code that runs on the web nodes (step 8) |
 
-## Step 7: a form whose answers are kept
+## Step 7: Go in the browser
+
+Code that works something out, such as a calculator, can be written in Go. TinyGo builds it into a small WebAssembly module, `public/wasm/app.wasm`, which runs in the visitor's browser. The starter's `wasm/main.go` already has two functions, `stats` and `slug`; this adds a third, for how much compost a bed needs.
+
+1. Add the function to `wasm/main.go`, with `"math"` in its `import` list:
+
+   ```go
+   // compost is how many 40-litre bags fill a bed: its length and width in
+   // metres, and the depth in centimetres.
+   func compost(this js.Value, args []js.Value) any {
+   	if len(args) < 3 {
+   		return 0
+   	}
+   	litres := args[0].Float() * args[1].Float() * args[2].Float() * 10
+   	return int(math.Ceil(litres / 40))
+   }
+   ```
+
+   Then put it on `window.yggsite`, in `main()` beside the other two:
+
+   ```go
+   "compost": js.FuncOf(compost),
+   ```
+2. A page for it, `compost/index.html`. TinyGo's loader, `/wasm/wasm_exec.js`, comes before the page's own script:
+
+   ```html
+   <!doctype html>
+   <html lang="en">
+   <head>
+     <meta charset="utf-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1">
+     <title>Compost · The garden</title>
+     <script src="/wasm/wasm_exec.js"></script>
+     <script type="module" src="/src/main.js"></script>
+     <script type="module" src="/src/compost.js"></script>
+   </head>
+   <body>
+     <header>
+       <a class="name" href="/">The garden</a>
+       <nav><a href="/">Home</a><a href="/visit/">Visit</a><a href="/compost/" aria-current="page">Compost</a></nav>
+     </header>
+     <main>
+       <h1>How much compost?</h1>
+       <form id="bed">
+         <label>Length (m) <input name="length" type="number" value="2" min="0" step="0.1"></label>
+         <label>Width (m) <input name="width" type="number" value="1" min="0" step="0.1"></label>
+         <label>Depth (cm) <input name="depth" type="number" value="5" min="0"></label>
+       </form>
+       <p id="bags"></p>
+     </main>
+   </body>
+   </html>
+   ```
+
+   and add `"compost/index.html"` to the `pages` list in `vite.config.js`, and a Compost link to the other pages' menus (step 6).
+3. The page's script, `src/compost.js`. `loadWasm()` (in the starter's `src/wasm.js`) loads the module once and gives back its functions:
+
+   ```js
+   import { loadWasm } from "./wasm.js";
+
+   loadWasm().then((ygg) => {
+     const form = document.getElementById("bed");
+     const show = () => {
+       const [length, width, depth] = ["length", "width", "depth"].map((n) => Number(form.elements[n].value) || 0);
+       document.getElementById("bags").textContent = `${ygg.compost(length, width, depth)} bags of 40 litres`;
+     };
+     form.addEventListener("input", show);
+     show();
+   });
+   ```
+4. Rebuild the module, then reload the preview at http://localhost:5173/compost/:
+
+   ```sh
+   ./devbox bash -c "cd garden.withcare.co.za && npm run wasm"
+   ```
+
+   A bed 2 m by 1 m, 5 cm deep, needs 100 litres: 3 bags. Restarting the preview (`./devbox dev`) and every push rebuild the module too.
+
+- The module is about 80 KB, and visitors download it once.
+- Keep the Go to numbers and strings in, numbers and strings out: in the browser it can't reach files or the network. Use JavaScript for the page itself.
+- Go that runs in the browser can be changed by anyone who wants to. Anything that must be right, such as a price someone pays, is checked again by code on the web nodes (step 8).
+
+## Step 8: a form whose answers are kept
 
 A sign-up form for work days: the page sends the form to `/api/signup`, a small Go program on the web nodes checks it and records it, and every web node keeps the same list. Four files, all in the project.
 
@@ -364,11 +448,11 @@ func main() {
 </script>
 ```
 
-A push builds `api/signup/` into `api/signup.wasm` and takes the two SQL files with it. None of the three is handed out to visitors. The form only works on the live site, once the code is on (step 8): the preview doesn't answer `/api/`.
+A push builds `api/signup/` into `api/signup.wasm` and takes the two SQL files with it. None of the three is handed out to visitors. The form only works on the live site, once the code is on (step 9): the preview doesn't answer `/api/`.
 
 Need only an email of each answer, no list kept? Post the form to `/_yggstore/contact` instead and turn it on with `bin/yggstore site contact garden.withcare.co.za on`; answers then arrive in the dashboard's Mail.
 
-## Step 8: turn the code on
+## Step 9: turn the code on
 
 A site's `api/` code runs only once it's switched on, once per site. Until then `/api/signup` answers 404, or 403 with a note.
 
@@ -407,9 +491,9 @@ curl "https://garden.withcare.co.za/api/signup?day=2026-11-07"
 
 To try a handler without data on the desktop first: `./devbox bash -c "cd garden.withcare.co.za && npm run api && cd tools/apirun && go run . ../../public/api/hello.wasm GET /api/hello"`. Handlers that use `db` only run on the site.
 
-## Step 9: go back to an earlier version
+## Step 10: go back to an earlier version
 
-Every push is kept as a version in the group, so a bad change is undone in one command. Data the site keeps (step 7) is not undone: sign-ups stay.
+Every push is kept as a version in the group, so a bad change is undone in one command. Data the site keeps (step 8) is not undone: sign-ups stay.
 
 **A site this desktop publishes**, in `/media/peter/storage1/YGGSTORE`:
 
@@ -438,6 +522,7 @@ Then make the folder in YGGSITES match, or the next push puts the bad change bac
 | publish as you save | `./devbox ./sites watch SITE` (Ctrl-C stops it) |
 | look at a Markdown site | `./sites build SITE`, then open `.build/SITE/` |
 | preview a project | `./devbox dev SITE`, then http://localhost:5173 |
+| rebuild the Go in the browser | `./devbox bash -c "cd SITE && npm run wasm"` |
 | turn code on (your site) | `bin/yggstore site code SITE on`, in YGGSTORE |
 | turn code on (a box's site) | `ssh -t pi4 'sudo yggstore hub site code NAME on'`, then `bin/yggstore site allow-code SITE on` |
 | a contact form to your Mail | `bin/yggstore site contact SITE on`, in YGGSTORE |
