@@ -438,9 +438,22 @@ func cmdServe(ctx context.Context, args []string) error {
 
 	store := localstore.WithQuota(*dataDir, int64(*quotaGB*(1<<30)))
 	addr := net.JoinHostPort(ip.String(), strconv.Itoa(*port))
+	// A node that publishes sites with code but isn't a web node keeps a
+	// copy of their data, so it outlives the web nodes (site.Keeper).
+	var siteData interface {
+		Serve(http.ResponseWriter, *http.Request, string) bool
+	}
+	if siteWeb != nil {
+		siteData = siteWeb
+	} else if site.SameAddr(site.KeeperAddr(live.List(), ip.String()), addr) {
+		keeper := &site.Keeper{Dir: filepath.Join(*dataDir, "site-data"), Client: &http.Client{Timeout: 30 * time.Second}, Log: log.Printf,
+			WebNodes: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }}
+		go keeper.Run(ctx)
+		siteData = keeper
+	}
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
-		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), SiteData: siteDataOpt(siteWeb), Version: versionString(),
+		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), SiteData: siteData, Version: versionString(),
 		Join: func(caller string, req invite.Request) (invite.Response, error) {
 			own := ""
 			if id, err := share.Load(*keyPath); err == nil {
@@ -926,15 +939,6 @@ func mailOutHandler(r *mail.Relay) interface {
 
 // workOpt is the node's recovery records, if it is a web node: a nil
 // *workhere.Store would be a non-nil interface.
-func siteDataOpt(w *site.Web) interface {
-	Serve(http.ResponseWriter, *http.Request, string) bool
-} {
-	if w == nil {
-		return nil
-	}
-	return w
-}
-
 func lightOpt(s *light.Store) interface {
 	Serve(http.ResponseWriter, *http.Request, string) bool
 } {

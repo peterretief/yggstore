@@ -225,6 +225,19 @@ The web nodes themselves can read the data, as they can read the sites
 they serve. That's the same trust as today, and it's why web nodes are
 machines the group chooses.
 
+### The owner's copy
+
+The machine that publishes a site with code, if it isn't a web node
+itself (a box, for its people's sites), keeps a copy of the site's
+entries: every minute it asks the web nodes which of their sites are its
+own and pulls their new entries into its own log. It doesn't replay them
+or take entries of its own. A web node pulls from it as from another web
+node, so a new web node, or one that lost its disk, catches up from the
+owner when the other web nodes are gone. Only the web nodes may read the
+copy, and a web node gives a site's entries only to the other web nodes
+and to the site's owner. Of several nodes on one machine, the one at the
+lowest address keeps the copy (`site.Keeper`).
+
 ### Snapshots and big records
 
 - **Now and then a web node stores the site's database** as an item in the

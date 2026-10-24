@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 )
@@ -287,13 +289,20 @@ func (w *Web) dataClient() *http.Client {
 }
 
 // Serve answers the other web nodes on the node's API (/v1/site-data/…):
-// entries they took, and what this one has that they missed.
+// entries they took, and what this one has that they missed. A site's
+// owner may read its own sites' entries too, for its copy (see Keeper),
+// and ask which they are.
 func (w *Web) Serve(rw http.ResponseWriter, r *http.Request, caller string) bool {
 	path, ok := strings.CutPrefix(r.URL.Path, dataPath)
 	if !ok {
 		return false
 	}
-	if !w.isWebNode(r.Context(), caller) {
+	if path == "owned" && r.Method == http.MethodGet {
+		rw.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(rw).Encode(map[string][]string{"sites": w.ownedBy(caller)})
+		return true
+	}
+	if !w.isWebNode(r.Context(), caller) && !(path == "entries" && r.Method == http.MethodGet && w.ownerOf(r.URL.Query().Get("site")) == ipOf(caller)) {
 		http.Error(rw, "only the group's web nodes", http.StatusForbidden)
 		return true
 	}
@@ -345,6 +354,30 @@ func (w *Web) Serve(rw http.ResponseWriter, r *http.Request, caller string) bool
 	return true
 }
 
+// ownerOf is the IP address of the node that publishes a site, or "".
+func (w *Web) ownerOf(site string) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if e := w.st.Sites[site]; e != nil && e.Owner != "" {
+		return ipOf(e.Owner)
+	}
+	return ""
+}
+
+// ownedBy are the sites with code that the node at ip publishes.
+func (w *Web) ownedBy(ip string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := []string{}
+	for name, e := range w.st.Sites {
+		if e.Code && e.Owner != "" && ipOf(e.Owner) == ipOf(ip) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // siteLog is a site's data without replaying it (another web node's
 // entries are taken whether or not this one serves the site's code yet).
 func (w *Web) siteLog(site string) (*siteData, error) {
@@ -375,21 +408,38 @@ func (w *Web) take(site string, entries []Entry) error {
 }
 
 // pull asks the other web nodes for the entries of every site with code
-// that this one missed, now and then: after it was off, say.
+// that this one missed, now and then: after it was off, say. A site whose
+// owner isn't a web node is asked too, as it keeps a copy (see Keeper):
+// a new web node gets the data from it when the others are gone.
 func (w *Web) pull(ctx context.Context) {
 	if w.Others == nil {
 		return
 	}
+	others := w.others()
+	web := map[string]bool{}
+	for _, a := range others {
+		web[ipOf(a)] = true
+	}
+	var list []peers.Peer
+	if w.Peers != nil {
+		list = w.Peers()
+	}
 	w.mu.Lock()
-	var sites []string
+	from := map[string][]string{} // site → where to ask
 	for name, e := range w.st.Sites {
-		if e.Code {
-			sites = append(sites, name)
+		if !e.Code {
+			continue
+		}
+		from[name] = others
+		if owner := ipOf(e.Owner); e.Owner != "" && !web[owner] {
+			if k := KeeperAddr(list, owner); k != "" {
+				from[name] = append(append([]string(nil), others...), k)
+			}
 		}
 	}
 	w.mu.Unlock()
-	for _, addr := range w.others() {
-		for _, site := range sites {
+	for site, addrs := range from {
+		for _, addr := range addrs {
 			w.pullFrom(ctx, addr, site)
 		}
 	}
@@ -400,38 +450,15 @@ func (w *Web) pullFrom(ctx context.Context, addr, site string) {
 	w.data.mu.Lock()
 	got := w.data.pulls[key]
 	w.data.mu.Unlock()
-	for range 100 {
-		rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		req, _ := http.NewRequestWithContext(rctx, http.MethodGet, "http://"+addr+dataPath+"entries?site="+site+"&got="+strconv.FormatInt(got, 10), nil)
-		resp, err := w.dataClient().Do(req)
-		if err != nil {
-			cancel()
-			return
-		}
-		var in struct {
-			Entries []Entry `json:"entries"`
-			Got     int64   `json:"got"`
-		}
-		err = json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&in)
-		resp.Body.Close()
-		cancel()
-		if err != nil || resp.StatusCode != http.StatusOK {
-			return
-		}
-		if len(in.Entries) > 0 {
-			if err := w.take(site, in.Entries); err != nil {
-				w.logf("web: %s: entries from %s: %v", site, addr, err)
-				return
-			}
-		}
-		got = in.Got
-		w.data.mu.Lock()
-		w.data.pulls[key] = got
-		w.data.mu.Unlock()
-		if len(in.Entries) < pullBatch {
-			return
-		}
+	got = pullEntries(ctx, w.dataClient(), addr, site, got, func(entries []Entry) error {
+		return w.take(site, entries)
+	}, w.logf)
+	w.data.mu.Lock()
+	if w.data.pulls == nil {
+		w.data.pulls = map[string]int64{}
 	}
+	w.data.pulls[key] = got
+	w.data.mu.Unlock()
 }
 
 func (w *Web) pullLoop(ctx context.Context) {
