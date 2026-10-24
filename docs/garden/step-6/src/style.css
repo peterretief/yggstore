@@ -1,0 +1,34 @@
+:root {
+  --bg: #fbfaf7; --ink: #1d1f22; --muted: #666b72; --line: #e2e0da; --accent: #2f6f5e;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151719; --ink: #e8e6e1; --muted: #9aa0a6; --line: #2c2f33; --accent: #6fc2a8; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header, main, footer { max-width: 42rem; margin: 0 auto; padding: 0 1rem; }
+header { display: flex; gap: 1rem; align-items: baseline; justify-content: space-between; flex-wrap: wrap; padding-top: 1.5rem; }
+header a.name { font-weight: 700; font-size: 1.2rem; color: var(--ink); text-decoration: none; }
+nav a { margin-left: 1rem; color: var(--muted); text-decoration: none; }
+nav a:first-child { margin-left: 0; }
+nav a:hover, nav a[aria-current] { color: var(--accent); }
+main { padding-top: 2rem; padding-bottom: 3rem; }
+h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .5rem; }
+a { color: var(--accent); }
+textarea, input { width: 100%; font: inherit; padding: .6rem .7rem; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; }
+textarea { min-height: 7rem; }
+label { display: block; font-weight: 600; margin: 1rem 0 .3rem; }
+button { font: inherit; font-weight: 600; margin-top: 1rem; padding: .55rem 1.2rem; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+.muted { color: var(--muted); font-size: .9rem; }
+.trap { position: absolute; left: -9999px; }
+.events { list-style: none; padding: 0; }
+.events li { padding: .7rem 0; border-bottom: 1px solid var(--line); }
+footer { color: var(--muted); font-size: .85rem; padding-bottom: 2rem; }
+.who { font-weight: 600; }
+.card { border: 1px solid var(--line); border-radius: 10px; padding: .2rem 1rem 1rem; margin: 1rem 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+.grid figure { margin: 0; }
+.grid img, .grid .file { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--line); }
+.grid .file { display: grid; place-items: center; font-weight: 700; color: var(--muted); text-decoration: none; }
+.grid figcaption { font-size: .85rem; margin-top: .35rem; line-height: 1.35; }

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compost · The garden</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/wasm/wasm_exec.js"></script>
+  <script type="module" src="/src/compost.js"></script>
+</head>
+<body>
+  <nav><a href="/">Home</a> <a href="/visit/">Visit</a> <a href="/compost/">Compost</a></nav>
+  <main>
+    <h1>How much compost?</h1>
+    <form id="bed">
+      <label>Length (m) <input name="length" type="number" value="2" min="0" step="0.1"></label>
+      <label>Width (m) <input name="width" type="number" value="1" min="0" step="0.1"></label>
+      <label>Depth (cm) <input name="depth" type="number" value="5" min="0"></label>
+    </form>
+    <p id="bags"></p>
+  </main>
+</body>
+</html>

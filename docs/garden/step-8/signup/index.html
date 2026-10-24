@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Work days · The garden</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <nav><a href="/">Home</a> <a href="/visit/">Visit</a> <a href="/compost/">Compost</a> <a href="/signup/">Work days</a></nav>
+  <main>
+    <h1>Sign up for a work day</h1>
+    <form id="signup">
+      <label>Day <select name="day"><option>2026-11-07</option><option>2026-11-21</option></select></label>
+      <label>Your name <input name="name" required></label>
+      <label>Your email <input name="email" type="email" required></label>
+      <button>Sign up</button>
+    </form>
+    <p id="said" role="status"></p>
+    <script type="module">
+      const form = document.getElementById("signup");
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const r = await fetch("/api/signup", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+        const out = await r.json();
+        document.getElementById("said").textContent = r.ok ? "Thank you, you're on the list." : out.error;
+      });
+    </script>
+  </main>
+</body>
+</html>

@@ -19,6 +19,8 @@ The examples build one site, `garden.withcare.co.za`, a step at a time. Use your
 
 All commands run from `/media/peter/storage1/YGGSITES`.
 
+Stuck? The garden as it stands after each step is in [docs/garden](garden/README.md): step 1, 3, 4, 6, 7 and 8 (the other steps don't change the folder). To start again from one, put it in place of your folder: `rm -r garden.withcare.co.za && cp -r ../YGGSTORE/docs/garden/step-6 garden.withcare.co.za` (commit your own first if you want to keep it).
+
 ## Step 1: a folder and a first page
 
 Make the folder, then write `index.html`, the page the site opens on. A site needs one to be published.
@@ -55,6 +57,8 @@ For a site on a person's box, the host is the box and the folder is in their fil
 ```
 kath.withcare.co.za     localbox-004   /root/yggstore-hub/users/Kath/websites/kath.withcare.co.za
 ```
+
+The garden after this step: [garden/step-1](garden/step-1/).
 
 ## Step 2: publish it
 
@@ -142,6 +146,8 @@ title: Visit
 
 Look at it before publishing: `./sites build garden.withcare.co.za` writes the pages into `.build/garden.withcare.co.za/`. A push builds it for you. Files whose names start with `_` or `.`, and `README.md`, are never published.
 
+The garden after this step: [garden/step-3](garden/step-3/).
+
 ## Step 4: styles and images
 
 CSS, images and other files go up exactly as they are, at the same path. The layout above already links `/style.css`.
@@ -167,6 +173,8 @@ In HTML: `<img src="/img/beds.jpg" alt="The vegetable beds in spring" width="120
 - Shrink photos before adding them: 1600 pixels wide is plenty, and a site holds at most 500 MB.
 - Write `alt` text that says what the picture shows.
 
+The garden after this step: [garden/step-4](garden/step-4/).
+
 ## Step 5: publish as you save
 
 Link the folder to the live site. Each change is published a couple of seconds after you save:
@@ -191,24 +199,52 @@ Watching garden.withcare.co.za: each change is published to https://garden.withc
 
 When a site needs more than pages (a list from a database, a form, code), make it a project from the starter. A project is a site folder with a `package.json`; a push builds it first.
 
-1. Turn the garden into a project. In a project the home page is `index.html` (the starter's), so keep a copy of the words in `index.md` to put there. Then move your Markdown into `pages/`, copy the starter in, and move the pictures into `public/`:
+1. Turn the garden into a project. Move your Markdown into `pages/`, copy the starter in, move the pictures into `public/`, and take out the starter's demo site:
 
    ```sh
    cd garden.withcare.co.za
    mkdir pages && mv visit.md _layout.html pages/ && rm index.md
    git -C ../../YGGSITE-STARTER archive HEAD | tar -x --skip-old-files
    mkdir -p public && mv img public/
-   rm push.config.example.json pages/news.md
+   rm -r index.html 404.html about contact events gallery register signin thanks pages/news.md \
+     push.config.example.json api/register api/schema.sql api/entries.sql
    cd ..
-   git add garden.withcare.co.za && git commit -m "garden: a project"
    ```
 
    - `--skip-old-files` keeps your layout where the starter has its own.
    - In a project, only files in `public/` go up exactly as they are, so pictures go in `public/img/` and are still `/img/beds.jpg` on the pages. Left in `img/`, they show in the preview but not on the live site.
-   - `pages/news.md` is the starter's sample page. Keep it if you want a news page.
-   - Delete the starter's pages you don't want, and take them out of the `pages` list in `vite.config.js`.
+   - The `rm` takes out the starter's demo: its pages and its sample server code, so only the garden is left. They're still in `YGGSITE-STARTER` if you want one back.
 
-   The menu is in `pages/_layout.html` for every Markdown page, and in each HTML page (`index.html`, `about/index.html` and so on, and `404.html`), which has its own copy. Add a page to each, e.g. `<a href="/visit/">Visit</a>`.
+   In a project the home page is HTML, so its words move from `index.md` into a new `garden.withcare.co.za/index.html`:
+
+   ```html
+   <!doctype html>
+   <html lang="en">
+   <head>
+     <meta charset="utf-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1">
+     <title>The garden</title>
+     <link rel="stylesheet" href="/style.css">
+   </head>
+   <body>
+     <nav><a href="/">Home</a> <a href="/visit/">Visit</a></nav>
+     <main>
+       <h1>The garden</h1>
+       <p>Open on Saturdays, 9 to 12. <a href="/visit/">How to find us</a>.</p>
+     </main>
+   </body>
+   </html>
+   ```
+
+   The HTML pages are listed in `vite.config.js`; for now there's one. Change its `pages` line to:
+
+   ```js
+   const pages = ["index.html"];
+   ```
+
+   The menu is in `pages/_layout.html` for every Markdown page, and in each HTML page, which has its own copy. A new page's link goes in each.
+
+   Commit it: `git add garden.withcare.co.za && git commit -m "garden: a project"`.
 2. Open the preview, then go to http://localhost:5173:
 
    ```sh
@@ -216,14 +252,14 @@ When a site needs more than pages (a list from a database, a form, code), make i
    ```
 
    It reloads as you save. Ctrl-C stops it.
-3. Show data from the site's own database. Add the table to `db/schema.sql` and its rows to `db/seed.sql`:
+3. Show data from the site's own database. Replace what's in `db/schema.sql` (the starter's events) with the table, and what's in `db/seed.sql` with its rows:
 
    ```sql
    CREATE TABLE days (day TEXT PRIMARY KEY, open TEXT NOT NULL);
    INSERT INTO days VALUES ('Saturday', '9 to 12'), ('Wednesday', '16 to 18');
    ```
 
-   Then on the home page, `index.html`: put `<ul id="days"></ul>` in `<main>` where the list should go, and `<script type="module" src="/src/days.js"></script>` in `<head>`, beside the other scripts. Any HTML page will do, but not a Markdown one: a script in a `.md` page works in the preview and is missing from the live site. Then write `src/days.js`:
+   Then on the home page, `index.html`: put `<ul id="days"></ul>` in `<main>` where the list should go, and `<script type="module" src="/src/days.js"></script>` in `<head>`, under the stylesheet. Any HTML page will do, but not a Markdown one: a script in a `.md` page works in the preview and is missing from the live site. Then write `src/days.js`:
 
    ```js
    import { openDb, rows } from "./db.js";
@@ -248,6 +284,8 @@ When a site needs more than pages (a list from a database, a form, code), make i
 | `db/schema.sql`, `db/seed.sql` | the published, read-only database |
 | `wasm/main.go` | Go that runs in the browser (step 7) |
 | `api/` | code that runs on the web nodes (step 8) |
+
+The garden after this step: [garden/step-6](garden/step-6/).
 
 ## Step 7: Go in the browser
 
@@ -281,15 +319,12 @@ Code that works something out, such as a calculator, can be written in Go. TinyG
      <meta charset="utf-8">
      <meta name="viewport" content="width=device-width, initial-scale=1">
      <title>Compost · The garden</title>
+     <link rel="stylesheet" href="/style.css">
      <script src="/wasm/wasm_exec.js"></script>
-     <script type="module" src="/src/main.js"></script>
      <script type="module" src="/src/compost.js"></script>
    </head>
    <body>
-     <header>
-       <a class="name" href="/">The garden</a>
-       <nav><a href="/">Home</a><a href="/visit/">Visit</a><a href="/compost/" aria-current="page">Compost</a></nav>
-     </header>
+     <nav><a href="/">Home</a> <a href="/visit/">Visit</a> <a href="/compost/">Compost</a></nav>
      <main>
        <h1>How much compost?</h1>
        <form id="bed">
@@ -303,7 +338,7 @@ Code that works something out, such as a calculator, can be written in Go. TinyG
    </html>
    ```
 
-   and add `"compost/index.html"` to the `pages` list in `vite.config.js`, and a Compost link to the other pages' menus (step 6).
+   Add `"compost/index.html"` to the `pages` list in `vite.config.js`, and the Compost link to the menus in `index.html` and `pages/_layout.html`.
 3. The page's script, `src/compost.js`. `loadWasm()` (in the starter's `src/wasm.js`) loads the module once and gives back its functions:
 
    ```js
@@ -330,6 +365,8 @@ Code that works something out, such as a calculator, can be written in Go. TinyG
 - The module is about 80 KB, and visitors download it once.
 - Keep the Go to numbers and strings in, numbers and strings out: in the browser it can't reach files or the network. Use JavaScript for the page itself.
 - Go that runs in the browser can be changed by anyone who wants to. Anything that must be right, such as a price someone pays, is checked again by code on the web nodes (step 8).
+
+The garden after this step: [garden/step-7](garden/step-7/).
 
 ## Step 8: a form whose answers are kept
 
@@ -451,6 +488,8 @@ func main() {
 A push builds `api/signup/` into `api/signup.wasm` and takes the two SQL files with it. None of the three is handed out to visitors. The form only works on the live site, once the code is on (step 9): the preview doesn't answer `/api/`.
 
 Need only an email of each answer, no list kept? Post the form to `/_yggstore/contact` instead and turn it on with `bin/yggstore site contact garden.withcare.co.za on`; answers then arrive in the dashboard's Mail.
+
+The garden after this step: [garden/step-8](garden/step-8/).
 
 ## Step 9: turn the code on
 

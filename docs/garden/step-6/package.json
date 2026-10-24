@@ -1,0 +1,21 @@
+{
+  "name": "yggsite-starter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wasm": "node scripts/wasm.mjs",
+    "db": "node --no-warnings=ExperimentalWarning scripts/db.mjs",
+    "dev": "npm run wasm && npm run db && vite",
+    "build": "npm run wasm && npm run db && npm run api && vite build",
+    "preview": "vite preview",
+    "push": "node scripts/push.mjs",
+    "api": "node scripts/api.mjs"
+  },
+  "devDependencies": {
+    "vite": "6.3.5"
+  },
+  "dependencies": {
+    "sql.js": "1.14.2",
+    "marked": "18.0.14"
+  }
+}

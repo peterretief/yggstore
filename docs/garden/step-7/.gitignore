@@ -1,0 +1,7 @@
+node_modules/
+dist/
+out/
+public/wasm/
+public/data/
+push.config.json
+public/api/

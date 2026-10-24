@@ -1,0 +1,4 @@
+body { font: 18px/1.6 system-ui, sans-serif; max-width: 40rem; margin: 0 auto; padding: 1rem; color: #222; background: #fdfcf8; }
+nav a { margin-right: 1rem; color: #2f6b3a; }
+img { max-width: 100%; height: auto; border-radius: 6px; }
+@media (prefers-color-scheme: dark) { body { color: #eee; background: #1b1d1a; } nav a { color: #8fd19e; } }
