@@ -166,8 +166,14 @@ them, and putting it on the owner's box would stop it when the box is off
   and `api/entries.sql` (each kind's statements under a `-- kind: NAME`
   line). Besides the fields, a statement can use `:entry_id`,
   `:entry_time` (unix ms), `:entry_node` and `:entry_kind`. Statements must
-  give the same result everywhere: no `random()` or `datetime('now')`; the
-  time is the entry's own.
+  give the same result everywhere, and every time the entries are replayed
+  again, so during a replay the time now is the entry's own: `'now'`,
+  `CURRENT_TIMESTAMP` and `datetime()` with no time give the entry's time,
+  in `entries.sql` and in triggers and defaults alike, and `random()` and
+  `randomblob()` are drawn from the entry's id. `'localtime'` and `'utc'`
+  would differ between web nodes' time zones, so they turn the entry down;
+  `'now'` in `schema.sql` itself (not in a trigger) is refused, as it has
+  no entry. Queries keep SQLite's own time and chance.
 
 ### Merging
 

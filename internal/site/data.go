@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
@@ -29,6 +29,8 @@ import (
 // the same way on every web node, since they all replay the same entries
 // in the same order. An entry that arrives out of order, or new SQL in a
 // new version of the site, means read.db is built again from the start.
+// So that a replay comes out the same everywhere and every time, the SQL's
+// time now and random() come from the entry (see datafuncs.go).
 
 // Entry is one write to a site's data.
 type Entry struct {
@@ -125,6 +127,7 @@ func splitStatements(sqlText string) []string {
 // siteData is one site's data on this web node.
 type siteData struct {
 	dir string
+	env *replayEnv // read.db's writing connections' time and chance
 
 	mu    sync.Mutex // writes, replays and rebuilds
 	log   *sql.DB
@@ -151,7 +154,7 @@ func openSiteData(dir string) (*siteData, error) {
 	}
 	log.Exec(`CREATE INDEX IF NOT EXISTS entries_order ON entries (t, node, seq)`)
 	log.Exec(`CREATE INDEX IF NOT EXISTS entries_got ON entries (got)`)
-	return &siteData{dir: dir, log: log, dirty: true}, nil
+	return &siteData{dir: dir, env: &replayEnv{}, log: log, dirty: true}, nil
 }
 
 func (d *siteData) close() {
@@ -163,6 +166,7 @@ func (d *siteData) close() {
 		}
 	}
 	d.ro, d.read = nil, nil
+	d.env.close()
 }
 
 // record takes a new entry at this web node.
@@ -275,7 +279,7 @@ func (d *siteData) replay(s siteSQL) error {
 	if early {
 		return d.rebuildLocked(s)
 	}
-	if err := applyEntries(d.read, s, todo); err != nil {
+	if err := applyEntries(d.read, d.env, s, todo); err != nil {
 		return err
 	}
 	d.dirty = false
@@ -343,11 +347,14 @@ func (d *siteData) rebuildLocked(s siteSQL) error {
 		os.Remove(p)
 	}
 	// Foreign keys on, whatever SQLite's default: REFERENCES is a rule too.
-	db, err := sql.Open("sqlite3", "file:"+tmp+"?_pragma=journal_mode(delete)&_pragma=foreign_keys(1)")
+	db, err := driver.Open("file:"+tmp+"?_pragma=journal_mode(delete)&_pragma=foreign_keys(1)", d.env.register)
 	if err != nil {
 		return err
 	}
-	if _, err := db.Exec(s.schema); err != nil {
+	d.env.enterSchema()
+	_, err = db.Exec(s.schema)
+	d.env.leave()
+	if err != nil {
 		db.Close()
 		return fmt.Errorf("api/schema.sql: %w", err)
 	}
@@ -357,7 +364,7 @@ func (d *siteData) rebuildLocked(s siteSQL) error {
 	}
 	todo, _, err := d.unappliedLocked(db)
 	if err == nil {
-		err = applyEntries(db, s, todo)
+		err = applyEntries(db, d.env, s, todo)
 	}
 	db.Close()
 	if err != nil {
@@ -376,7 +383,7 @@ func (d *siteData) rebuildLocked(s siteSQL) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
-	if d.read, err = sql.Open("sqlite3", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(1)"); err != nil {
+	if d.read, err = driver.Open("file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(1)", d.env.register); err != nil {
 		return err
 	}
 	if d.ro, err = sql.Open("sqlite3", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)"); err != nil {
@@ -388,7 +395,7 @@ func (d *siteData) rebuildLocked(s siteSQL) error {
 
 // applyEntries applies entries in order, each on its own: one whose
 // statements fail is turned down and changes nothing.
-func applyEntries(db *sql.DB, s siteSQL, entries []Entry) error {
+func applyEntries(db *sql.DB, env *replayEnv, s siteSQL, entries []Entry) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -406,12 +413,14 @@ func applyEntries(db *sql.DB, s siteSQL, entries []Entry) error {
 			if _, err := tx.Exec(`SAVEPOINT entry`); err != nil {
 				return err
 			}
+			env.enter(e)
 			for _, st := range stmts {
 				if _, err := tx.Exec(st, params(st, e)...); err != nil {
 					status, why = EntryRefused, err.Error()
 					break
 				}
 			}
+			env.leave()
 			if status == EntryRefused {
 				tx.Exec(`ROLLBACK TO entry`)
 			}

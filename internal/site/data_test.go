@@ -193,3 +193,93 @@ func TestSiteDataMerge(t *testing.T) {
 		t.Fatalf("fields came back as %v", got[0].Fields)
 	}
 }
+
+// The time now and random() in a site's SQL come from the entry, so two
+// web nodes, and a rebuild, give the same data.
+func TestSiteDataTimeAndChance(t *testing.T) {
+	const schema = `
+CREATE TABLE notes (id TEXT PRIMARY KEY, day TEXT CHECK (date(day) IS NOT NULL), r INTEGER, b BLOB,
+  at TEXT DEFAULT CURRENT_TIMESTAMP, today TEXT, secs INTEGER, next TEXT);
+CREATE TABLE seen (note TEXT, at TEXT);
+CREATE TRIGGER noted AFTER INSERT ON notes BEGIN INSERT INTO seen VALUES (NEW.id, datetime('now')); END;
+`
+	const entries = `
+-- kind: note
+INSERT INTO notes (id, day, r, b, today, secs, next)
+VALUES (:entry_id, :day, random(), randomblob(8), date(), unixepoch('now'), date(:day, '+1 day'));
+
+-- kind: local
+INSERT INTO notes (id, day, today) VALUES (:entry_id, :day, datetime('now', 'localtime'));
+`
+	s, err := parseSiteSQL(schema, entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := func() *siteData {
+		d, err := openSiteData(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(d.close)
+		return d
+	}
+	all := func(d *siteData) string {
+		var b strings.Builder
+		for _, q := range []string{`SELECT id, day, r, hex(b), at, today, secs, next FROM notes ORDER BY id`, `SELECT note, at FROM seen ORDER BY note`} {
+			r, err := d.query(q, nil, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprintln(&b, r.Rows)
+		}
+		return b.String()
+	}
+	a, b := open(), open()
+	t0 := time.UnixMilli(1_800_000_000_000) // 2027-01-15 08:00:00 UTC
+	e1, _ := a.record("web-a", "note", map[string]any{"day": "2026-11-07"}, t0)
+	e2, _ := a.record("web-a", "note", map[string]any{"day": "2026-11-21"}, t0.Add(time.Hour))
+	loc, _ := a.record("web-a", "local", map[string]any{"day": "2026-11-07"}, t0.Add(2*time.Hour))
+	if err := a.replay(s); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond) // a different time now for b's replay
+	b.add([]Entry{e2, loc, e1}, t0)
+	if err := b.replay(s); err != nil {
+		t.Fatal(err)
+	}
+	da := all(a)
+	if db := all(b); da != db {
+		t.Fatalf("the web nodes differ:\n%s\n%s", da, db)
+	}
+	r, _ := a.query(`SELECT at, today, secs, next FROM notes WHERE id = ?`, []any{e1.ID}, 1)
+	if want := []any{"2027-01-15 08:00:00", "2027-01-15", int64(1_800_000_000), "2026-11-08"}; !reflect.DeepEqual(r.Rows[0], want) {
+		t.Fatalf("the first note's times are %v, want %v", r.Rows[0], want)
+	}
+	r, _ = a.query(`SELECT count(DISTINCT r), count(DISTINCT b) FROM notes`, nil, 1)
+	if r.Rows[0][0] != int64(2) || r.Rows[0][1] != int64(2) {
+		t.Fatalf("random() gave the same for two entries: %v", r.Rows[0])
+	}
+	if got, why := a.status(loc.ID); got != EntryRefused || !strings.Contains(why, "time zone") {
+		t.Fatalf("'localtime': %s %q", got, why)
+	}
+
+	// Built again (new SQL, the same rules): the same data.
+	s2, _ := parseSiteSQL(schema+"\n-- again\n", entries)
+	if err := a.replay(s2); err != nil {
+		t.Fatal(err)
+	}
+	if again := all(a); again != da {
+		t.Fatalf("a rebuild changed the data:\n%s\n%s", da, again)
+	}
+
+	// Queries have SQLite's own time and chance.
+	if r, err := a.query(`SELECT random(), datetime('now', 'localtime')`, nil, 1); err != nil || r.Rows[0][0] == nil {
+		t.Fatalf("a query's random(): %v %v", r, err)
+	}
+
+	// The time now in schema.sql itself is turned down, with what to do.
+	bad, _ := parseSiteSQL("CREATE TABLE t (x TEXT);\nINSERT INTO t VALUES (datetime('now'));", entries)
+	if err := open().replay(bad); err == nil || !strings.Contains(err.Error(), "write the date itself") {
+		t.Fatalf("'now' in schema.sql: %v", err)
+	}
+}

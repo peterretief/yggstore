@@ -281,7 +281,7 @@ Registrations, members, bookings and the owner's edits are kept by the web nodes
    WHEN (SELECT count(*) FROM registrations WHERE course = NEW.course) >= (SELECT places FROM courses WHERE id = NEW.course)
    BEGIN SELECT RAISE(ABORT, 'the course is full'); END;
    ```
-2. What each kind of entry does, in `api/entries.sql`. Use the entry's fields (`:name`) and `:entry_id`, `:entry_time` (unix ms), `:entry_node`, `:entry_kind`; nothing that differs between machines, so no `random()` or `datetime('now')`:
+2. What each kind of entry does, in `api/entries.sql`. Use the entry's fields (`:name`) and `:entry_id`, `:entry_time` (unix ms), `:entry_node`, `:entry_kind`. While entries are replayed, `datetime('now')` and `CURRENT_TIMESTAMP` give the entry's own time and `random()` is drawn from the entry, so every web node gets the same; `'localtime'` turns the entry down (keep times in UTC):
 
    ```sql
    -- kind: register

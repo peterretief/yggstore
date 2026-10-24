@@ -399,6 +399,8 @@ INSERT INTO signups (id, day, name, email)
 VALUES (:entry_id, :day, trim(:name), lower(trim(:email)));
 ```
 
+Every web node replays the sign-ups through this SQL, and replays them all again when the SQL changes, so it gives the same answer every time: `datetime('now')` or `CURRENT_TIMESTAMP` here, or in a trigger, is the sign-up's own time, and `random()` is drawn from the sign-up. Keep times in UTC: `'localtime'` turns a sign-up down.
+
 **3. The handler**, `api/signup/main.go`, an ordinary Go web app:
 
 ```go
