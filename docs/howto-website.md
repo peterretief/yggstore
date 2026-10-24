@@ -223,7 +223,7 @@ When a site needs more than pages (a list from a database, a form, code), make i
    INSERT INTO days VALUES ('Saturday', '9 to 12'), ('Wednesday', '16 to 18');
    ```
 
-   Then in a page, `<ul id="days"></ul>` and `<script type="module" src="/src/days.js"></script>`, with `src/days.js`:
+   Then on the home page, `index.html`: put `<ul id="days"></ul>` in `<main>` where the list should go, and `<script type="module" src="/src/days.js"></script>` in `<head>`, beside the other scripts. Any HTML page will do, but not a Markdown one: a script in a `.md` page works in the preview and is missing from the live site. Then write `src/days.js`:
 
    ```js
    import { openDb, rows } from "./db.js";
