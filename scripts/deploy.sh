@@ -15,13 +15,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# NAME          SSH        ARCH   BINARY                          AS    RESTART (services; "user:" = systemctl --user, "rc:" = OpenRC)
+# NAME          SSH        ARCH   BINARY                          AS    RESTART (services; "user:" = systemctl --user, "rc:" = OpenRC, "docker:" = a container)
 NODES='
 desktop        local      amd64  bin/yggstore                    -     user:yggstore-node user:yggstore-dashboard
 localmail      localmail  amd64  /usr/local/bin/yggstore         sudo  yggstore yggstore-hub
 localbox-004   pi4        amd64  /usr/local/bin/yggstore         sudo  yggstore-node yggstore-node-localbox-004-usb1 yggstore-node-localbox-004-usb2 yggstore-hub yggstore-dashboard yggstore-dashboard-localbox-004-usb1 yggstore-dashboard-localbox-004-usb2
 localbox-003   pi3        arm64  /usr/local/bin/yggstore         sudo  yggstore-node yggstore-hub yggstore-dashboard
-localbox-002   pi2        armv7  /mnt/data/yggstore/bin/yggstore root  rc:yggstore rc:yggstore-dashboard
+localbox-002   local      amd64  /media/peter/storage1/yggnodes/localbox-002/yggstore/bin/yggstore -  docker:localbox-002-node-1 docker:localbox-002-dashboard-1
 '
 WEB="desktop localmail localbox-004"
 
@@ -47,6 +47,7 @@ restart() { # the shell commands that restart NODE's services
 		case "$s" in
 		user:*) out+="systemctl --user restart ${s#user:}; " ;;
 		rc:*) out+="$(root "$1")rc-service ${s#rc:} restart; " ;;
+		docker:*) out+="docker restart ${s#docker:} >/dev/null; " ;;
 		*) out+="$(root "$1")systemctl restart $s; " ;;
 		esac
 	done
@@ -58,6 +59,7 @@ running() { # the shell commands that check NODE's services are up
 		case "$s" in
 		user:*) out+="systemctl --user is-active --quiet ${s#user:} || { echo '${s#user:} is not running'; exit 1; }; " ;;
 		rc:*) out+="$(root "$1")rc-service ${s#rc:} status >/dev/null || { echo '${s#rc:} is not running'; exit 1; }; " ;;
+		docker:*) out+="[ \"\$(docker inspect -f '{{.State.Running}}' ${s#docker:} 2>/dev/null)\" = true ] || { echo '${s#docker:} is not running'; exit 1; }; " ;;
 		*) out+="systemctl is-active --quiet $s || { echo '$s is not running'; exit 1; }; " ;;
 		esac
 	done

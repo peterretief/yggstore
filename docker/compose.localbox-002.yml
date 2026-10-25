@@ -1,0 +1,50 @@
+# localbox-002, moved off its Raspberry Pi on 2026-10-25: the same node (its
+# Yggdrasil key, so its address, its pieces and settings) in two containers
+# on the desktop, on the test nodes' bridge so it finds the desktop's
+# Yggdrasil there. Its folder is mounted where it was on the Pi, so the
+# commands are the Pi's. scripts/deploy.sh replaces bin/yggstore in it and
+# restarts both.
+#   docker compose -f docker/compose.localbox-002.yml up -d
+name: localbox-002
+
+x-common: &common
+  image: yggstore-testnode
+  restart: unless-stopped
+  environment: { HOME: /mnt/data/yggstore }
+  working_dir: /mnt/data/yggstore
+  volumes:
+    - /media/peter/storage1/yggnodes/localbox-002/yggstore:/mnt/data/yggstore
+    - /media/peter/storage1/yggnodes/localbox-002/yggdrasil.conf:/etc/yggdrasil.conf:ro
+
+services:
+  node:
+    <<: *common
+    hostname: localbox-002
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 0
+    networks: [yggtest]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        yggdrasil -useconffile /etc/yggdrasil.conf &
+        for i in $$(seq 30); do ip -6 addr | grep -q 'inet6 2[0-9a-f][0-9a-f]:' && break; sleep 1; done
+        exec /mnt/data/yggstore/bin/yggstore serve -peers /mnt/data/yggstore/peers.json -data /mnt/data/yggstore/shards -name localbox-002 -quota 40
+
+  dashboard:
+    <<: *common
+    network_mode: service:node
+    depends_on: [node]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sleep 5
+        exec /mnt/data/yggstore/bin/yggstore dashboard -peers /mnt/data/yggstore/shards/peers.pushed.json -outfiles /mnt/data/yggstore/outfiles -mailbox /mnt/data/yggstore/.yggstore/mail -msg-token /mnt/data/yggstore/.yggstore/msg.token -devices /mnt/data/yggstore/.yggstore/devices.json -me localbox-002 -remote -interval 10s -imap= -smtp=
+
+networks:
+  yggtest:
+    name: yggtest_yggtest
+    external: true
