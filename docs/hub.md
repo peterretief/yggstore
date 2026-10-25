@@ -190,6 +190,13 @@ for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fd00::/8 fe80::/10; do
 done
 ```
 
+Over Yggdrasil, `provision-pi.sh` lets in only the node (7400), its
+dashboard (7480), the hub (7490) and Syncthing (22000), and SSH only from
+the admin's machine. The rules are in `/etc/yggstore/yggdrasil-in.nft`,
+loaded at boot by `yggstore-yggdrasil-in.service`. A web node also needs
+8480 there. If nftables' own service is restarted, its `flush ruleset`
+drops them; `systemctl restart yggstore-yggdrasil-in` brings them back.
+
 The hub finds Syncthing's address and API key in its `config.xml` (under
 `~/.local/state/syncthing/`, which for root is in `/root`). The devices'
 folders go in `~/yggstore-hub/users/NAME` and websites in

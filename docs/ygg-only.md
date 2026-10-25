@@ -142,7 +142,10 @@ Then use it for the next member's box.
    and a stranger's doesn't. **Built 2026-10-25:** `yggstore mesh allow`
    and the timer in `deploy/mesh-allow` (see [mesh.md](mesh.md#keeping-allowedpublickeys-in-step)).
    Running on 004 since 2026-10-25 (timer each minute).
-3. The SSH rule and printed address in `provision-pi.sh`.
+3. The SSH rule and printed address in `provision-pi.sh`. **Built 2026-10-25:** step 3d
+   of the script loads `/etc/yggstore/yggdrasil-in.nft` at every boot (its
+   own table, so other rules are left alone), and the script ends with the
+   box's `~/.ssh/config` entry. Not yet tried on a real box.
 4. The trial on localbox-002.
 5. Later: the second entry point on the xneelo VPS, added the same way as in
    step 1.

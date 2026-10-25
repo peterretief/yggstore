@@ -229,6 +229,60 @@ if ask "grep -q -- '-transport builtin' $NODE_UNIT" 2>/dev/null; then
 	ok "the node now goes through the Yggdrasil daemon, at the same address"
 fi
 
+# --- 3d. What may come in over Yggdrasil ----------------------------------------
+# Anyone on Yggdrasil can reach the box's address, so over Yggdrasil (tun0)
+# it takes only yggstore's ports and Syncthing, and SSH only from the admin's
+# machine (ADMIN_YGG; by default this one). The LAN and Tailscale are left
+# alone. A table of its own, loaded at boot by a unit of its own, so it
+# doesn't touch other rules (Docker's, Tailscale's).
+say "3d. What may come in over Yggdrasil"
+if [ -z "${ADMIN_YGG:-}" ]; then
+	ADMIN_YGG=$(ip -6 -o addr | grep -oE 'inet6 2[0-9a-f]{2}:[0-9a-f:]+' | head -1 | cut -d' ' -f2 || true)
+fi
+[[ "$ADMIN_YGG" =~ ^2[0-9a-f]{2}:[0-9a-f:]+$ ]] ||
+	die "this machine has no Yggdrasil address, so SSH over Yggdrasil can't be limited to it; set ADMIN_YGG in $CONF to the admin's Yggdrasil address"
+on "export DEBIAN_FRONTEND=noninteractive
+	command -v nft >/dev/null || { apt-get update -q; apt-get install -y -q --no-install-recommends nftables; }
+	mkdir -p /etc/yggstore
+	cat > /etc/yggstore/yggdrasil-in.nft <<'NFT'
+# What may come in over Yggdrasil (tun0); written by provision-pi.sh.
+table inet yggdrasil_in
+delete table inet yggdrasil_in
+table inet yggdrasil_in {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		iifname != \"tun0\" accept
+		ct state established,related accept
+		meta l4proto ipv6-icmp accept
+		# the yggstore node (HTTP/3 too), its dashboard, the hub, Syncthing
+		tcp dport { 7400, 7480, 7490, 22000 } accept
+		udp dport { 7400, 22000 } accept
+		# SSH from the group admin's machine only
+		ip6 saddr $ADMIN_YGG tcp dport 22 accept
+		drop
+	}
+}
+NFT
+	cat > /etc/systemd/system/yggstore-yggdrasil-in.service <<'UNIT'
+[Unit]
+Description=What may come in over Yggdrasil (yggstore)
+After=nftables.service
+Before=yggdrasil.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/yggstore/yggdrasil-in.nft
+ExecStop=/usr/sbin/nft delete table inet yggdrasil_in
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+	systemctl daemon-reload
+	systemctl enable -q yggstore-yggdrasil-in
+	systemctl restart yggstore-yggdrasil-in"
+ok "over Yggdrasil: yggstore and Syncthing for the group; SSH only from $ADMIN_YGG"
+
 # --- 4. The group -----------------------------------------------------------------
 say "4. Joining the group"
 # Anchored, so pgrep doesn't find the shell running this very check.
@@ -292,6 +346,11 @@ if s.get("problem"): print("   problem: " + s["problem"])
 sys.exit(0 if n.get("up") and y.get("device_id") else 1)' || die "the Pi isn't working yet; see above, and journalctl -u yggstore-hub on the Pi"
 
 printf '\nDONE: %s is set up. Its page for users: http://%s.local:7490\n' "$NAME" "$NAME"
+ygg=$(ask "ip -6 -o addr show dev tun0 | grep -oE 'inet6 2[0-9a-f]{2}:[0-9a-f:]+' | head -1 | cut -d' ' -f2" 2>/dev/null || true)
+if [ -n "$ygg" ]; then
+	printf 'Its Yggdrasil address is %s. To reach it from here wherever it ends up, add\nthis to ~/.ssh/config (and its name to scripts/deploy.sh):\n\n' "$ygg"
+	printf 'Host %s\n    HostName %s\n    User %s\n\n' "$NAME" "$ygg" "$user"
+fi
 if [ -n "${WIFI_SSID:-}" ]; then
 	printf 'At its destination it needs only power, in reach of %s.\n' "$WIFI_SSID"
 else
