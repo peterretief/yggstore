@@ -23,7 +23,7 @@ localbox-004   pi4        amd64  /usr/local/bin/yggstore         sudo  yggstore-
 localbox-003   pi3        arm64  /usr/local/bin/yggstore         sudo  yggstore-node yggstore-hub yggstore-dashboard
 localbox-002   pi2        armv7  /mnt/data/yggstore/bin/yggstore root  rc:yggstore rc:yggstore-dashboard
 '
-WEB="desktop localmail"
+WEB="desktop localmail localbox-004"
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 field() { awk -v n="$1" -v f="$2" '$1 == n { print $f }' <<<"$NODES"; }

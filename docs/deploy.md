@@ -50,7 +50,7 @@ Then:
 ```sh
 scripts/deploy.sh --status            # what each machine runs now
 scripts/deploy.sh --dry-run all       # build, and say what would happen
-scripts/deploy.sh web                 # the web nodes: desktop, then localmail
+scripts/deploy.sh web                 # the web nodes: desktop, localmail, then localbox-004
 scripts/deploy.sh localbox-004        # one machine
 scripts/deploy.sh boxes               # every other machine
 scripts/deploy.sh all

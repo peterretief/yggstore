@@ -96,7 +96,7 @@ Run these in `/media/peter/storage1/YGGSTORE`. A deploy builds only committed co
 | --- | --- |
 | `scripts/deploy.sh --status` | the version each machine runs |
 | `scripts/deploy.sh --dry-run all` | build for every CPU, and say what would happen |
-| `scripts/deploy.sh web` | the web nodes: desktop, then localmail, each checked before the next |
+| `scripts/deploy.sh web` | the web nodes: desktop, localmail, then localbox-004, each checked before the next |
 | `scripts/deploy.sh localbox-004` | one machine (any name in the table at the top of the script) |
 | `scripts/deploy.sh boxes` | every machine that isn't a web node |
 | `scripts/deploy.sh all` | everything |
