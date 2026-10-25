@@ -97,6 +97,9 @@ func (c *Cloudflare) Route(ctx context.Context, host, service string) ([]string,
 			needDNS = false
 			continue
 		}
+		if r.Type != "A" && r.Type != "AAAA" && r.Type != "CNAME" {
+			continue // a domain's mail (MX, TXT) doesn't decide where its website is
+		}
 		return nil, fmt.Errorf("%s already has a DNS record (%s %s) pointing somewhere else; if it should move to the group, delete that record (or the route in the other tunnel) in the Cloudflare dashboard, then publish again", host, r.Type, r.Content)
 	}
 

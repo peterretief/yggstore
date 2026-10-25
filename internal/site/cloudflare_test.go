@@ -94,12 +94,20 @@ func TestCloudflareRoute(t *testing.T) {
 		t.Fatalf("second route: %v %v", added, err)
 	}
 
+	// A domain's mail records don't stand in the way of its website.
+	fake.records = append(fake.records,
+		map[string]any{"type": "MX", "name": "mail.example.org", "content": "route1.mx.cloudflare.net"},
+		map[string]any{"type": "TXT", "name": "mail.example.org", "content": "v=spf1 ~all"})
+	if added, err := cf.Route(ctx, "mail.example.org", "http://localhost:8480"); err != nil || len(added) != 2 {
+		t.Fatalf("route beside mail records: %v %v", added, err)
+	}
+
 	// A name that points elsewhere is left alone.
 	fake.records = append(fake.records, map[string]any{"type": "A", "name": "example.org", "content": "192.0.2.1"})
 	if _, err := cf.Route(ctx, "example.org", "http://localhost:8480"); err == nil || !strings.Contains(err.Error(), "somewhere else") {
 		t.Fatalf("route over another record: %v", err)
 	}
-	if len(fake.config["ingress"].([]any)) != 3 {
+	if len(fake.config["ingress"].([]any)) != 4 {
 		t.Fatal("tunnel changed although the DNS record points elsewhere")
 	}
 
