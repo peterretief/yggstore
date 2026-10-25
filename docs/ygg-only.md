@@ -141,7 +141,7 @@ Then use it for the next member's box.
 2. The allow-list job on 004, with a test that a new member's key gets added
    and a stranger's doesn't. **Built 2026-10-25:** `yggstore mesh allow`
    and the timer in `deploy/mesh-allow` (see [mesh.md](mesh.md#keeping-allowedpublickeys-in-step)).
-   On 004 once it's deployed there.
+   Running on 004 since 2026-10-25 (timer each minute).
 3. The SSH rule and printed address in `provision-pi.sh`.
 4. The trial on localbox-002.
 5. Later: the second entry point on the xneelo VPS, added the same way as in
