@@ -254,9 +254,10 @@ table inet yggdrasil_in {
 		iifname != \"tun0\" accept
 		ct state established,related accept
 		meta l4proto ipv6-icmp accept
-		# the yggstore node (HTTP/3 too), its dashboard, the hub, Syncthing
-		tcp dport { 7400, 7480, 7490, 22000 } accept
-		udp dport { 7400, 22000 } accept
+		# the yggstore node and hub (HTTP/3 too), the dashboard, the box's
+		# own website, Syncthing
+		tcp dport { 7400, 7480, 7490, 8480, 22000 } accept
+		udp dport { 7400, 7490, 22000 } accept
 		# SSH from the group admin's machine only
 		ip6 saddr $ADMIN_YGG tcp dport 22 accept
 		drop
