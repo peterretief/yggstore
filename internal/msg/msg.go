@@ -420,8 +420,33 @@ func (e *Engine) Subscribe(topic string) error {
 		e.saveState()
 	}
 	e.mu.Unlock()
+	e.takeOwn(topic)
 	e.requestCatchUp(topic)
 	return nil
+}
+
+// takeOwn puts this node's own messages in a topic (within retention) in
+// its inbox. Those published before it subscribed were never stored, and
+// no other member has them to give back: a node that becomes a web node
+// would otherwise never see the sites it published before.
+func (e *Engine) takeOwn(topic string) {
+	var after uint64
+	for {
+		msgs, err := e.History(topic, after)
+		if err != nil {
+			e.logf("messaging: reading own %s messages: %v", topic, err)
+			return
+		}
+		e.mu.Lock()
+		for _, m := range msgs {
+			e.store(m, e.self) // skips those already stored
+			after = m.Seq
+		}
+		e.mu.Unlock()
+		if len(msgs) < historyPage {
+			return
+		}
+	}
 }
 
 // Unsubscribe stops receiving a topic. Messages already received are kept.

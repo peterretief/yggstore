@@ -220,6 +220,23 @@ func TestLateSubscriberCatchesUp(t *testing.T) {
 	}
 }
 
+// A node that subscribes late gets its own earlier messages too (a box
+// that becomes a web node serves the sites it published before).
+func TestLateSubscriberGetsOwnMessages(t *testing.T) {
+	g := newGroup(t, 2)
+	g.nodes[0].Publish("news", "", "mine, before")
+	g.nodes[1].Publish("news", "", "theirs")
+	g.nodes[0].Subscribe("news")
+	g.eventually("own and theirs", func() bool { return len(g.nodes[0].Messages(0, "news", 0)) == 2 })
+	// Subscribing again (a restart) doesn't store them twice.
+	g.nodes[0].Subscribe("news")
+	g.nodes[0].Publish("news", "", "mine, after")
+	g.eventually("the new one", func() bool { return len(g.nodes[0].Messages(0, "news", 0)) == 3 })
+	if b := bodies(g.nodes[0].Messages(0, "news", 0)); b[0] != "mine, before" || b[2] != "mine, after" {
+		t.Fatalf("got %v", b)
+	}
+}
+
 func TestGapIsRepaired(t *testing.T) {
 	g := newGroup(t, 2)
 	g.nodes[1].Subscribe("feed")
