@@ -29,8 +29,11 @@ people who want a folder on their device kept in step with the box. It is
 opened by itself when the box doesn't serve files in the browser, or with
 `#syncthing` on the page's address. Inside it:
 
-1. **Connect your computer**: one command to paste, for Windows
-   (PowerShell), Mac and Linux, which sets everything up (see
+1. **Connect your computer**: on Windows, an installer to download and
+   open (`/join.exe`, handed out as *Connect to BOX.exe* with the box's
+   details added to it, when `yggstore-join.exe` is beside the hub's
+   binary; otherwise a PowerShell command). On Mac and Linux, one command to
+   paste. Either sets everything up (see
    [connecting with one command](#connecting-with-one-command)). Phones
    (Syncthing-Fork on Android, Möbius Sync on iPhone) and anyone the
    command fails for follow **Connecting by hand**, folded below it: the

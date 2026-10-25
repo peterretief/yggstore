@@ -61,6 +61,9 @@ type Config struct {
 	Version string
 	// Users, if set, pairs devices through Syncthing.
 	Users *Users
+	// JoinExe, if set, is the Windows installer (cmd/yggstore-join) handed
+	// out at /join.exe, with this box's details added.
+	JoinExe string
 	// Join, if set, joins this box to a group with an invite, when an
 	// admin's dashboard adds it (see join.go); it returns what join said.
 	Join func(ctx context.Context, invite string) (string, error)
@@ -109,6 +112,7 @@ type State struct {
 	LAN      []string   `json:"lan"`                // this box's addresses on the LAN
 	FilesAt  string     `json:"files_at,omitempty"` // where people open their files: the box's name, or its Yggdrasil address
 	WebAt    string     `json:"web_at,omitempty"`   // where light clients sign in, in any browser (see light.go)
+	JoinExe  bool       `json:"join_exe,omitempty"` // the Windows installer is at /join.exe
 }
 
 // check asks every node in the group whether it is up, at most every few
@@ -121,6 +125,10 @@ func (h *Hub) check(ctx context.Context) State {
 	}
 	st := State{Version: h.cfg.Version, Bins: []string{}, LAN: LANAddrs()}
 	st.Hostname, _ = os.Hostname()
+	if h.cfg.JoinExe != "" {
+		_, err := os.Stat(h.cfg.JoinExe)
+		st.JoinExe = err == nil
+	}
 	if h.cfg.Files != nil {
 		st.FilesAt = h.cfg.SelfAddr
 	}
@@ -198,6 +206,7 @@ func (h *Hub) Handler() http.Handler {
 	mux.HandleFunc("GET /install.sh", h.handleInstall)
 	mux.HandleFunc("GET /connect.sh", h.handleConnect(connectSh, "text/x-shellscript; charset=utf-8"))
 	mux.HandleFunc("GET /connect.ps1", h.handleConnect(connectPs1, "text/plain; charset=utf-8"))
+	mux.HandleFunc("GET /join.exe", h.handleJoinExe)
 	mux.HandleFunc("GET /api/connect/folders", h.handleConnectFolders)
 	mux.HandleFunc("POST /api/join", h.handleJoin)
 	mux.HandleFunc("POST /api/anywhere", h.handleAnywhere)

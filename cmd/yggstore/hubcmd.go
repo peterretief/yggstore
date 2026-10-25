@@ -88,6 +88,7 @@ func cmdHub(ctx context.Context, args []string) error {
 	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
 	name := fs.String("name", hostname(), "this box's node, by name, if its address isn't found")
 	binDir := fs.String("bin", "", "folder of more yggstore builds to hand out (yggstore-PLATFORM)")
+	joinExe := fs.String("join-exe", "", "the Windows installer to hand out at /join.exe (default: yggstore-join.exe beside this program, or in -bin)")
 	dir := fs.String("dir", hubDir(), "where the devices' folders (users/) and websites (websites/) are kept")
 	statePath := fs.String("state", hubState(), "the hub's list of devices and its switches")
 	limit := fs.Int("pair-limit", 5, "devices that may pair in a day (0 = no limit)")
@@ -173,6 +174,22 @@ func cmdHub(ctx context.Context, args []string) error {
 	c := client.New()
 	c.HTTP.Timeout = 5 * time.Second
 	cfg := hub.Config{PeersPath: *peersPath, SelfAddr: self, SelfName: *name, Client: c, Bins: bins, Version: versionString()}
+	if *joinExe == "" {
+		var places []string
+		if exe, err := os.Executable(); err == nil {
+			places = append(places, filepath.Join(filepath.Dir(exe), "yggstore-join.exe"))
+		}
+		if *binDir != "" {
+			places = append(places, filepath.Join(*binDir, "yggstore-join.exe"))
+		}
+		for _, p := range places {
+			if _, err := os.Stat(p); err == nil {
+				*joinExe = p
+				break
+			}
+		}
+	}
+	cfg.JoinExe = *joinExe
 
 	if !*noSync {
 		base, key, err := syncthing.ReadConfig(*stConfig)

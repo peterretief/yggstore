@@ -42,7 +42,8 @@ label { display: block; font-weight: 600; margin-bottom: 6px; }
 input { width: 100%; font: 12px var(--mono); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
 pre { margin: 10px 0 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
   font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-button { font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--info); background: var(--info); color: #fff; cursor: pointer; margin-top: 10px; }
+button, a.button { font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--info); background: var(--info); color: #fff; cursor: pointer; margin-top: 10px; }
+a.button { display: inline-block; text-decoration: none; }
 button:disabled { opacity: .5; cursor: default; }
 p { margin: 8px 0; }
 ol, ul { margin: 10px 0; padding-left: 20px; }
@@ -112,7 +113,12 @@ b.ui { font-weight: 600; background: var(--empty); padding: 0 5px; border-radius
         <p>Run one command on the computer, while it is on the same network (the same Wi-Fi or router) as this box. It installs Syncthing, starts it whenever you log in, connects it to this box and makes a folder called <span class="mono">yggstore</span> in your home folder. It takes a minute or two, and there is nothing to set up in Syncthing.</p>
 
         <details class="os" data-os="windows"><summary>Windows</summary>
-          <ol>
+          <ol id="winExe" hidden>
+            <li><a class="button" id="joinExe" href="/join.exe">Download the installer</a></li>
+            <li>Open the file you downloaded. If Windows says <b>Windows protected your PC</b>, click <b>More info</b>, then <b>Run anyway</b>.</li>
+            <li>When it says <b>Done</b>, your folder opens.</li>
+          </ol>
+          <ol id="winCmd">
             <li>Open <b>PowerShell</b>: click Start, type <b>PowerShell</b> and press Enter.</li>
             <li>Paste this in and press Enter:
               <div class="copyrow"><pre id="cmdWin">irm http://this-box:7490/connect.ps1 | iex</pre><button data-copy="cmdWin">Copy</button></div></li>
@@ -266,6 +272,8 @@ async function refresh() {
   try { st = await (await fetch('api/state', {cache: 'no-store'})).json(); }
   catch (e) { $('node').innerHTML = '<span class="pill bad">this box isn\'t answering</span>'; return; }
   const host = st.hostname || 'yggstore box';
+  $('winExe').hidden = !st.join_exe;
+  $('winCmd').hidden = !!st.join_exe;
   $('host').textContent = host;
   document.title = host;
   $('boxname').textContent = host;

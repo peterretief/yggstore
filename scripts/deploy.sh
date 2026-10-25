@@ -125,18 +125,23 @@ for n in "${ordered[@]}"; do
 	env CGO_ENABLED=0 GOOS=linux "${env[@]}" go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$out" ./cmd/yggstore
 	built[$arch]=$out
 done
+# The Windows installer the boxes' hubs hand out (Connect to BOX.exe).
+join=bin/deploy/yggstore-join-$version.exe
+echo "== building the Windows installer"
+env CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$join" ./cmd/yggstore-join
 
 for n in "${ordered[@]}"; do
 	exe=$(field "$n" 4) host=$(field "$n" 2) r=$(root "$n") bin=${built[$(field "$n" 3)]}
 	echo "== $n ($host): $version"
 	if $dry; then
-		echo "  would copy $bin to $exe (keeping the old one as $exe.prev) and restart: $(rest "$n")"
+		echo "  would copy $bin to $exe (keeping the old one as $exe.prev), the Windows installer beside it, and restart: $(rest "$n")"
 		continue
 	fi
 	tmp=/tmp/yggstore-$version
-	if [ "$host" = local ]; then cp "$bin" "$tmp"; else scp -q "$bin" "$host:$tmp"; fi
+	if [ "$host" = local ]; then cp "$bin" "$tmp"; cp "$join" "$tmp.exe"; else scp -q "$bin" "$host:$tmp"; scp -q "$join" "$host:$tmp.exe"; fi
 	# install keeps the binary's owner, and replaces it even while it runs.
-	on "$n" "set -e; ${r}cp -p $exe $exe.prev; ${r}install -o \$(stat -c %u $exe) -g \$(stat -c %g $exe) -m 755 $tmp $exe; rm -f $tmp; $(restart "$n") sleep 3; $(running "$n") $exe version" ||
+	# The installer goes beside the binary, where the hub looks for it.
+	on "$n" "set -e; ${r}cp -p $exe $exe.prev; ${r}install -o \$(stat -c %u $exe) -g \$(stat -c %g $exe) -m 644 $tmp.exe \$(dirname $exe)/yggstore-join.exe; ${r}install -o \$(stat -c %u $exe) -g \$(stat -c %g $exe) -m 755 $tmp $exe; rm -f $tmp $tmp.exe; $(restart "$n") sleep 3; $(running "$n") $exe version" ||
 		die "$n didn't come back up: scripts/deploy.sh --back $n puts its old binary back. Stopping here."
 done
 echo "Done. scripts/deploy.sh --status shows what each machine runs."

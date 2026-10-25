@@ -4,10 +4,14 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/peterretief/yggstore/internal/join"
 )
 
 // A computer on the LAN connects to the box with one command from the page,
@@ -50,30 +54,74 @@ func boxAddrs() []string {
 	return append(out, "dynamic")
 }
 
+// connectBox is this box as a computer connecting to it sees it: its name
+// and Syncthing ID. It answers the request itself if the box can't take
+// devices.
+func (h *Hub) connectBox(w http.ResponseWriter, r *http.Request) (name, id string, ok bool) {
+	if !hostRE.MatchString(r.Host) {
+		http.Error(w, "bad host", http.StatusBadRequest)
+		return "", "", false
+	}
+	if h.cfg.Users != nil {
+		id = h.cfg.Users.Status().DeviceID
+	}
+	if !deviceIDRE.MatchString(id) {
+		http.Error(w, "this box isn't taking devices through Syncthing", http.StatusServiceUnavailable)
+		return "", "", false
+	}
+	host, _ := os.Hostname()
+	name = strings.Trim(boxNameRE.ReplaceAllString(host, "-"), "-.")
+	if name == "" {
+		name = "box"
+	}
+	return name, id, true
+}
+
 func (h *Hub) handleConnect(script, contentType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hostRE.MatchString(r.Host) {
-			http.Error(w, "bad host", http.StatusBadRequest)
+		name, id, ok := h.connectBox(w, r)
+		if !ok {
 			return
-		}
-		var id string
-		if h.cfg.Users != nil {
-			id = h.cfg.Users.Status().DeviceID
-		}
-		if !deviceIDRE.MatchString(id) {
-			http.Error(w, "this box isn't taking devices through Syncthing", http.StatusServiceUnavailable)
-			return
-		}
-		host, _ := os.Hostname()
-		name := strings.Trim(boxNameRE.ReplaceAllString(host, "-"), "-.")
-		if name == "" {
-			name = "box"
 		}
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Cache-Control", "no-store")
 		fmt.Fprint(w, ConnectScript(script, "http://"+r.Host, name, id, boxAddrs()))
 		h.cfg.Users.Fetched(r.RemoteAddr, strings.TrimPrefix(r.URL.Path, "/"))
 	}
+}
+
+// handleJoinExe hands out the Windows installer (cmd/yggstore-join) with
+// this box's details at its end, so a double-click connects to this box.
+func (h *Hub) handleJoinExe(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.JoinExe == "" {
+		http.NotFound(w, r)
+		return
+	}
+	name, id, ok := h.connectBox(w, r)
+	if !ok {
+		return
+	}
+	f, err := os.Open(h.cfg.JoinExe)
+	if err != nil {
+		http.Error(w, "this box has no installer to hand out", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	trailer := join.Trailer(join.Box{Hub: "http://" + r.Host, Name: name, ID: id, Addrs: boxAddrs()})
+	w.Header().Set("Content-Type", "application/vnd.microsoft.portable-executable")
+	w.Header().Set("Content-Disposition", `attachment; filename="Connect to `+name+`.exe"`)
+	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size()+int64(len(trailer)), 10))
+	w.Header().Set("Cache-Control", "no-store")
+	if _, err := io.Copy(w, f); err != nil {
+		return
+	}
+	w.Write(trailer)
+	h.cfg.Users.Fetched(r.RemoteAddr, "join.exe")
 }
 
 // handleConnectFolders lists the folders the box shares with a device, a
