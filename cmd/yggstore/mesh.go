@@ -6,12 +6,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/client"
+	"github.com/peterretief/yggstore/internal/mesh"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -25,6 +32,9 @@ const meshUsage = `yggstore mesh: Yggdrasil links between the group's machines
   yggstore mesh public URI [URI...]  public Yggdrasil peers every node links to, so
                                      it reaches the group from any network
   yggstore mesh public               stop listing public peers
+  yggstore mesh allow -conf FILE     on a machine members link to: add each member's
+                                     key to FILE's AllowedPublicKeys, drop those of
+                                     members who left, and run -restart if it changed
 
 Run set on the admin machine; its dashboard sends the changed list to every
 node. All take -peers. See docs/mesh.md.
@@ -36,6 +46,9 @@ func cmdMesh(ctx context.Context, args []string) error {
 	}
 	if len(args) > 0 && args[0] == "public" {
 		return meshPublic(args[1:])
+	}
+	if len(args) > 0 && args[0] == "allow" {
+		return meshAllow(ctx, args[1:])
 	}
 	fs := flag.NewFlagSet("mesh", flag.ExitOnError)
 	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
@@ -200,4 +213,115 @@ func reorder(args []string) []string {
 		rest = append(rest, args[i])
 	}
 	return append(flags, rest...)
+}
+
+// meshAllow keeps a listening machine's AllowedPublicKeys in step with the
+// member list. It asks every member for its key (over Yggdrasil, which a
+// new member reaches through the public peers), so it's run once a minute
+// by a timer, as root. It prints nothing when nothing changed.
+func meshAllow(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("mesh allow", flag.ExitOnError)
+	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
+	conf := fs.String("conf", "/etc/yggdrasil/yggdrasil.conf", "Yggdrasil's settings (plain JSON)")
+	restart := fs.String("restart", "systemctl restart yggdrasil", "command run after the list changed")
+	state := fs.String("state", "", "keys this added before (default: mesh-allowed.json beside the peer list)")
+	fs.Parse(reorder(args))
+	if *state == "" {
+		*state = filepath.Join(filepath.Dir(*peersPath), "mesh-allowed.json")
+	}
+	list, err := peers.Load(*peersPath)
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		return errors.New(*peersPath + " lists nobody")
+	}
+	c := &mesh.AllowConf{Path: *conf}
+	current, err := c.Keys()
+	if err != nil {
+		return err
+	}
+	var before []string
+	if b, err := os.ReadFile(*state); err == nil {
+		if err := json.Unmarshal(b, &before); err != nil {
+			return fmt.Errorf("%s: %w", *state, err)
+		}
+	}
+
+	found := make([]string, len(list))
+	cl := client.New()
+	var wg sync.WaitGroup
+	for i, p := range list {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			if info, err := cl.Info(pctx, p.Addr); err == nil && info.Mesh != nil {
+				found[i] = info.Mesh.Key
+			}
+		}()
+	}
+	wg.Wait()
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs { // this machine's own key needn't be allowed
+			if ip, ok := a.(*net.IPNet); ok {
+				for i, k := range found {
+					if mesh.KeyAddress(k) == ip.IP.String() {
+						found[i] = ""
+					}
+				}
+			}
+		}
+	}
+
+	next, added := mesh.Allowed(current, list, found, before)
+	b, _ := json.MarshalIndent(added, "", "  ")
+	if slices.Equal(next, current) {
+		if !slices.Equal(added, before) {
+			return atomicfile.Replace(*state, append(b, '\n'), 0o600)
+		}
+		return nil
+	}
+	whose := func(k string) string {
+		for _, p := range list {
+			if mesh.KeyAddress(k) == net.ParseIP(p.IP()).String() {
+				return p.Name
+			}
+		}
+		return "no member's"
+	}
+	in := map[string]bool{}
+	for _, k := range next {
+		in[k] = true
+	}
+	for _, k := range next {
+		if !slices.Contains(current, k) {
+			fmt.Printf("allowing %s (%s)\n", k, whose(k))
+		}
+	}
+	for _, k := range current {
+		if !in[k] {
+			fmt.Printf("no longer allowing %s (%s)\n", k, whose(k))
+		}
+	}
+	backup := *conf + ".bak-mesh-allow"
+	if _, err := os.Stat(backup); errors.Is(err, os.ErrNotExist) {
+		if old, err := os.ReadFile(*conf); err == nil {
+			atomicfile.Replace(backup, old, 0o600)
+		}
+	}
+	if err := c.SetKeys(next); err != nil {
+		return err
+	}
+	if err := atomicfile.Replace(*state, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	if *restart != "" {
+		if out, err := exec.CommandContext(ctx, "sh", "-c", *restart).CombinedOutput(); err != nil {
+			return fmt.Errorf("%s: %v %s", *restart, err, out)
+		}
+		fmt.Printf("ran %s\n", *restart)
+	}
+	return nil
 }

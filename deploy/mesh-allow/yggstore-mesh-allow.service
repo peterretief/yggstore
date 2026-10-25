@@ -1,0 +1,7 @@
+[Unit]
+Description=Let the group's members link to this machine's Yggdrasil (yggstore mesh allow)
+After=yggdrasil.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/yggstore mesh allow -peers /root/.yggstore/peers.json -conf /etc/yggdrasil/yggdrasil.conf

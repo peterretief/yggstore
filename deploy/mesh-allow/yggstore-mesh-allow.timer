@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep this machine's Yggdrasil allow list in step with the group, each minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

@@ -95,6 +95,33 @@ restart Yggdrasil.
 > Yggdrasil, or set `AllowedPublicKeys` so only members may link.
 > `yggstore mesh` prints the line with every member's key.
 
+### Keeping AllowedPublicKeys in step
+
+Typed in by hand, the list shuts out every member who joins later.
+`yggstore mesh allow` keeps it up to date. Run as root on the listening
+machine, it asks every member for its key, adds those that are missing,
+and restarts Yggdrasil if the list changed:
+
+```sh
+sudo cp deploy/mesh-allow/yggstore-mesh-allow.* /etc/systemd/system/
+sudo systemctl enable --now yggstore-mesh-allow.timer
+```
+
+The timer runs it every minute; `journalctl -u yggstore-mesh-allow` shows
+what it changed.
+
+- A key counts only if it gives the member's own address, so no node can
+  vouch for another.
+- It drops a key it added once that member leaves the list. Keys you typed
+  in yourself are never dropped.
+- A member that's down keeps its place. The list only changes for one that
+  answers and is missing.
+- The restart drops every link for a few seconds, so it happens only when
+  the list changed.
+- It leaves alone a `yggdrasil.conf` in HJSON (with comments), and one with
+  no `AllowedPublicKeys`, which lets anyone link. The first time it changes
+  the file, it keeps the old one as `yggdrasil.conf.bak-mesh-allow`.
+
 ## 3. Give every node public peers
 
 A node that only has links on its home network is cut off when it's plugged
