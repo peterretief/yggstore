@@ -21,7 +21,7 @@ func TestForwardCode(t *testing.T) {
 	if err := Confirm(f, " 123456 ", now); err != nil || !f.Confirmed || f.On() {
 		t.Fatalf("confirmed %v, on %v: %v", f.Confirmed, f.On(), err)
 	}
-	old := &Forward{CodeHash: tokenHash("1"), SentAt: now.Add(-2 * time.Hour).Unix()}
+	old := &Forward{CodeHash: tokenHash("1"), SentAt: now.Add(-49 * time.Hour).Unix()}
 	if Confirm(old, "1", now) == nil {
 		t.Fatal("an old code was taken")
 	}

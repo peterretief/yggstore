@@ -44,8 +44,8 @@ type forwardInfo struct {
 }
 
 const (
-	fwdCodeFor   = time.Hour   // how long a code works
-	fwdCodeEvery = time.Minute // the least time between two codes
+	fwdCodeFor   = 48 * time.Hour // how long a code works
+	fwdCodeEvery = time.Minute    // the least time between two codes
 	fwdCodeTries = 5
 	fwdMax       = 20  // messages forwarded in one pass
 	fwdKeep      = 500 // forwarded messages remembered
@@ -117,7 +117,7 @@ func (d *Dashboard) sendForwardCode(ctx context.Context, site, to string) error 
 	n, _ := rand.Int(rand.Reader, big.NewInt(1000000))
 	code := fmt.Sprintf("%06d", n.Int64())
 	text := fmt.Sprintf("Your code is %s\n\n%s asked for the messages from the contact form on %s to be sent here too. "+
-		"Give them this code to start. It works for an hour.\n\nIf you didn't expect this, ignore this message: nothing is sent here without the code.",
+		"Give them this code to start. It works for two days.\n\nIf you didn't expect this, ignore this message: nothing is sent here without the code.",
 		code, d.me(), site)
 	raw, rcpts, err := mail.Draft{From: from, Name: d.me(), To: a.Address, Subject: "Your code for messages from " + site, Text: text}.Compose()
 	if err != nil {

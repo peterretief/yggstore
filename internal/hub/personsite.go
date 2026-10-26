@@ -80,7 +80,7 @@ type Forward struct {
 func (f *Forward) On() bool { return f != nil && f.Confirmed && f.Allowed }
 
 const (
-	codeFor    = time.Hour        // how long a code works
+	codeFor    = 48 * time.Hour   // how long a code works
 	codeEvery  = 10 * time.Minute // the least time between two emails of it
 	codeTries  = 5
 	forwardMax = 20 // messages forwarded in one pass
@@ -591,7 +591,7 @@ func (ps *PeopleSites) SendCode(ctx context.Context, p Person, name, to string) 
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("Your code is %s\n\nType it on your files page to have the mail to %s forwarded here. It works for an hour.\n\n"+
+	text := fmt.Sprintf("Your code is %s\n\nType it on your files page to have the mail to %s forwarded here. It works for two days.\n\n"+
 		"If you didn't ask for this, ignore this message: nothing is forwarded without the code.", code, peers.MailAddress(name))
 	raw, rcpts, err := mail.Draft{From: peers.MailAddress(name), Name: p.Name, To: a.Address,
 		Subject: "Your code for forwarding " + peers.MailAddress(name), Text: text}.Compose()
