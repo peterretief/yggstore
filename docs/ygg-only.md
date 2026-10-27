@@ -146,7 +146,7 @@ Then use it for the next member's box.
    of the script loads `/etc/yggstore/yggdrasil-in.nft` at every boot (its
    own table, so other rules are left alone), and the script ends with the
    box's `~/.ssh/config` entry. Not yet tried on a real box.
-4. The trial, on localbox-004 instead of 002 (the user's choice). **Started
+4. The trial, on localbox-004 instead of 002 (the admin's choice). **Started
    2026-10-25:** Tailscale is down on 004 (`tailscale down`; `tailscale up`
    brings it back). SSH, the mesh, the dashboard and the websites it serves
    all work over Yggdrasil. Still to do: a restart, and an hour without the

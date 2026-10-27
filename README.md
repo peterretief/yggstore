@@ -1,107 +1,90 @@
 # yggstore
 
-Your files, mail and websites kept among people and organisations who pool
-their own machines, instead of on a provider's servers. Each member of the
-group runs a node on their own box, linked over the
-[Yggdrasil](https://yggdrasil-network.github.io/) overlay with no central
-server or coordinator. Together the nodes hold everything for everyone,
-encrypted, so nothing depends on one machine and no provider keeps your data.
+yggstore keeps files, email and websites on machines owned by the people
+and organisations who use it. Each machine runs a node, and the nodes reach
+each other over [Yggdrasil](https://yggdrasil-network.github.io/), an
+encrypted network in which a machine's address comes from its own key.
+There is no central server.
 
-- **Storage**: each file is encrypted, cut into pieces and spread over
-  everyone's machines, so it survives machines failing. The small stub left
-  behind holds the key, so sending someone a stub (sealed for them) is a
-  way to send them the file.
-- **Email** for your own domain, encrypted for you as it arrives, read on
-  the dashboard or in your mail program. (It comes in
-  through Cloudflare Email Routing and goes out through an SMTP relay;
-  neither keeps it.)
-- **Messaging** between nodes, **websites** served by several machines at
-  once, and an **S3 gateway** for people without a box.
+A stored file is encrypted on your machine, cut into pieces and spread over
+the others. No single machine can read it, and any one of them can break,
+be switched off or be carried away without the file being lost. What stays
+with you is a small stub, `photo.jpg.ystub`, which holds the key.
+
+**Status: experimental.** The cryptography has not been reviewed by anyone
+independent. Don't make it the only copy of anything you can't lose.
 
 It's open source ([AGPL-3.0](LICENSE)): use it as you want, for
 yourselves or commercially, and use as much or as little of it as you need.
 If you change it and let others use your version over a network, share your
 changes.
 
-**Status: experimental.** The cryptography has not been reviewed by anyone
-independent. Don't make it the only copy of anything you can't lose.
+## What it does
 
-- New to this? [Set up a storage box](docs/storage-box-guide.md) (step by
-  step, for Windows users with a second-hand mini PC).
-- No box? The [gateway](docs/gateway.md) lets people pay a monthly fee and
-  use the group's storage from any S3 program (rclone, Cyberduck, Duplicati).
-  Members choose whether their box holds customers' data, and earn credit.
-- [Work from anywhere](docs/recovery.md): a link in your email opens your
-  files in any browser, to download, upload, rename, move and delete, with
-  nothing to install. Or it moves your folder to the device you're on,
-  through your group's box. Only one place changes your files at a time,
-  and a recovery copy of your stubs, keys and mail in the group means
-  losing your computer loses nothing.
-- Every version is kept: [history](docs/history.md) lets you restore an
-  older version of a file, or a folder as it was on a given day. A new
-  version only stores the parts that changed.
-- Nodes can [message each other](docs/messaging.md): direct messages, and
-  topics any node can publish to and follow, delivered even to nodes that
-  were off at the time. Programs can use it too, through a local API.
-- No Yggdrasil to install: a node can run it [built in](docs/builtin.md),
-  with no daemon, TUN device or root. It talks to nodes on the daemon too.
-- The [mesh](docs/mesh.md) keeps members' Yggdrasil linked directly to each
-  other, so losing one tunnel or public peer doesn't cut anyone off.
-- Your dashboard, and a [files page](docs/remote-dashboard.md#your-files)
-  that works on your folder directly, [open on your other devices](docs/remote-dashboard.md)
-  over Yggdrasil from anywhere, with no size limit. A device is let in by
-  its Yggdrasil address, which only its own key can use, so there's no
-  password to steal: it asks, and you press Allow.
-- A box such as a Raspberry Pi can be a [hub](docs/hub.md): the computers
-  and phones on the LAN sync a folder with it through Syncthing, and what
-  they put there is stored in the group. They need nothing but Syncthing,
-  and the box's own page shows them how to set it up. A person's phone and
-  laptop share one folder, team folders are shared by several people, and
-  devices keep syncing when away from the LAN. The admin prepares each box
-  from their machine with two scripts, so it arrives named, in the group
-  and ready.
-- [Websites](docs/sites.md) can live on the group: publish a folder, and
-  several machines serve it, so a site stays up when one of them goes down.
-  A site's [contact form](docs/sites.md#a-contact-form) sends to your
-  mailbox on the group.
-- [Email](docs/mail.md) to your domain can arrive on the group: each message
-  is encrypted for you as it comes in and read on your dashboard, where you
-  can also write and reply (sent through an SMTP relay the web nodes hold).
-  Thunderbird or any mail program can use it too, through a local
-  [bridge](docs/mail.md#thunderbird-and-other-mail-programs) (IMAP and SMTP).
-- [Leases](docs/leases.md) let a node see which shards nobody has wanted for
-  months (a lost stub, a delete that missed a node), without reading them.
-- Licence: see [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
-  Security issues: [SECURITY.md](SECURITY.md).
+- **Files.** Put a file in a folder and it is stored in the group, leaving
+  its stub in its place. Every version is kept, and a new version stores
+  only the parts that changed ([history](docs/history.md)). Sending
+  someone the stub, sealed for them, sends them the file
+  ([sharing](#sharing)). A box such as
+  a Raspberry Pi can be a [hub](docs/hub.md): laptops and phones on its
+  network sync a folder with it through Syncthing and need nothing else.
+- **Email** for your own domain. Each message is encrypted for you as it
+  arrives and stored like a file. You read and reply on your dashboard, or
+  in a mail program through a local
+  [bridge](docs/mail.md#thunderbird-and-other-mail-programs). Mail comes in
+  through Cloudflare Email Routing and goes out through an SMTP relay;
+  neither keeps it ([mail](docs/mail.md)).
+- **Websites.** Publish a folder and several machines serve it, so the site
+  stays up while one of them is off ([sites](docs/sites.md)). A contact
+  form sends to the owner's mailbox on the group.
+- **Messaging.** Nodes send each other direct messages and publish to
+  topics such as `alarms`. A node that was off gets what it missed when it
+  comes back ([messaging](docs/messaging.md)).
+- **Working elsewhere.** A link in your email opens your files in any
+  browser. A recovery copy of your stubs, keys and mail is kept in the
+  group, so losing your computer loses nothing ([recovery](docs/recovery.md)).
+- **Storage for people without a box**, through an S3
+  [gateway](docs/gateway.md) that rclone, Cyberduck or Duplicati can use.
+  Members choose whether their box holds customers' data, and earn credit
+  for it.
+
+Smaller pieces: Yggdrasil [built in](docs/builtin.md), with no daemon, TUN
+device or root; the [mesh](docs/mesh.md), which links members directly so
+losing one tunnel cuts nobody off; your dashboard
+[on your other devices](docs/remote-dashboard.md), let in by Yggdrasil
+address rather than a password; and [leases](docs/leases.md), which show
+shards nobody has asked for in months.
+
+New to this? [Set up a storage box](docs/storage-box-guide.md) walks
+through it step by step, for Windows users with a second-hand mini PC.
+Licence: [LICENSE](LICENSE). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).
+Security issues: [SECURITY.md](SECURITY.md).
 
 ## An example
 
 A shop, a web developer and an NGO share one network, each with a small box
-running a node:
+running a node.
 
-- **The shop** has its website and email on the group. When products or
-  prices change, the owner edits the site's files and publishes them again
-  (`yggstore site publish`); within seconds every web node serves the new
-  version. No hosting provider in between.
+- **The shop** has its website and email on the group. When a price
+  changes, the owner edits the page and runs `yggstore site publish`;
+  within seconds every web node serves the new version.
 - **The developer** hosts several clients' websites and email domains on
   the same network.
 - **The NGO** keeps its website and email there too.
 
-Their files are spread across all the boxes, encrypted, so each survives
+Their files are spread across all three boxes, encrypted, so each survives
 another box failing and none can read another's. The websites keep serving
 when a box goes down.
 
-**Messaging** comes with it. A node publishes to a topic, and every node
-following it gets the message, even one that was off at the time. A door
-sensor or camera script can publish to `alarms`, and every box following
-it hears; a disk filling up, a backup finishing or a site going down can be
-messages too. Scripts use the node's local API
-([messaging](docs/messaging.md)).
+The boxes can also tell each other things. A door sensor or a camera script
+publishes to `alarms`, and every box following that topic hears it. A disk
+filling up, a backup finishing or a site going down can be messages too.
+Scripts use the node's local API ([messaging](docs/messaging.md)).
 
-Sites are static (HTML, CSS, images, JavaScript), apart from a contact form
-whose messages arrive in the owner's mailbox on the group: taking payments
-online needs a server of its own for that part. Every member can follow any topic,
-so anything private goes as a direct message.
+Sites are static (HTML, CSS, images, JavaScript), apart from the contact
+form: taking payments online needs a server of its own for that part.
+Every member can follow any topic, so anything private goes as a direct
+message.
 
 ## Trust
 

@@ -1,11 +1,11 @@
 # Set up your yggstore storage box
 
-*For Windows users.* Turn a second-hand mini PC into your storage box: it keeps your files backed up across the group, and holds a share of everyone else's. You'll need about an hour, once. After that it runs by itself.
+*For Windows users.* Turn a second-hand mini PC into your storage box: it stores your files across the group, and holds a share of everyone else's. You'll need about an hour, once. After that it runs by itself.
 
 | Word | Meaning |
 |---|---|
 | **Storage box** | The little computer you set up here. The technical word for it is a *node*. |
-| **Group** | The people who back each other up. Each of your files is encrypted, cut into 6 pieces and spread over their boxes; any 4 pieces rebuild it. |
+| **Group** | The people and organisations whose boxes store each other's files. Each of your files is encrypted, cut into 6 pieces and spread over their boxes; any 4 pieces rebuild it. |
 | **Invite** | A one-time code from the group's organiser, starting `yggjoin1:`. It works once, for 7 days. |
 | **Stub** | The small `.ystub` file left in place of a stored file. It holds the key; without it the file can't be rebuilt. |
 

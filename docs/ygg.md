@@ -84,7 +84,7 @@ too:
 
 The rate is the group's choice. A suggestion to start with: **10 yggs per
 GB-month** ($0.01). That's about half what the big cloud providers
-charge for ordinary storage, which seems fair for space among friends.
+charge for ordinary storage, which seems fair for space a group shares among itself.
 
 Shards take about 1.5× the file's size, because each piece of data is
 stored as 6 shards, any 4 of which rebuild it. Yggs count the shards, so

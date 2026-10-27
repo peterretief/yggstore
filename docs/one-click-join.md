@@ -6,7 +6,7 @@ The aim: a person clicks one link, and their computer has a folder kept in
 step with the group, with their files, their websites and their mail in it.
 Nothing to type, nothing to set up in Syncthing.
 
-The user decided (2026-10-25): **the synced folder is the way people use the
+Decided on 2026-10-25: **the synced folder is the way people use the
 group.** The browser page stays for phones and for a quick look.
 
 ## What a person ends up with
@@ -77,7 +77,7 @@ keeps it. The page that turns this on says so.
 
 ### 3. Test on Windows before anyone gets it
 
-On Kath's laptop, with as few steps for the user as possible. There's no
+On Kath's laptop, in as few steps as possible. There's no
 Windows machine here, only Wine, so the installer is checked under Wine
 first (it catches most mistakes, not all). Then it's one double-click on
 her laptop while I watch the box's side.

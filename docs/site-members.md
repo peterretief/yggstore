@@ -6,7 +6,7 @@ Kath wants people to register on her site and, once she has let them in,
 download her course material. That is the first real use; it's built so any
 site in the group can switch it on.
 
-Decided with the user (2026-10-23): free for now; the site's owner approves
+Decided on 2026-10-23: free for now; the site's owner approves
 each person; members sign in with their email address and a password.
 
 ## What people see

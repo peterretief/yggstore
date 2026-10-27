@@ -45,7 +45,7 @@ flowchart LR
 - **A public HTTPS address** for customers, such as `s3.yourgroup.example`.
   The easiest way is [Caddy](https://caddyserver.com) in front of the gateway;
   it gets a certificate by itself. At home this needs port 443 forwarded to
-  the machine. On a VPS it just works.
+  the machine. On a VPS nothing needs changing.
 - **At least 3 machines in the group whose owners opted in**, so any one
   can fail without losing data.
 
