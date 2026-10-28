@@ -55,6 +55,23 @@ record of who owes whom inside the group, not money held anywhere.
   rewards and storage together. Past it, the box admin has a word; holding
   back new uploads or rewards is for the group to decide.
 
+### A member who won't settle
+
+Decided on 2026-10-28: a member who owes a lot to the others and refuses to
+pay can be **removed by a vote of the members**. As a proposal:
+
+- It only applies past the limit below 0, and after the member has been
+  asked to settle and given time to (30 days, say).
+- Any member can propose it. Each member has one vote, however many boxes
+  they have, and the vote is open for a fixed time. A majority of the
+  members who vote removes them; the group decides the share needed.
+- The member is told when the vote starts and can answer it.
+- Removal takes their nodes out of the member list, as when anyone leaves.
+  Repair rebuilds the pieces those nodes held on the remaining boxes, so
+  nobody else loses files.
+- Before that, they get time to take their own files, mail and websites
+  out of the group. What they owe stays on the record.
+
 Balances only ever settle to the person's own wallet. A balance can't be
 passed to a third party or spent outside the group. That's what keeps it a
 record between members and stops it acting like money.
@@ -425,6 +442,9 @@ months and see whether they feel fair first.
   so old balances don't pile up.
 - **Who resolves disputes:** the admin alone, or the admin and one other
   member.
+- **Removing a member who won't settle:** the notice period, the share of
+  votes needed, how long a vote stays open, and how long a removed member
+  has to take their files out.
 - **Signed yggs:** whether givers may attach their name to rewards.
 - **Promises to outside makers:** how long they wait for a wallet; a year?
 - **Localbox's domains:** whether to offer the wallet tag to their owners.
