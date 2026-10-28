@@ -40,6 +40,35 @@ exchange. Why:
   directly, is a much smaller thing, closer to a stokvel. (This is not
   legal advice; check before real money changes hands.)
 
+### Trading later
+
+Asked on 2026-10-28: could yggs be traded one day? Not by the group
+itself, but the design leaves room for it. Going from fixed to tradeable
+later is much easier than going back.
+
+- **Yggs would need money behind them.** Balances add up to 0, so a
+  positive balance is a claim on other members. Trading it would mean
+  trading members' IOUs. A tradeable ygg has to be backed by money held for
+  it, which makes it a stablecoin or e-money, and that needs a licence.
+- **A licensed partner would run that part,** an exchange or a stablecoin
+  issuer. The ledger stays as it is; settling pays out in their token
+  instead of wallet to wallet (see "Or: settling in a USD stablecoin").
+- **Balances would be converted once,** at the fixed rate: debts settled
+  first (where [removing a member who won't settle](#a-member-who-wont-settle)
+  matters), then positive balances turned into tokens.
+- **Basing the ygg in another country doesn't avoid South Africa's rules**
+  while the members and the operator live here: the FSCA, exchange control
+  and SARS still apply.
+
+What keeps the door open now:
+- every ledger record signed and checkable, so a partner can trust the
+  history;
+- the unit fixed in US dollars, so converting is at a known rate;
+- **no promise that yggs will ever be tradeable or gain value.** Such a
+  promise could make them look like an investment now. The terms say a
+  ygg is a record of who owes whom, and that the group may change how
+  yggs work by vote, with notice.
+
 ## The local ledger
 
 Each member has a **local balance** in yggs. It starts at 0, and it's a
