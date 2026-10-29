@@ -75,7 +75,7 @@ func Allowed(current []string, members []peers.Peer, found []string, added []str
 type AllowConf struct {
 	Path string
 	conf map[string]json.RawMessage
-	mode os.FileMode
+	fi   os.FileInfo
 }
 
 func (c *AllowConf) Keys() ([]string, error) {
@@ -87,7 +87,7 @@ func (c *AllowConf) Keys() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.mode = fi.Mode().Perm()
+	c.fi = fi
 	c.conf = nil
 	if err := json.Unmarshal(b, &c.conf); err != nil {
 		return nil, fmt.Errorf("%s isn't plain JSON, so it's left alone: %w", c.Path, err)
@@ -117,5 +117,8 @@ func (c *AllowConf) SetKeys(keys []string) error {
 	if err != nil {
 		return err
 	}
-	return atomicfile.Replace(c.Path, append(b, '\n'), c.mode)
+	if err := atomicfile.Replace(c.Path, append(b, '\n'), c.fi.Mode().Perm()); err != nil {
+		return err
+	}
+	return keepOwner(c.Path, c.fi)
 }

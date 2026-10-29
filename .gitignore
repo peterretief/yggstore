@@ -10,8 +10,9 @@ peers.json.*
 *.key
 invites.json
 contacts.json
-# Personal deploy script
+# Personal deploy script, and nodes kept out of git
 scripts/update-node.sh
+scripts/nodes.local
 
 # Mail Worker settings (real addresses and node IDs)
 deploy/mail-worker/wrangler.jsonc

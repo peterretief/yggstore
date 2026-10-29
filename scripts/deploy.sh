@@ -23,6 +23,8 @@ localbox-004   pi4        amd64  /usr/local/bin/yggstore         sudo  yggstore-
 localbox-003   pi3        arm64  /usr/local/bin/yggstore         sudo  yggstore-node yggstore-hub yggstore-dashboard
 localbox-002   local      amd64  /media/peter/storage1/yggnodes/localbox-002/yggstore/bin/yggstore -  docker:localbox-002-node-1 docker:localbox-002-dashboard-1
 '
+# More nodes, kept out of git, in the same columns.
+[ -f scripts/nodes.local ] && NODES+=$(grep -v '^#' scripts/nodes.local)$'\n'
 WEB="desktop localmail localbox-004"
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
