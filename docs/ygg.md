@@ -433,8 +433,20 @@ Your devices like the other pages:
   figures, with signed statements and challenges, comes later.
 - The keeper keeps its count in `~/.yggstore/ygg/usage.json`.
 
-Not yet: writers checking storage, wallet addresses and the ygg button,
-Open Payments, settling, and signed records.
+The ygg button is built for members (2026-10-29): **Ygg button** on a
+website's card puts a "Give a ygg" link at the bottom of its home page,
+kept when a new version is published. It opens
+`http://localhost:7480/ygg?to=<site>` on the visitor's own dashboard,
+which asks (Give 1, Give 5, Cancel) and pays the site's owner from the
+Wallet page's account, with the site as the note. The page refuses to be
+shown inside another page, and the payment needs the dashboard's own
+header, so a page elsewhere can't give. Not yet: people on a box, who have
+no account of their own (their sites can't be given yggs), members whose
+dashboard is on a box rather than on localhost, and visitors from outside
+the group.
+
+Not yet: writers checking storage, wallet addresses, Open Payments,
+settling, and signed records.
 
 ## Build order, once approved
 

@@ -1634,6 +1634,7 @@ async function refreshSites() {
         ${c ? `<a class="btn" href="api/sites/download?site=${encodeURIComponent(s.site)}" download>Download</a>` : ""}
         ${s.previous ? `<button data-site-act="rollback" data-site="${n}">Back to the previous version</button>` : ""}
         ${c ? `<label class="sub"><input type="checkbox" data-site-act="contact" data-site="${n}" ${s.contact ? "checked" : ""}> Contact form</label>
+        <label class="sub" title="A Give a ygg link at the bottom of your home page: members give yggs from their own dashboard"><input type="checkbox" data-site-act="ygg" data-site="${n}" ${s.ygg ? "checked" : ""}> Ygg button</label>
         <button class="del" data-site-act="remove" data-site="${n}">Take it down</button>` : ""}
         <span class="sub" data-site-msg="${n}"></span>
       </div>
@@ -1801,6 +1802,15 @@ $("sites").addEventListener("click", async ev => {
   siteMsg(name, act === "forward" ? "A code is on its way: it may take a minute." : act === "forward-confirm" ? "Done: its messages go there too now." : "Its messages stay here only.");
 });
 $("sites").addEventListener("change", async ev => {
+  const ygg = ev.target.closest("input[data-site-act=ygg]");
+  if (ygg) {
+    const name = ygg.dataset.site;
+    siteMsg(name, ygg.checked ? "Adding a Give a ygg link to your home page…" : "Taking the Give a ygg link off your home page…");
+    const r = await post("api/sites/ygg", {body: JSON.stringify({site: name, on: ygg.checked})});
+    if (!r.ok) { siteMsg(name, await r.text(), true); ygg.checked = !ygg.checked; return; }
+    sitesKey = ""; refreshSites();
+    return;
+  }
   const box = ev.target.closest("input[data-site-act=contact]");
   if (!box) return;
   const name = box.dataset.site;

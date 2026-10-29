@@ -389,6 +389,8 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sites/{action}", d.handleSiteAction)
 	mux.HandleFunc("GET /api/wallet", d.handleWallet)
 	mux.HandleFunc("POST /api/wallet/pay", d.handleWalletPay)
+	mux.HandleFunc("GET /ygg", d.handleYggPage)
+	mux.HandleFunc("GET /api/ygg", d.handleYggTo)
 	mux.HandleFunc("GET /api/devices", d.handleDevices)
 	mux.HandleFunc("POST /api/devices/{action}", d.handleDeviceAction)
 	mux.HandleFunc("GET /network", d.handleNetworkPage)

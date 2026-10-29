@@ -47,6 +47,7 @@ type websiteInfo struct {
 	Current  *site.Version `json:"current,omitempty"`
 	Previous bool          `json:"previous,omitempty"` // an earlier version to go back to
 	Contact  bool          `json:"contact,omitempty"`
+	Ygg      bool          `json:"ygg,omitempty"`     // the ygg button is on its home page
 	Forward  *forwardInfo  `json:"forward,omitempty"` // where its contact messages go too
 	Served   []string      `json:"served"`            // web nodes serving the current version
 	Waiting  []string      `json:"waiting,omitempty"` // web nodes still fetching it, or failing to
@@ -139,7 +140,7 @@ func (d *Dashboard) handleSites(w http.ResponseWriter, r *http.Request) {
 	}
 	names, all := d.mySites(pub)
 	for _, s := range all {
-		info := websiteInfo{Site: s, Name: names[s], Served: []string{}, Contact: pub.Contact(s) != ""}
+		info := websiteInfo{Site: s, Name: names[s], Served: []string{}, Contact: pub.Contact(s) != "", Ygg: d.yggButtonOn(s)}
 		if f := d.loadForward(s); f != nil {
 			info.Forward = &forwardInfo{To: f.To, Confirmed: f.Confirmed}
 		}
@@ -240,6 +241,10 @@ func (d *Dashboard) handleSitePublish(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "index.html")); err != nil {
 		http.Error(w, "there is no index.html at the top of the site, so it would have no home page", http.StatusBadRequest)
+		return
+	}
+	if err := d.keepYggButton(root, name); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	online, err := d.onlinePeers()
@@ -496,6 +501,8 @@ func (d *Dashboard) handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		if err = pub.SetContact(ctx, name, code); err == nil {
 			err = d.contactLink(ctx, pub, name, req.On)
 		}
+	case "ygg":
+		err = d.setYggButton(ctx, pub, name, req.On)
 	case "forward":
 		err = d.sendForwardCode(ctx, name, req.To)
 	case "forward-confirm":
@@ -646,25 +653,39 @@ func (d *Dashboard) handleSiteFiles(w http.ResponseWriter, r *http.Request) {
 // contactLink publishes a new version of the site with the contact link on
 // its home page (on) or taken off it, when that changes the page.
 func (d *Dashboard) contactLink(ctx context.Context, pub *site.Publisher, name string, on bool) error {
+	verb := "added to"
+	if !on {
+		verb = "taken off"
+	}
+	return d.changeHome(ctx, pub, name, "the form is switched", "contact link "+verb, func(page string) string {
+		page = site.WithoutContactLink(page)
+		if on {
+			page = site.WithContactLink(page)
+		}
+		return page
+	})
+}
+
+// changeHome publishes a new version of the site with its home page put
+// through edit, when that changes the page. switched says what was done
+// already, for the errors; what is the change, for the log.
+func (d *Dashboard) changeHome(ctx context.Context, pub *site.Publisher, name, switched, what string, edit func(string) string) error {
 	if d.cfg.OwnSites == nil {
 		return nil
 	}
 	if !d.siteMu.TryLock() {
-		return errors.New("the form is switched, but another website is being published, so the link on the home page was not changed; try again when it is done")
+		return errors.New(switched + ", but another website is being published, so the home page was not changed; try again when it is done")
 	}
 	defer d.siteMu.Unlock()
 	cur, err := d.cfg.OwnSites.Folder(ctx, name)
 	if err != nil {
-		return fmt.Errorf("the form is switched, but fetching the site to change its home page failed: %w", err)
+		return fmt.Errorf("%s, but fetching the site to change its home page failed: %w", switched, err)
 	}
 	b, err := os.ReadFile(filepath.Join(cur, "index.html"))
 	if err != nil {
 		return nil
 	}
-	page := site.WithoutContactLink(string(b))
-	if on {
-		page = site.WithContactLink(page)
-	}
+	page := edit(string(b))
 	if page == string(b) {
 		return nil
 	}
@@ -688,11 +709,7 @@ func (d *Dashboard) contactLink(ctx context.Context, pub *site.Publisher, name s
 		return err
 	}
 	d.cfg.OwnSites.Keep(name, v.ID, tmp)
-	verb := "added to"
-	if !on {
-		verb = "taken off"
-	}
-	d.event("ok", fmt.Sprintf("website %s: contact link %s the home page (version %s)", name, verb, v.ID[:8]))
+	d.event("ok", fmt.Sprintf("website %s: %s the home page (version %s)", name, what, v.ID[:8]))
 	return nil
 }
 

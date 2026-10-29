@@ -399,17 +399,5 @@ func WithContactLink(page string) string {
 
 // WithoutContactLink takes out the link WithContactLink added.
 func WithoutContactLink(page string) string {
-	i := strings.Index(page, contactLinkStart)
-	if i < 0 {
-		return page
-	}
-	j := strings.Index(page[i:], contactLinkEnd)
-	if j < 0 {
-		return page
-	}
-	j += i + len(contactLinkEnd)
-	if j < len(page) && page[j] == '\n' {
-		j++
-	}
-	return page[:i] + page[j:]
+	return withoutMarked(page, contactLinkStart, contactLinkEnd)
 }

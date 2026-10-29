@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Give a ygg</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea;
+  --ok: #1f9d55; --bad: #d64545; --info: #3b6fd8;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111418; --panel: #1a1e24; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038;
+    --ok: #3ccf7e; --bad: #f07070; --info: #79a2f2; }
+  main button.go { color: #0b1220; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 440px; margin: 12vh auto 0; padding: 24px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+h1 { font-size: 19px; margin: 0 0 8px; }
+p { margin: 8px 0; }
+.sub { color: var(--muted); font-size: 13px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+button { font: inherit; padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button.go { background: var(--info); border-color: var(--info); color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+.ok { color: var(--ok); } .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Give a ygg</h1>
+  <p id="ask" class="sub">Looking up the website…</p>
+  <div class="row" id="buttons" hidden>
+    <button class="go" data-amount="1">Give 1 ygg</button>
+    <button data-amount="5">Give 5</button>
+    <button id="cancel">Cancel</button>
+  </div>
+  <p id="msg"></p>
+  <p class="sub">A ygg is a tenth of a US cent, counted between members of the group. It goes on the group's ledger, and no money moves until the group settles up.</p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const site = new URLSearchParams(location.search).get("to") || "";
+let to = "";
+function done() { if (history.length > 1) history.back(); else window.close(); }
+async function load() {
+  const r = await fetch("api/ygg?to=" + encodeURIComponent(site));
+  const out = r.ok ? await r.json() : {error: await r.text()};
+  if (out.error) { $("ask").textContent = "Nothing can be given: " + out.error + "."; $("ask").className = "bad"; return; }
+  to = out.to;
+  $("title").textContent = "Give yggs to " + out.site + "?";
+  $("ask").textContent = "They go from your account (" + out.account + ") to " + out.to + "'s, for " + out.site + ".";
+  $("ask").className = "";
+  $("buttons").hidden = false;
+}
+$("buttons").addEventListener("click", async ev => {
+  const b = ev.target.closest("button[data-amount]");
+  if (!b) return;
+  for (const x of $("buttons").querySelectorAll("button")) x.disabled = true;
+  $("msg").textContent = "Giving…"; $("msg").className = "sub";
+  const amount = Number(b.dataset.amount);
+  const r = await fetch("api/wallet/pay", {method: "POST", headers: {"Content-Type": "application/json", "X-Yggstore": "1"},
+    body: JSON.stringify({to, amount, note: "ygg button: " + site})});
+  if (!r.ok) {
+    $("msg").textContent = "Not given: " + (await r.text()).trim(); $("msg").className = "bad";
+    for (const x of $("buttons").querySelectorAll("button")) x.disabled = false;
+    return;
+  }
+  $("msg").textContent = "Given: " + amount + (amount === 1 ? " ygg" : " yggs") + ". It shows on your Wallet page once the ledger has it.";
+  $("msg").className = "ok";
+  $("buttons").hidden = true;
+});
+$("cancel").addEventListener("click", done);
+load();
+</script>
+</body>
+</html>

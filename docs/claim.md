@@ -44,8 +44,11 @@ makes it someone's, and an admin page they can reach without Yggdrasil.
 2. **The order email** has a link with the code, such as
    `https://claim.withcare.co.za/` and the code. The code works once and
    for 30 days. A new one can be made if it's lost.
-3. **They plug the box in.** It reaches the group over Yggdrasil from any
-   network. Nothing changes on their router.
+3. **They plug the box in,** to the network and, if they have one, a
+   screen. It reaches the group over Yggdrasil from any network. Nothing
+   changes on their router. The screen shows the link, the code and a
+   QR code for both, so the order email isn't needed to start (see
+   [the box's screen](#the-boxs-screen)).
 4. **They open the link** on a phone or laptop, anywhere. The web nodes
    find the box by the code and pass the page through to it, as they do
    for `/files` today. If the box isn't on yet, the page says so and
@@ -57,6 +60,10 @@ makes it someone's, and an admin page they can reach without Yggdrasil.
      `harbourkitchen.withcare.co.za`;
    - make a passkey (or a password) for signing in;
    - press **This is my box**.
+
+   If they came from the screen rather than the order email, the page
+   also asks for the email address the order was placed with, and sends
+   a link there. The box is theirs once that link is opened.
 6. **The box becomes theirs.** They're its owner and a member of the
    group, with a ygg balance. Their folder is made, the device they used is
    signed in, and the code stops working.
@@ -66,6 +73,45 @@ makes it someone's, and an admin page they can reach without Yggdrasil.
    as it's done. The box starts the site with a first page.
 
 Files work from step 6. Mail and the website start at step 7.
+
+## The box's screen
+
+A box plugged into a screen shows one page on it, as text and a QR
+code on the console, with no browser on the box. It's the same on the
+Pi and on the thin clients.
+
+Before it's claimed:
+
+```
+  LocalBox: ready to set up
+
+  [QR code]     On your phone or laptop, open
+                claim.withcare.co.za
+                and enter  K7QM-4TRD
+
+  Network: connected    Internet: yes    Group: reached
+```
+
+- **The status lines** say what works: the network cable, the internet,
+  and reaching the group. When one fails, it says which ("no network
+  cable", "no internet"), so the owner can read it out on the phone and
+  nobody has to guess from far away.
+- **The code on the screen** is a short one of its own, not the code in
+  the order email. With it alone the box isn't claimed: the claim page
+  also asks for the order's email address and sends a link there (step
+  5). So someone who had the box on the way, and plugged it in, can't
+  claim it.
+- **After it's claimed** the screen shows whose box it is, the address
+  of the admin page, and the status lines. No code is shown again.
+- **Without a screen** nothing changes: the link in the order email
+  works as before.
+
+With a keyboard as well, the box can be set up there: see
+[box-setup.md](box-setup.md).
+
+Later, the same status page could be shown on their own network at
+`http://localbox.local`, even with no internet, for when the internet is
+what's wrong.
 
 ## Their domain comes first
 
@@ -146,6 +192,10 @@ claim page says so, and so do the shop's terms.
   know it.
 - **Not printed on the box** by default: anyone who handled it on the
   way could claim it first.
+- **The screen's code** isn't enough on its own: it also needs the
+  order's email address, and the link sent to it. It's a different code
+  from the email's, made again each time the box starts, and tried at
+  most a few times an hour.
 - **The admin page through the web** is the part that needs the most
   care. Today a member's dashboard only opens over Yggdrasil, from their
   own devices, because it can do everything to their files. Through the
@@ -182,16 +232,19 @@ That's a bigger change and comes after the steps below.
    unclaimed and makes its code; `yggstore claim code` makes a new one.
 2. **The claim page** through the web nodes, and the handover: owner,
    member, first person, first device, the name request.
-3. **The owner's admin page through the web**, starting with mail,
+3. **The box's screen:** the link, the screen's code and the QR code
+   before it's claimed, the status lines, and the check of the order's
+   email address on the claim page.
+4. **The owner's admin page through the web**, starting with mail,
    websites, files and devices; the rest after.
-4. **Hiding the group** from owners' pages: only their own box, as
+5. **Hiding the group** from owners' pages: only their own box, as
    totals.
-5. **The shop:** the code in the order email, and a new code on request.
-6. **Domains they already have:** add the zone, copy the current records,
+6. **The shop:** the code in the order email, and a new code on request.
+7. **Domains they already have:** add the zone, copy the current records,
    check the nameservers, publish the site, route the mail. This has to
    work before the first box is sold, since most owners will want their
    own domain.
-7. **New domains** through the shop, registered in the owner's name.
-8. Test the whole thing on Windows, a Mac and a phone, with a box on
+8. **New domains** through the shop, registered in the owner's name.
+9. Test the whole thing on Windows, a Mac and a phone, with a box on
    another network, before anyone buys one.
-9. Ordering from suppliers ([suppliers.md](suppliers.md)).
+10. Ordering from suppliers ([suppliers.md](suppliers.md)).

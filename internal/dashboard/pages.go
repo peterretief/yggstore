@@ -44,7 +44,7 @@ var pageRoutes = []struct{ path, page string }{
 	{"/web", "web"}, {"/api/names", "web"}, {"/api/sites", "web"}, {"/api/me", "web"},
 	{"/messages", "messages"}, {"/api/msg", "messages"},
 	{"/mail", "mail"}, {"/api/mail", "mail"},
-	{"/wallet", "wallet"}, {"/api/wallet", "wallet"},
+	{"/wallet", "wallet"}, {"/api/wallet", "wallet"}, {"/ygg", "wallet"}, {"/api/ygg", "wallet"},
 }
 
 // pageOf is the page path belongs to: "" for the overview and the state
