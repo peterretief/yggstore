@@ -24,6 +24,33 @@ someone who has the problem before any code is written.
 - **Not a certified alarm path.** Position as a private or secondary channel.
 - **Latency and uptime guarantees are untested.** Measure before promising.
 
+## Building blocks the network needs
+
+These ideas, and others like ordering from suppliers
+([suppliers.md](suppliers.md)), need the same few things from the network.
+Built once, each one serves all of them, so new uses are an app on a box,
+not a change to the network.
+
+| Building block | What it is | Who needs it |
+|---|---|---|
+| **Private topics** | A topic with its own key, sealed for each box allowed to read it, like a [collection](collections.md). Adding a box seals the key for it; removing one changes the key. | Alarms to a security firm, a family's fall alerts, a supplier's price list for one customer |
+| **Listed services** | A box can list itself as offering something: a supplier, a security firm, a carer, a technician. Others find it under **Services** on their admin page; nothing else about the group is shown ([claim.md](claim.md)). | Suppliers, first responders, monitoring firms |
+| **Acknowledgements and escalation** | A message can ask for an answer. If nobody answers in time, it goes to the next on a list, then the next. Each step is kept. | Alarms, fall alerts, orders |
+| **Urgent messages** | Sent before anything else, over every path the box has, and retried every few seconds rather than minutes. | Alarms, fall and smoke alerts |
+| **Heartbeats** | A box says "all fine" on a timer, and a follower notices when it stops. | Daily check-ins, alarm panels, fleet status |
+| **A way in for devices** | Sensors, alarm panels and Home Assistant publish to the box's topics over MQTT or a plain web request on the LAN, without yggstore on them. | Sensors, cameras, panels |
+| **Evidence in storage** | A clip or a log is stored in the group as it's made, with the message pointing to it, so it survives if the recorder is stolen. Already possible with stubs. | Cameras, cold-chain logs |
+| **Passing messages on** | Other boxes forward a topic's messages, so one publisher can reach hundreds of followers. | A supplier with many buyers, a street watch |
+
+The first two shape plans being made now: the owner's admin page
+([claim.md](claim.md)) shows listed services, and orders are sealed for
+the box they're meant for. The rest can come when a use needs them,
+without changing what's already built.
+
+An alarm sent this way is a second channel, not the certified one:
+alarm monitoring has its own rules, and the network's delivery times
+haven't been measured yet (see above).
+
 ## Common pattern
 
 ```

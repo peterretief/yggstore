@@ -136,7 +136,10 @@ older ones answer that no one has the address.
 
 ## Sending
 
-Messages go out through an SMTP relay; these steps use SMTP2GO, and any
+Proposed: mail from one member's address to another's goes straight from
+box to box over Yggdrasil, without the relay
+([suppliers.md](suppliers.md#mail-between-boxes)). Until then, and for
+everyone outside the group, messages go out through an SMTP relay; these steps use SMTP2GO, and any
 relay with SMTP login and STARTTLS (port 587) or TLS (port 465) works.
 
 ### 1. Verify the domain at the relay
