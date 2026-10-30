@@ -98,6 +98,28 @@ Also:
   password; the group's admin gets in over SSH as now.
 - **Nothing secret is shown:** no keys, no codes once the box is claimed.
 
+## Network drives
+
+On a box set up with Samba, each person who chooses their password on
+the box (`yggstore admin`, People, C) gets their own folder as a network
+drive: `\\BOX\NAME` in File Explorer, or `smb://BOX/NAME` on a Mac or
+Linux, signed in with their name and that password. It's on the local
+network only: Samba listens on private addresses, never on Yggdrasil or
+a public address. Each person sees only their own folder. Shutting
+someone out turns their drive off; removing them takes it away, and
+their files stay.
+
+Samba keeps its own copy of the password, so a password changed later
+on the web doesn't reach the drive; it's chosen on the box again.
+
+Setting a box up for it, install `samba` and
+`wsdd2` (so Windows finds the box under Network), and an `smb.conf`
+with `interfaces` and `hosts allow` set to 127.0.0.1 and the private
+ranges, `bind interfaces only`, `map to guest = never`, `access based
+share enum = yes`, and `include = /etc/samba/yggstore-shares.conf`;
+then make `/etc/samba/yggstore.d`. `provision-pi.sh` doesn't do this
+yet.
+
 ## Putting the screen on a box
 
 `yggstore screen` runs on the first console from

@@ -412,7 +412,7 @@ func adminPeople(ctx context.Context, k keyReader, box string, d dash) error {
 			}
 			// If they're at the box, they type their own; otherwise a
 			// temporary one to give them.
-			chosen, m, err := choosePassword(ctx, k, box, title, d, out.Name,
+			chosen, m, err := choosePassword(ctx, k, box, title, d, out.Name, personPath(d, out.Name),
 				out.Name+" is on the box now. If they're here, they type the password they'll use; otherwise press Esc for a temporary one to give them.")
 			if err != nil {
 				return err
@@ -440,6 +440,7 @@ type boxPersonView struct {
 	Suspended  bool
 	Removed    bool
 	Syncthing  int
+	Path       string
 }
 
 func (p boxPersonView) summary() string {
@@ -471,9 +472,21 @@ func showPassword(ctx context.Context, k keyReader, box, title, head string, out
 	return err
 }
 
+// personPath is where name's folder is on the box.
+func personPath(d dash, name string) string {
+	var st struct{ People []boxPersonView }
+	d.get("/api/box/people", &st)
+	for _, p := range st.People {
+		if strings.EqualFold(p.Name, name) && !p.Removed {
+			return p.Path
+		}
+	}
+	return ""
+}
+
 // choosePassword lets the person at the box type their own password,
 // twice. chosen is false if they pressed Esc.
-func choosePassword(ctx context.Context, k keyReader, box, title string, d dash, name, head string) (chosen bool, msg string, err error) {
+func choosePassword(ctx context.Context, k keyReader, box, title string, d dash, name, path, head string) (chosen bool, msg string, err error) {
 	note := ""
 	for {
 		pw, ok, err := k.line(ctx, func(typed string) {
@@ -497,7 +510,15 @@ func choosePassword(ctx context.Context, k keyReader, box, title string, d dash,
 			note = e.Error()
 			continue
 		}
-		return true, name + " has the password they chose.", nil
+		msg = name + " has the password they chose."
+		if sambaOn() {
+			if e := sambaShare(name, path, pw); e != nil {
+				msg += " Their network drive isn't set up: " + e.Error()
+			} else {
+				msg += " On this network their folder opens as " + sambaAddress(name) + ", with the same name and password."
+			}
+		}
+		return true, msg, nil
 	}
 }
 
@@ -543,7 +564,7 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 		}
 		return "Changed " + p.Name + "'s limit.", nil
 	case 'c', 'C':
-		_, m, err := choosePassword(ctx, k, box, title, d, p.Name, "They type the password they'll use. Their old one, and the browsers it signed in, stop working.")
+		_, m, err := choosePassword(ctx, k, box, title, d, p.Name, p.Path, "They type the password they'll use. Their old one, and the browsers it signed in, stop working.")
 		return m, err
 	case 'p', 'P':
 		yes, err := confirm(ctx, k, box, title, "A new temporary password for "+p.Name+"? Their old one, and the browsers it signed in, stop working.")
@@ -567,6 +588,7 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 		if e := d.call("/api/box/people/"+action, name, nil); e != nil {
 			return "Not changed: " + e.Error(), nil
 		}
+		sambaEnable(p.Name, action == "resume")
 		return "Done.", nil
 	case 'r', 'R':
 		yes, err := confirm(ctx, k, box, title, "Remove "+p.Name+" from the box? Their devices are shut out; their files stay.")
@@ -576,6 +598,7 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 		if e := d.call("/api/box/people/remove", name, nil); e != nil {
 			return "Not removed: " + e.Error(), nil
 		}
+		sambaRemove(p.Name)
 		return p.Name + " is removed.", nil
 	}
 	return "", nil
