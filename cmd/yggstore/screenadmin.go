@@ -167,7 +167,10 @@ func (d dash) get(path string, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func (d dash) post(path string, body any) error {
+func (d dash) post(path string, body any) error { return d.call(path, body, nil) }
+
+// call posts body to path and reads the answer into out, if out isn't nil.
+func (d dash) call(path string, body, out any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	b, _ := json.Marshal(body)
@@ -182,6 +185,9 @@ func (d dash) post(path string, body any) error {
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
 		return errors.New(strings.TrimSpace(string(b)))
+	}
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
 }
@@ -206,9 +212,10 @@ func runAdmin(ctx context.Context, k keyReader, box string, d dash) error {
 	for {
 		adminDraw(box, "Admin", []string{
 			"1  Devices that may open the dashboard",
-			"2  People on this box",
+			"2  People on this box: add, limits, passwords",
 			"3  Websites",
 			"4  Services",
+			"5  Wi-Fi",
 		}, msg, "Number to choose    Esc to leave")
 		msg = ""
 		b, err := k.key(ctx)
@@ -226,6 +233,8 @@ func runAdmin(ctx context.Context, k keyReader, box string, d dash) error {
 			err = adminSites(ctx, k, box, d)
 		case '4':
 			err = adminServices(ctx, k, box)
+		case '5':
+			err = adminWiFi(ctx, k, box)
 		}
 		if err != nil {
 			return err
@@ -355,13 +364,7 @@ func adminPeople(ctx context.Context, k keyReader, box string, d dash) error {
 	for {
 		var st struct {
 			On     bool
-			People []struct {
-				Name      string
-				Bytes     int64
-				Quota     int64
-				Suspended bool
-				Removed   bool
-			}
+			People []boxPersonView
 		}
 		var lines []string
 		if err := d.get("/api/box/people", &st); err != nil {
@@ -369,26 +372,219 @@ func adminPeople(ctx context.Context, k keyReader, box string, d dash) error {
 		} else if !st.On {
 			lines = []string{"This box keeps no one else's files: it has no hub."}
 		}
-		var shown []int
-		for i, p := range st.People {
-			if p.Removed {
-				continue
+		var shown []boxPersonView
+		for _, p := range st.People {
+			if !p.Removed {
+				shown = append(shown, p)
+				lines = append(lines, fmt.Sprintf("%d  %-16s %s", len(shown), cut(p.Name, 16), p.summary()))
 			}
-			shown = append(shown, i)
-			limit := "no limit"
-			if p.Quota > 0 {
-				limit = "of " + size(p.Quota)
-			}
-			state := ""
-			if p.Suspended {
-				state = "  shut out for now"
-			}
-			lines = append(lines, fmt.Sprintf("%d  %-16s %s %s%s", len(shown), cut(p.Name, 16), size(p.Bytes), limit, state))
 		}
 		if st.On && len(shown) == 0 {
-			lines = append(lines, "No one yet. People are added on the dashboard's Admin page.")
+			lines = append(lines, "No one yet.")
 		}
-		adminDraw(box, title, lines, msg, "Number to shut someone out, or let them back    Esc to go back")
+		keys := "Esc to go back"
+		if st.On {
+			keys = "A to add someone    Number to choose    Esc to go back"
+		}
+		adminDraw(box, title, lines, msg, keys)
+		msg = ""
+		b, err := k.key(ctx)
+		if err != nil {
+			return err
+		}
+		switch {
+		case b == 27:
+			return nil
+		case (b == 'a' || b == 'A') && st.On:
+			name, ok, err := k.line(ctx, func(typed string) {
+				adminDraw(box, title, []string{"Their first name, as they'd sign in with it: " + typed}, "", "Enter to add them    Esc to cancel")
+			}, false)
+			if err != nil {
+				return err
+			}
+			if !ok || strings.TrimSpace(name) == "" {
+				continue
+			}
+			var out passwordOut
+			if e := d.call("/api/box/people/add", map[string]string{"name": strings.TrimSpace(name)}, &out); e != nil {
+				msg = "Not added: " + e.Error()
+				continue
+			}
+			if err := showPassword(ctx, k, box, title, out.Name+" is on the box now.", out); err != nil {
+				return err
+			}
+		default:
+			if i, ok := pick(b, len(shown)); ok {
+				if msg, err = adminPerson(ctx, k, box, d, shown[i]); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
+type boxPersonView struct {
+	Name       string
+	Bytes      int64
+	Quota      int64
+	MaxDevices int `json:"max_devices"`
+	Suspended  bool
+	Removed    bool
+	Syncthing  int
+}
+
+func (p boxPersonView) summary() string {
+	s := size(p.Bytes)
+	if p.Quota > 0 {
+		s += " of " + size(p.Quota)
+	} else {
+		s += ", no limit"
+	}
+	if p.Suspended {
+		s += ", shut out for now"
+	}
+	return s
+}
+
+type passwordOut struct{ Name, Login, Password, At string }
+
+// showPassword shows a temporary password until a key is pressed. It's on
+// the box's own screen, for the owner to give by phone or in person.
+func showPassword(ctx context.Context, k keyReader, box, title, head string, out passwordOut) error {
+	lines := []string{head, "", "Give them, by phone or in person:"}
+	if out.At != "" {
+		lines = append(lines, "  sign in at   "+out.At)
+	}
+	lines = append(lines, "  as           "+out.Login, "  password     "+out.Password, "",
+		"They choose their own password when they first sign in.")
+	adminDraw(box, title, lines, "", "Any key when you've noted it (it isn't shown again)")
+	_, err := k.key(ctx)
+	return err
+}
+
+// adminPerson is one person's choices. It returns what was done.
+func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPersonView) (string, error) {
+	title := p.Name
+	limit := "no limit"
+	if p.Quota > 0 {
+		limit = size(p.Quota)
+	}
+	shut := "S  shut them out for now (their files stay)"
+	if p.Suspended {
+		shut = "S  let them use the box again"
+	}
+	adminDraw(box, title, []string{
+		fmt.Sprintf("Uses %s, limit %s, %d devices syncing", size(p.Bytes), limit, p.Syncthing), "",
+		"L  change their limit",
+		"P  a new temporary password",
+		shut,
+		"R  remove them from the box (their files stay)",
+	}, "", "Letter to choose    Esc to go back")
+	b, err := k.key(ctx)
+	if err != nil {
+		return "", err
+	}
+	name := map[string]any{"name": p.Name}
+	switch b {
+	case 'l', 'L':
+		gb, ok, err := k.line(ctx, func(typed string) {
+			adminDraw(box, title, []string{"Their limit in GB, or 0 for no limit: " + typed}, "", "Enter to set it    Esc to cancel")
+		}, false)
+		if err != nil || !ok {
+			return "", err
+		}
+		var n float64
+		if _, e := fmt.Sscanf(strings.TrimSpace(gb), "%g", &n); e != nil || n < 0 {
+			return "Not changed: give a number of GB.", nil
+		}
+		name["quota"] = int64(n * (1 << 30))
+		if e := d.call("/api/box/people/limit", name, nil); e != nil {
+			return "Not changed: " + e.Error(), nil
+		}
+		return "Changed " + p.Name + "'s limit.", nil
+	case 'p', 'P':
+		yes, err := confirm(ctx, k, box, title, "A new temporary password for "+p.Name+"? Their old one, and the browsers it signed in, stop working.")
+		if err != nil || !yes {
+			return "", err
+		}
+		var out passwordOut
+		if e := d.call("/api/box/people/password", name, &out); e != nil {
+			return "Not changed: " + e.Error(), nil
+		}
+		return "", showPassword(ctx, k, box, title, "A new temporary password for "+p.Name+".", out)
+	case 's', 'S':
+		action, q := "suspend", "Shut "+p.Name+" out for now? Their files stay."
+		if p.Suspended {
+			action, q = "resume", "Let "+p.Name+" use the box again?"
+		}
+		yes, err := confirm(ctx, k, box, title, q)
+		if err != nil || !yes {
+			return "", err
+		}
+		if e := d.call("/api/box/people/"+action, name, nil); e != nil {
+			return "Not changed: " + e.Error(), nil
+		}
+		return "Done.", nil
+	case 'r', 'R':
+		yes, err := confirm(ctx, k, box, title, "Remove "+p.Name+" from the box? Their devices are shut out; their files stay.")
+		if err != nil || !yes {
+			return "", err
+		}
+		if e := d.call("/api/box/people/remove", name, nil); e != nil {
+			return "Not removed: " + e.Error(), nil
+		}
+		return p.Name + " is removed.", nil
+	}
+	return "", nil
+}
+
+// adminWiFi joins a Wi-Fi network through NetworkManager. Raspberry Pi OS
+// keeps Wi-Fi off until a country is set, so it sets South Africa's first.
+func adminWiFi(ctx context.Context, k keyReader, box string) error {
+	const title = "Wi-Fi"
+	if _, err := exec.LookPath("nmcli"); err != nil {
+		adminDraw(box, title, []string{"This box has no NetworkManager, so Wi-Fi can't be set here."}, "", "Any key to go back")
+		_, err := k.key(ctx)
+		return err
+	}
+	if out, _ := exec.Command("nmcli", "-t", "-f", "TYPE", "dev").Output(); !strings.Contains(string(out), "wifi") {
+		adminDraw(box, title, []string{"This box has no Wi-Fi."}, "", "Any key to go back")
+		_, err := k.key(ctx)
+		return err
+	}
+	adminDraw(box, title, []string{"Looking for networks..."}, "", "")
+	if _, err := exec.LookPath("raspi-config"); err == nil {
+		exec.Command("raspi-config", "nonint", "do_wifi_country", "ZA").Run()
+	}
+	exec.Command("rfkill", "unblock", "wifi").Run()
+	exec.Command("nmcli", "radio", "wifi", "on").Run()
+	msg := ""
+	for {
+		// --rescan yes waits for a fresh scan, which a radio just
+		// switched on needs.
+		out, err := exec.Command("nmcli", "-t", "-e", "no", "-f", "IN-USE,SIGNAL,SECURITY,SSID", "dev", "wifi", "list", "--rescan", "yes").Output()
+		var nets, lines []string
+		if err != nil {
+			lines = []string{"Can't list networks: " + err.Error()}
+		}
+		seen := map[string]bool{}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			f := strings.SplitN(line, ":", 4)
+			if len(f) < 4 || f[3] == "" || seen[f[3]] || len(nets) == 9 {
+				continue
+			}
+			seen[f[3]] = true
+			nets = append(nets, f[3])
+			now := ""
+			if f[0] == "*" {
+				now = "  connected"
+			}
+			lines = append(lines, fmt.Sprintf("%d  %-28s signal %3s%%%s", len(nets), cut(f[3], 28), f[1], now))
+		}
+		if err == nil && len(nets) == 0 {
+			lines = append(lines, "No networks found.")
+		}
+		adminDraw(box, title, lines, msg, "Number to join    Esc to go back")
 		msg = ""
 		b, err := k.key(ctx)
 		if err != nil {
@@ -397,25 +593,28 @@ func adminPeople(ctx context.Context, k keyReader, box string, d dash) error {
 		if b == 27 {
 			return nil
 		}
-		i, ok := pick(b, len(shown))
+		i, ok := pick(b, len(nets))
 		if !ok {
 			continue
 		}
-		p := st.People[shown[i]]
-		action, q := "suspend", "Shut "+p.Name+" out for now? Their files stay."
-		if p.Suspended {
-			action, q = "resume", "Let "+p.Name+" use the box again?"
-		}
-		yes, err := confirm(ctx, k, box, title, q)
+		pw, ok, err := k.line(ctx, func(typed string) {
+			adminDraw(box, title, []string{"Joining " + nets[i], "", "Its password (blank if it has none): " + typed}, "", "Enter to join    Esc to cancel")
+		}, true)
 		if err != nil {
 			return err
 		}
-		if yes {
-			if e := d.post("/api/box/people/"+action, map[string]string{"name": p.Name}); e != nil {
-				msg = "Not changed: " + e.Error()
-			} else {
-				msg = "Done."
-			}
+		if !ok {
+			continue
+		}
+		adminDraw(box, title, []string{"Joining " + nets[i] + "..."}, "", "")
+		args := []string{"dev", "wifi", "connect", nets[i]}
+		if pw != "" {
+			args = append(args, "password", pw)
+		}
+		if out, e := exec.Command("nmcli", args...).CombinedOutput(); e != nil {
+			msg = "Not joined: " + strings.TrimSpace(string(out))
+		} else {
+			msg = "Joined " + nets[i] + ". The cable is still used when it's plugged in."
 		}
 	}
 }
