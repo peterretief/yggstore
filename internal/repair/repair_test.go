@@ -299,9 +299,11 @@ func TestKickRunsAPass(t *testing.T) {
 	passes := make(chan struct{}, 4)
 	r := g.repairer(time.Hour)
 	r.Stubs = func() []string { passes <- struct{}{}; return nil }
+	// Run stops before the test's folders are removed.
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go r.Run(ctx, time.Hour)
+	done := make(chan struct{})
+	defer func() { cancel(); <-done }()
+	go func() { defer close(done); r.Run(ctx, time.Hour) }()
 	r.Kick()
 	select {
 	case <-passes:

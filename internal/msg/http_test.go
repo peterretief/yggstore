@@ -49,8 +49,8 @@ func TestOverHTTP(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go a.Run(ctx)
-	go b.Run(ctx)
+	background(t, func() { a.Run(ctx) })
+	background(t, func() { b.Run(ctx) })
 
 	b.Subscribe("news")
 	deadline := time.Now().Add(5 * time.Second)
@@ -118,3 +118,12 @@ func TestLocalAPI(t *testing.T) {
 }
 
 var dialer net.Dialer
+
+// background runs f until the test's context is cancelled, and makes the
+// test wait for it before its folders are removed (defers run before
+// cleanups).
+func background(t *testing.T, f func()) {
+	done := make(chan struct{})
+	go func() { defer close(done); f() }()
+	t.Cleanup(func() { <-done })
+}

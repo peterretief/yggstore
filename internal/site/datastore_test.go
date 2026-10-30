@@ -99,8 +99,8 @@ func TestSiteDataHandlers(t *testing.T) {
 			Self: self, Others: func(context.Context) []string { return []string{addr(other), strings.TrimPrefix(old.URL, "http://")} }}
 	}
 	a, z = mk("web-a", apiZ), mk("web-z", apiA)
-	go a.Run(ctx)
-	go z.Run(ctx)
+	background(t, func() { a.Run(ctx) })
+	background(t, func() { z.Run(ctx) })
 
 	src := t.TempDir()
 	writeSite(t, src, map[string]string{"index.html": "<h1>shop</h1>", "api/shop.wasm": string(wasm),

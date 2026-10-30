@@ -56,7 +56,7 @@ func TestHandlers(t *testing.T) {
 	b := newBus() // publishes as 200::1, the admin
 	pub := &Publisher{Dir: t.TempDir(), Client: client.New(), Announce: b, Log: t.Logf}
 	web := &Web{Dir: t.TempDir(), Msgs: b, Peers: func() []peers.Peer { return nodes }, Client: client.New(), Log: t.Logf}
-	go web.Run(ctx)
+	background(t, func() { web.Run(ctx) })
 
 	src := t.TempDir()
 	writeSite(t, src, map[string]string{"index.html": "<h1>courses</h1>", "api/hello.wasm": string(wasm)})

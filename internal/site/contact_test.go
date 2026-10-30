@@ -55,7 +55,7 @@ func TestContactForm(t *testing.T) {
 			got = append(got, delivered{node, sealed})
 			return "m1", nil
 		}}
-	go web.Run(ctx)
+	background(t, func() { web.Run(ctx) })
 	id, err := share.LoadOrCreate(filepath.Join(t.TempDir(), "sharing.key"))
 	if err != nil {
 		t.Fatal(err)

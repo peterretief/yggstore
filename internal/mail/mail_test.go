@@ -218,10 +218,15 @@ func TestMailReachesTheRecipient(t *testing.T) {
 		first = tk
 	}
 
+	// Both stop before the test's folders are removed.
 	ctx, cancel := context.WithCancel(context.Background())
+	var running sync.WaitGroup
+	defer running.Wait()
 	defer cancel()
-	go web.Run(ctx)
-	go home.Run(ctx)
+	for _, n := range []*Node{web, home} {
+		running.Add(1)
+		go func() { defer running.Done(); n.Run(ctx) }()
+	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		web.mu.Lock()

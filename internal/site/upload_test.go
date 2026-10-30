@@ -172,7 +172,7 @@ func TestUploadersAnnounced(t *testing.T) {
 	b := newBus()
 	pub := &Publisher{Dir: t.TempDir(), Client: client.New(), Announce: b, Log: t.Logf}
 	web := &Web{Dir: t.TempDir(), Msgs: b, Peers: func() []peers.Peer { return nodes }, Client: client.New(), Log: t.Logf}
-	go web.Run(ctx)
+	background(t, func() { web.Run(ctx) })
 	src := t.TempDir()
 	writeSite(t, src, map[string]string{"index.html": "<h1>shop</h1>"})
 	if _, _, err := pub.Publish(ctx, "shop.example", src, nodes); err != nil {

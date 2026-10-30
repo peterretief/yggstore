@@ -123,7 +123,7 @@ func TestPublishServeUpdateRollbackRemove(t *testing.T) {
 	pub := &Publisher{Dir: t.TempDir(), Client: client.New(), Announce: b, Log: t.Logf}
 	webDir := t.TempDir()
 	web := &Web{Dir: webDir, Msgs: b, Peers: func() []peers.Peer { return nodes }, Client: client.New(), Log: t.Logf}
-	go web.Run(ctx)
+	background(t, func() { web.Run(ctx) })
 
 	src := t.TempDir()
 	writeSite(t, src, map[string]string{
@@ -284,7 +284,7 @@ func TestWebIgnoresUnsafeAnnouncements(t *testing.T) {
 
 	webDir := filepath.Join(t.TempDir(), "web")
 	web := &Web{Dir: webDir, Msgs: b, Peers: func() []peers.Peer { return nodes }, Client: client.New(), Log: t.Logf}
-	go web.Run(ctx)
+	background(t, func() { web.Run(ctx) })
 	eventually(t, web, "example.org", "real")
 	time.Sleep(200 * time.Millisecond)
 	for _, s := range web.Status() {
@@ -317,7 +317,7 @@ func TestGroupNamesBelongToTheirNode(t *testing.T) {
 	}
 	b := newBus()
 	web := &Web{Dir: t.TempDir(), Msgs: b, Peers: list, Client: client.New(), Log: t.Logf}
-	go web.Run(ctx)
+	background(t, func() { web.Run(ctx) })
 	publish := func(from, name, body string) {
 		t.Helper()
 		b.mu.Lock()
@@ -412,4 +412,13 @@ func TestLightAddressServesWorkPage(t *testing.T) {
 			t.Errorf("my.example.org%s went to %q, not %q", path, served, want)
 		}
 	}
+}
+
+// background runs f until the test's context is cancelled, and makes the
+// test wait for it before its folders are removed (defers run before
+// cleanups).
+func background(t *testing.T, f func()) {
+	done := make(chan struct{})
+	go func() { defer close(done); f() }()
+	t.Cleanup(func() { <-done })
 }
