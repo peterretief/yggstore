@@ -1,0 +1,537 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+// yggstore admin is the box's admin on its own screen (docs/box-setup.md,
+// Settings). Logging in on the box is the key: it's run with sudo after
+// logging in on one of its consoles. It does what the dashboard's admin
+// page does, through the dashboard on this machine, so the two never
+// disagree, and it stops after five idle minutes.
+
+const adminIdle = 5 * time.Minute
+
+const adminUsage = `yggstore admin: the box's admin, on its own screen
+
+  sudo yggstore admin [-dashboard http://127.0.0.1:7480]
+
+Devices that may open the dashboard (and ones that were refused), people
+on the box, websites, and services, after logging in on the box.
+`
+
+func cmdAdmin(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("admin", flag.ExitOnError)
+	fs.Usage = func() { fmt.Fprint(os.Stderr, adminUsage) }
+	base := fs.String("dashboard", "http://127.0.0.1:7480", "the dashboard on this machine")
+	fs.Parse(args)
+	if os.Geteuid() != 0 {
+		return errors.New("run it with sudo: sudo yggstore admin")
+	}
+	restore, err := rawTerminal(os.Stdin)
+	if err != nil {
+		return err
+	}
+	defer restore()
+	fmt.Print("\033[?25l")
+	defer fmt.Print("\033[?25h\033[2J\033[H")
+	keys := make(chan byte)
+	go readKeys(keys)
+	box, _ := os.Hostname()
+	err = runAdmin(ctx, keyReader{keys}, box, dash{strings.TrimSuffix(*base, "/")})
+	if errors.Is(err, errIdle) || errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
+}
+
+// keyReader hands out key presses, with a time limit.
+type keyReader struct{ ch <-chan byte }
+
+var errIdle = errors.New("idle")
+
+// key waits for one key. Escape sequences (arrow keys and the like) come
+// back as 0, so they're ignored rather than read as Escape.
+func (k keyReader) key(ctx context.Context) (byte, error) {
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-time.After(adminIdle):
+		return 0, errIdle
+	case b, ok := <-k.ch:
+		if !ok {
+			return 0, io.EOF
+		}
+		if b != 27 {
+			return b, nil
+		}
+		seq := false
+		for {
+			select {
+			case <-k.ch:
+				seq = true
+				continue
+			case <-time.After(30 * time.Millisecond):
+			}
+			break
+		}
+		if seq {
+			return 0, nil
+		}
+		return 27, nil
+	}
+}
+
+// line reads typed text until Enter. Escape gives ok false.
+func (k keyReader) line(ctx context.Context, show func(typed string), secret bool) (string, bool, error) {
+	var buf []byte
+	for {
+		typed := string(buf)
+		if secret {
+			typed = strings.Repeat("*", len(buf))
+		}
+		show(typed)
+		b, err := k.key(ctx)
+		switch {
+		case err != nil:
+			return "", false, err
+		case b == 27:
+			return "", false, nil
+		case b == '\r' || b == '\n':
+			return string(buf), true, nil
+		case b == 127 || b == 8:
+			if len(buf) > 0 {
+				buf = buf[:len(buf)-1]
+			}
+		case b >= 32 && b < 127 && len(buf) < 80:
+			buf = append(buf, b)
+		}
+	}
+}
+
+func readKeys(keys chan<- byte) {
+	b := make([]byte, 1)
+	for {
+		if _, err := os.Stdin.Read(b); err != nil {
+			close(keys)
+			return
+		}
+		keys <- b[0]
+	}
+}
+
+// adminDraw draws one admin screen: a title, its lines, a message (the
+// result of the last action) and what the keys do.
+func adminDraw(box, title string, lines []string, msg, keys string) {
+	const bold, dim, off = "\033[1m", "\033[2m", "\033[0m"
+	var b strings.Builder
+	b.WriteString("\033[2J\033[H\n")
+	fmt.Fprintf(&b, "  %sLocalBox  %s%s    %s\n\n", bold, box, off, title)
+	if msg != "" {
+		b.WriteString("  " + msg + "\n\n")
+	}
+	for _, l := range lines {
+		b.WriteString("  " + l + "\n")
+	}
+	b.WriteString("\n  " + dim + keys + off + "\n")
+	fmt.Print(b.String())
+}
+
+// dash is the dashboard on this machine.
+type dash struct{ base string }
+
+func (d dash) get(path string, out any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, d.base+path, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("the dashboard isn't answering: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+		return errors.New(strings.TrimSpace(string(b)))
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func (d dash) post(path string, body any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, d.base+path, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Yggstore", "1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("the dashboard isn't answering: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+		return errors.New(strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "~"
+}
+
+// pick turns a number key into an index into n items (1 to 9).
+func pick(b byte, n int) (int, bool) {
+	i := int(b) - '1'
+	return i, i >= 0 && i < n && i < 9
+}
+
+// runAdmin is the admin menu. It returns when the owner leaves, or after
+// five idle minutes.
+func runAdmin(ctx context.Context, k keyReader, box string, d dash) error {
+	msg := ""
+	for {
+		adminDraw(box, "Admin", []string{
+			"1  Devices that may open the dashboard",
+			"2  People on this box",
+			"3  Websites",
+			"4  Services",
+		}, msg, "Number to choose    Esc to leave")
+		msg = ""
+		b, err := k.key(ctx)
+		if err != nil {
+			return err
+		}
+		switch b {
+		case 27:
+			return nil
+		case '1':
+			err = adminDevices(ctx, k, box, d)
+		case '2':
+			err = adminPeople(ctx, k, box, d)
+		case '3':
+			err = adminSites(ctx, k, box, d)
+		case '4':
+			err = adminServices(ctx, k, box)
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
+// confirm asks a yes or no question.
+func confirm(ctx context.Context, k keyReader, box, title, question string) (bool, error) {
+	adminDraw(box, title, []string{question}, "", "Y for yes, any other key for no")
+	b, err := k.key(ctx)
+	return b == 'y' || b == 'Y', err
+}
+
+func adminDevices(ctx context.Context, k keyReader, box string, d dash) error {
+	const title = "Devices"
+	msg := ""
+	for {
+		var st struct {
+			On      bool
+			Devices []struct {
+				Addr, Name string
+				Pages      []string
+			}
+			Asks []struct {
+				Addr, Name string
+				At         time.Time
+			}
+		}
+		var lines []string
+		if err := d.get("/api/devices", &st); err != nil {
+			lines = []string{"Can't read them: " + err.Error()}
+		} else if !st.On {
+			lines = []string{"The dashboard here only opens on this machine (it isn't", "started with -remote), so there are no devices to list."}
+		}
+		n := 0
+		if len(st.Devices) > 0 {
+			lines = append(lines, "May open it:")
+			for _, dv := range st.Devices {
+				n++
+				pages := "every page"
+				if len(dv.Pages) > 0 {
+					pages = strings.Join(dv.Pages, ", ")
+				}
+				lines = append(lines, fmt.Sprintf("%d  %-14s %s", n, cut(dv.Name, 14), cut(pages, 36)))
+			}
+		}
+		if len(st.Asks) > 0 {
+			lines = append(lines, "", "Tried to open it, and were refused:")
+			for _, a := range st.Asks {
+				n++
+				lines = append(lines, fmt.Sprintf("%d  %s  at %s", n, a.Addr, a.At.Local().Format("15:04")))
+			}
+		}
+		if st.On && n == 0 {
+			lines = append(lines, "No devices yet. One that tries to open the dashboard", "shows up here, to be let in.")
+		}
+		keys := "Number to choose    Esc to go back"
+		if st.On {
+			keys = "Number to choose    N to add by address    Esc to go back"
+		}
+		adminDraw(box, title, lines, msg, keys)
+		msg = ""
+		b, err := k.key(ctx)
+		if err != nil {
+			return err
+		}
+		if b == 27 {
+			return nil
+		}
+		add := func(addr string) error {
+			name, ok, err := k.line(ctx, func(typed string) {
+				adminDraw(box, title, []string{"Letting in " + addr, "", "A name for it, such as \"Anna's phone\": " + typed}, "", "Enter to let it in    Esc to cancel")
+			}, false)
+			if err != nil || !ok {
+				return err
+			}
+			if e := d.post("/api/devices/add", map[string]string{"addr": addr, "name": name}); e != nil {
+				msg = "Not let in: " + e.Error()
+			} else {
+				msg = "Let in: it may open every page but Admin."
+			}
+			return nil
+		}
+		if (b == 'n' || b == 'N') && st.On {
+			addr, ok, err := k.line(ctx, func(typed string) {
+				adminDraw(box, title, []string{"The device's Yggdrasil address (it's shown on the", "page it gets when it's refused):", "", typed}, "", "Enter when done    Esc to cancel")
+			}, false)
+			if err != nil {
+				return err
+			}
+			if ok && strings.TrimSpace(addr) != "" {
+				if err := add(strings.TrimSpace(addr)); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		i, ok := pick(b, n)
+		if !ok {
+			continue
+		}
+		if i < len(st.Devices) {
+			dv := st.Devices[i]
+			yes, err := confirm(ctx, k, box, title, "Stop "+dv.Name+" ("+dv.Addr+") opening the dashboard?")
+			if err != nil {
+				return err
+			}
+			if yes {
+				if e := d.post("/api/devices/remove", map[string]string{"addr": dv.Addr}); e != nil {
+					msg = "Not removed: " + e.Error()
+				} else {
+					msg = dv.Name + " can't open the dashboard any more."
+				}
+			}
+			continue
+		}
+		if err := add(st.Asks[i-len(st.Devices)].Addr); err != nil {
+			return err
+		}
+	}
+}
+
+func adminPeople(ctx context.Context, k keyReader, box string, d dash) error {
+	const title = "People on this box"
+	msg := ""
+	for {
+		var st struct {
+			On     bool
+			People []struct {
+				Name      string
+				Bytes     int64
+				Quota     int64
+				Suspended bool
+				Removed   bool
+			}
+		}
+		var lines []string
+		if err := d.get("/api/box/people", &st); err != nil {
+			lines = []string{"Can't read them: " + err.Error()}
+		} else if !st.On {
+			lines = []string{"This box keeps no one else's files: it has no hub."}
+		}
+		var shown []int
+		for i, p := range st.People {
+			if p.Removed {
+				continue
+			}
+			shown = append(shown, i)
+			limit := "no limit"
+			if p.Quota > 0 {
+				limit = "of " + size(p.Quota)
+			}
+			state := ""
+			if p.Suspended {
+				state = "  shut out for now"
+			}
+			lines = append(lines, fmt.Sprintf("%d  %-16s %s %s%s", len(shown), cut(p.Name, 16), size(p.Bytes), limit, state))
+		}
+		if st.On && len(shown) == 0 {
+			lines = append(lines, "No one yet. People are added on the dashboard's Admin page.")
+		}
+		adminDraw(box, title, lines, msg, "Number to shut someone out, or let them back    Esc to go back")
+		msg = ""
+		b, err := k.key(ctx)
+		if err != nil {
+			return err
+		}
+		if b == 27 {
+			return nil
+		}
+		i, ok := pick(b, len(shown))
+		if !ok {
+			continue
+		}
+		p := st.People[shown[i]]
+		action, q := "suspend", "Shut "+p.Name+" out for now? Their files stay."
+		if p.Suspended {
+			action, q = "resume", "Let "+p.Name+" use the box again?"
+		}
+		yes, err := confirm(ctx, k, box, title, q)
+		if err != nil {
+			return err
+		}
+		if yes {
+			if e := d.post("/api/box/people/"+action, map[string]string{"name": p.Name}); e != nil {
+				msg = "Not changed: " + e.Error()
+			} else {
+				msg = "Done."
+			}
+		}
+	}
+}
+
+func adminSites(ctx context.Context, k keyReader, box string, d dash) error {
+	const title = "Websites"
+	msg := ""
+	for {
+		var st struct {
+			Error string
+			Sites []struct {
+				Site         string
+				Contact, Ygg bool
+			}
+		}
+		var lines []string
+		if err := d.get("/api/sites", &st); err != nil {
+			lines = []string{"Can't read them: " + err.Error()}
+		} else if st.Error != "" {
+			lines = []string{st.Error}
+		}
+		on := map[bool]string{true: "on", false: "off"}
+		for i, s := range st.Sites {
+			lines = append(lines, fmt.Sprintf("%d  %-30s contact form %-3s  ygg button %s", i+1, cut(s.Site, 30), on[s.Contact], on[s.Ygg]))
+		}
+		if st.Error == "" && len(st.Sites) == 0 {
+			lines = append(lines, "No websites yet.")
+		}
+		adminDraw(box, title, lines, msg, "Number to change one    Esc to go back")
+		msg = ""
+		b, err := k.key(ctx)
+		if err != nil {
+			return err
+		}
+		if b == 27 {
+			return nil
+		}
+		i, ok := pick(b, len(st.Sites))
+		if !ok {
+			continue
+		}
+		s := st.Sites[i]
+		adminDraw(box, title, []string{s.Site, "",
+			"C  turn the contact form " + on[!s.Contact],
+			"Y  turn the ygg button " + on[!s.Ygg]}, "", "Letter to choose    Esc to go back")
+		b, err = k.key(ctx)
+		if err != nil {
+			return err
+		}
+		action, value := "", false
+		switch b {
+		case 'c', 'C':
+			action, value = "contact", !s.Contact
+		case 'y', 'Y':
+			action, value = "ygg", !s.Ygg
+		default:
+			continue
+		}
+		adminDraw(box, title, []string{"Changing " + s.Site + "..."}, "", "")
+		if e := d.post("/api/sites/"+action, map[string]any{"site": s.Site, "on": value}); e != nil {
+			msg = "Not changed: " + e.Error()
+		} else {
+			msg = "Done: the home page is published again."
+		}
+	}
+}
+
+func adminServices(ctx context.Context, k keyReader, box string) error {
+	const title = "Services"
+	msg := ""
+	for {
+		out, err := exec.Command("systemctl", "list-units", "--type=service", "--all", "--plain", "--no-legend",
+			"yggstore*", "yggdrasil*", "syncthing*").Output()
+		var units, lines []string
+		if err != nil {
+			lines = []string{"Can't list them: " + err.Error()}
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			f := strings.Fields(line)
+			// Timer-started ones that finished aren't services to restart,
+			// and the screen doesn't restart itself.
+			if len(f) < 4 || f[0] == "yggstore-screen.service" || (f[2] == "inactive" && f[3] == "dead") {
+				continue
+			}
+			units = append(units, f[0])
+			state := f[3]
+			if f[2] == "failed" {
+				state = "FAILED"
+			}
+			lines = append(lines, fmt.Sprintf("%d  %-40s %s", len(units), cut(strings.TrimSuffix(f[0], ".service"), 40), state))
+		}
+		adminDraw(box, title, lines, msg, "Number to restart one    Esc to go back")
+		msg = ""
+		b, err := k.key(ctx)
+		if err != nil {
+			return err
+		}
+		if b == 27 {
+			return nil
+		}
+		i, ok := pick(b, len(units))
+		if !ok {
+			continue
+		}
+		u := strings.TrimSuffix(units[i], ".service")
+		yes, err := confirm(ctx, k, box, title, "Restart "+u+"?")
+		if err != nil {
+			return err
+		}
+		if yes {
+			adminDraw(box, title, []string{"Restarting " + u + "..."}, "", "")
+			if out, e := exec.Command("systemctl", "restart", units[i]).CombinedOutput(); e != nil {
+				msg = "Didn't restart: " + strings.TrimSpace(string(out))
+			} else {
+				msg = u + " restarted."
+			}
+		}
+	}
+}

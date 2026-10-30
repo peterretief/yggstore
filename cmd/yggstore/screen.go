@@ -341,6 +341,7 @@ func renderScreen(st screenStatus, asking string) string {
 	switch asking {
 	case "":
 		b.WriteString("  " + bold + "R" + off + " Restart    " + bold + "S" + off + " Shut down\n")
+		b.WriteString("\n  " + dim + "Admin: Ctrl+Alt+F2, log in, then type  sudo yggstore admin" + off + "\n")
 	default:
 		b.WriteString("  " + bold + strings.ToUpper(asking[:1]) + asking[1:] + " the box?" + off +
 			"  Press Y for yes, any other key for no.\n")

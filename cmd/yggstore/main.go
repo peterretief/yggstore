@@ -49,6 +49,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore serve   -peers peers.json [-data DIR] [-port 7400] [-name NAME] [-quota GB] [-transport ygg|builtin]
   yggstore status  -peers peers.json                       show which peers answer
   yggstore screen  [-peers peers.json] [-once]              the box's status on its own screen, with restart and shut down
+  sudo yggstore admin                                       the box's admin on its own screen, after logging in on it
   yggstore put     -peers peers.json FILE                  shard FILE, write FILE.ystub
   yggstore get     [-o OUT] FILE.ystub                     rebuild the file from its stub
   yggstore verify  FILE.ystub                              challenge every shard holder
@@ -192,6 +193,8 @@ func main() {
 		err = cmdHistory(ctx, args)
 	case "screen":
 		err = cmdScreen(ctx, args)
+	case "admin":
+		err = cmdAdmin(ctx, args)
 	case "version", "-version", "--version":
 		fmt.Println("yggstore", versionString())
 	default:
