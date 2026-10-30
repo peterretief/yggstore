@@ -43,17 +43,48 @@ on the phone.
 where the cable is a problem, or there's no free port on the router. The
 cable is used whenever it's plugged in.
 
-**Set up this box**, only while it's unclaimed:
+**Set up this box**, the first time it's started. Plugging it in should
+be all a new owner has to do before this, and this should be the only
+thing they're asked, all on one screen (on the box, or on their phone
+through the claim link, [claim.md](claim.md)):
 
-- their name, and the email address the order was placed with;
-- their domain: one they have, a new one, or for now a name under the
-  group's;
-- then the box sends a link to the order's email address. Opening it on
-  a phone finishes the claim and makes the passkey (a passkey can't be
-  made on a text screen). The QR code for the phone is on the screen too.
+1. **Their first name.** They become the box's owner and its first
+   person.
+2. **A password**, typed twice. It signs them in everywhere: on the web,
+   at the box (its admin), and on their network drive.
+3. **A name for their website and email**, such as `harbourkitchen`,
+   checked as free while they type. It gives
+   `harbourkitchen.withcare.co.za` and `harbourkitchen@withcare.co.za`.
+   Their own domain comes later, from the admin.
 
-This is the claim from [claim.md](claim.md), steps 5 and 6, with the
-typing done on the box instead of the phone.
+The box then does the rest by itself, ticking each line on the screen as
+it's done:
+
+```
+  Setting up Harbour Kitchen's box
+
+  [x] You're on the box, as its owner
+  [x] Your folder, stored in the group as you add files
+  [x] Your network drive: \\harbourkitchen\anna
+  [x] Your name asked for: harbourkitchen
+  [ ] Your website: harbourkitchen.withcare.co.za, with a first page
+  [ ] Your email: harbourkitchen@withcare.co.za
+```
+
+- **The folder** is the person's folder on the box, as for anyone on
+  it: what they put in is kept in the group, so a broken box loses
+  nothing (the outbox, [README](../README.md#outbox-folder)).
+- **The name** is asked of the group as a name for someone on a box is
+  today ([hub.md](hub.md)), and the website and email start when it's
+  given.
+- **When it's done**, the status screen keeps showing what they have:
+  their website, email, network drive and the admin page, so it's
+  always visible, not only on the day.
+
+Everything else is for later, once this works, and differs from owner
+to owner: their phone and PCs (devices), other people on the box, their
+own domain, a contact form, forwarding, and whatever systems they run.
+All of it is in Settings.
 
 **Settings**, for the owner, once they've unlocked it (below). The same
 settings as on the admin page, so either place can be used, and a change
@@ -144,8 +175,11 @@ checking a box over SSH.
    instead of the login prompt, with larger text. Works on every box
    today, claimed or not. Built; tried first on a thin client with HDMI.
 2. **Wi-Fi**, through NetworkManager (already on Raspberry Pi OS).
-3. **Set up this box**, once unclaimed boxes and the claim page exist
-   ([claim.md](claim.md#build-order) steps 1 to 3).
+3. **Set up this box** on a box with no people yet: the three questions,
+   then the person, password, network drive and name request in one go,
+   and the status screen showing the website, email and drive. The same
+   on the phone once the claim page exists
+   ([claim.md](claim.md#build-order)).
 4. **Settings** (`yggstore admin`, built 2026-10-30 for devices, with
    the ones that were refused; people on the box; websites; services),
    then Wi-Fi and the rest; each one uses the same code as the admin

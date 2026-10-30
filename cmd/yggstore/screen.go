@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -41,6 +42,8 @@ type screenStatus struct {
 	Box, Owner, Version string
 	At                  time.Time
 	Lines               []screenLine
+	Setup               bool         // nobody is on the box yet: offer to set it up
+	Have                []screenLine // the first person's website, email and drive
 }
 
 func cmdScreen(ctx context.Context, args []string) error {
@@ -51,10 +54,12 @@ func cmdScreen(ctx context.Context, args []string) error {
 	name := fs.String("name", host, "this box's name in the group's list")
 	every := fs.Duration("every", 15*time.Second, "how often the status is checked")
 	once := fs.Bool("once", false, "print the status once, and don't read keys")
+	base := fs.String("dashboard", "http://127.0.0.1:7480", "the dashboard on this machine")
 	fs.Parse(args)
+	d := dash{strings.TrimSuffix(*base, "/")}
 
 	if *once {
-		fmt.Print(renderScreen(checkScreen(ctx, *peersPath, *name), ""))
+		fmt.Print(renderScreen(checkScreen(ctx, *peersPath, *name, d), ""))
 		return nil
 	}
 	restore, err := rawTerminal(os.Stdin)
@@ -86,7 +91,7 @@ func cmdScreen(ctx context.Context, args []string) error {
 		case <-ctx.Done():
 			return nil
 		case <-refresh.C:
-			st = checkScreen(ctx, *peersPath, *name)
+			st = checkScreen(ctx, *peersPath, *name, d)
 			refresh.Reset(*every)
 		case b, ok := <-keys:
 			if !ok {
@@ -107,6 +112,12 @@ func cmdScreen(ctx context.Context, args []string) error {
 				continue
 			case asking != "":
 				asking = ""
+			case (k == "\r" || k == "\n") && st.Setup:
+				err := runSetup(ctx, keyReader{keys}, *name, d, *peersPath)
+				if errors.Is(err, io.EOF) {
+					return err
+				}
+				st = checkScreen(ctx, *peersPath, *name, d)
 			case k == "r":
 				asking = "restart"
 			case k == "s":
@@ -119,7 +130,7 @@ func cmdScreen(ctx context.Context, args []string) error {
 
 // checkScreen finds out what works. Every check has a time limit, so a
 // network that's down slows it by seconds, not minutes.
-func checkScreen(ctx context.Context, peersPath, name string) screenStatus {
+func checkScreen(ctx context.Context, peersPath, name string, d dash) screenStatus {
 	st := screenStatus{Box: name, Version: versionString(), At: time.Now()}
 	st.Lines = append(st.Lines, checkNetwork())
 	st.Lines = append(st.Lines, checkInternet(ctx))
@@ -133,6 +144,14 @@ func checkScreen(ctx context.Context, peersPath, name string) screenStatus {
 		st.Lines = append(st.Lines, group, storage)
 	}
 	st.Lines = append(st.Lines, checkServices())
+	if on, people, err := boxPeople(d); err == nil && on {
+		if len(people) == 0 {
+			st.Setup = true
+		} else {
+			list, _ := peers.Load(peersPath)
+			st.Have = ownerLines(people[0], peers.GroupDomain(list))
+		}
+	}
 	return st
 }
 
@@ -336,6 +355,15 @@ func renderScreen(st screenStatus, asking string) string {
 		if !l.OK && l.Fix != "" {
 			fmt.Fprintf(&b, "  %-10s %s%s%s\n", "", red, l.Fix, off)
 		}
+	}
+	if len(st.Have) > 0 {
+		b.WriteString("\n")
+		for _, l := range st.Have {
+			fmt.Fprintf(&b, "  %-10s %s\n", l.Label, l.Text)
+		}
+	}
+	if st.Setup && asking == "" {
+		b.WriteString("\n  " + bold + "Press Enter to set up this box." + off + "\n")
 	}
 	b.WriteString("\n")
 	switch asking {

@@ -441,6 +441,8 @@ type boxPersonView struct {
 	Removed    bool
 	Syncthing  int
 	Path       string
+	Site       string // their name in the group, once given
+	Asked      string // the name asked for, while it waits
 }
 
 func (p boxPersonView) summary() string {
