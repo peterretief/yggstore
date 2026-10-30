@@ -48,6 +48,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
   yggstore id      [-transport ygg|loopback] [-port 7400]   print this node's ID and peers.json entry
   yggstore serve   -peers peers.json [-data DIR] [-port 7400] [-name NAME] [-quota GB] [-transport ygg|builtin]
   yggstore status  -peers peers.json                       show which peers answer
+  yggstore screen  [-peers peers.json] [-once]              the box's status on its own screen, with restart and shut down
   yggstore put     -peers peers.json FILE                  shard FILE, write FILE.ystub
   yggstore get     [-o OUT] FILE.ystub                     rebuild the file from its stub
   yggstore verify  FILE.ystub                              challenge every shard holder
@@ -189,6 +190,8 @@ func main() {
 		err = cmdLeases(ctx, args)
 	case "history":
 		err = cmdHistory(ctx, args)
+	case "screen":
+		err = cmdScreen(ctx, args)
 	case "version", "-version", "--version":
 		fmt.Println("yggstore", versionString())
 	default:

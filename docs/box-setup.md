@@ -1,6 +1,7 @@
 # Setting up on the box itself
 
-Status: proposed 2026-10-29. Nothing is built. Goes with
+Status: proposed 2026-10-29. The status screen with Restart and Shut down
+is built (`yggstore screen`, 2026-10-30); the rest isn't. Goes with
 [claim.md](claim.md#the-boxs-screen), which has the box show a page on a
 screen; with a keyboard as well, the box can be set up there. The first
 box to try it on is a Pi 400, whose keyboard is built in.
@@ -99,11 +100,29 @@ Also:
   password; the group's admin gets in over SSH as now.
 - **Nothing secret is shown:** no keys, no codes once the box is claimed.
 
+## Putting the screen on a box
+
+`yggstore screen` runs on the first console from
+`deploy/screen/yggstore-screen.service`, in place of the login prompt:
+
+```
+sudo install -m 644 deploy/screen/yggstore-screen.service /etc/systemd/system/
+sudo systemctl mask getty@tty1.service
+sudo systemctl enable --now yggstore-screen.service
+```
+
+The other consoles (Ctrl-Alt-F2 and on) still have login prompts. To
+go back: `sudo systemctl disable --now yggstore-screen.service` and
+`sudo systemctl unmask getty@tty1.service`, then start `getty@tty1`.
+
+`yggstore screen -once` prints the same status in any terminal, for
+checking a box over SSH.
+
 ## Build order
 
-1. **Status, Restart and Shut down** on the Pi 400: the console
-   program, started instead of the login prompt, with larger text. Works
-   on every box today, claimed or not.
+1. **Status, Restart and Shut down**: the console program, started
+   instead of the login prompt, with larger text. Works on every box
+   today, claimed or not. Built; tried first on a thin client with HDMI.
 2. **Wi-Fi**, through NetworkManager (already on Raspberry Pi OS).
 3. **Set up this box**, once unclaimed boxes and the claim page exist
    ([claim.md](claim.md#build-order) steps 1 to 3).

@@ -1,0 +1,21 @@
+[Unit]
+Description=The box's status on its own screen (yggstore screen)
+After=network-online.target yggstore-node.service getty@tty1.service
+Conflicts=getty@tty1.service
+
+[Service]
+Environment=HOME=/root TERM=linux
+# Larger text, where the font is there; the screen works without it.
+ExecStartPre=-/usr/bin/setfont -C /dev/tty1 Lat15-Terminus32x16
+ExecStart=/usr/local/bin/yggstore screen -peers /root/.yggstore/peers.json
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
