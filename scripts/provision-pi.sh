@@ -36,6 +36,10 @@ die() { printf '\nSTOPPED: %s\n' "$*" >&2; exit 1; }
 ADMIN_DASHBOARD=${ADMIN_DASHBOARD:-http://127.0.0.1:7480}
 PAIR_LIMIT=${PAIR_LIMIT:-5}
 SITE_MAX_MB=${SITE_MAX_MB:-500}
+# Raspberry Pi OS starts on GMT and a UK keyboard.
+TIMEZONE=${TIMEZONE:-Africa/Johannesburg}
+KEYBOARD=${KEYBOARD:-us}
+[[ "$TIMEZONE" =~ ^[A-Za-z_/+-]+$ && "$KEYBOARD" =~ ^[a-z]+$ ]] || die "TIMEZONE or KEYBOARD in $CONF looks wrong"
 customers=""
 [ "${CUSTOMERS:-no}" = yes ] && customers="-customers"
 
@@ -90,6 +94,17 @@ else
 		grep -q '^127\.0\.1\.1' /etc/hosts || echo '127.0.1.1	$NAME' >> /etc/hosts
 		systemctl restart avahi-daemon 2>/dev/null || true"
 	ok "now $NAME, on the network as $NAME.local"
+fi
+
+# --- 2b. Its clock and keyboard --------------------------------------------------
+say "2b. Time zone $TIMEZONE, $KEYBOARD keyboard"
+if [ "$(ask "timedatectl show -p Timezone --value; sed -n 's/^XKBLAYOUT=\"\\(.*\\)\"/\\1/p' /etc/default/keyboard" | tr '\n' ' ')" = "$TIMEZONE $KEYBOARD " ]; then
+	ok "already set"
+else
+	on "timedatectl set-timezone '$TIMEZONE'
+		sed -i 's/^XKBLAYOUT=.*/XKBLAYOUT=\"$KEYBOARD\"/' /etc/default/keyboard
+		setupcon -k --force </dev/tty1 >/dev/null 2>&1 || true"
+	ok "set; the keyboard is $KEYBOARD on the box's own screen"
 fi
 
 # --- 3. Software ----------------------------------------------------------------

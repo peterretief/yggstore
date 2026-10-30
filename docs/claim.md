@@ -59,6 +59,9 @@ makes it someone's, and an admin page they can reach without Yggdrasil.
      or later), or for now a name under the group's, such as
      `harbourkitchen.withcare.co.za`;
    - make a passkey (or a password) for signing in;
+   - choose the password for logging in on the box itself, which opens
+     its admin on its own screen ([box-setup.md](box-setup.md)). Until
+     then the box's user has a random password nobody is shown;
    - press **This is my box**.
 
    If they came from the screen rather than the order email, the page
