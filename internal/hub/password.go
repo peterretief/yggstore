@@ -34,6 +34,24 @@ func (s *HubState) SetTempPassword(person string, now time.Time) (string, error)
 	return pw, nil
 }
 
+// SetChosenPassword gives person the password they chose, typed on the
+// box's own screen while they're there, with no temporary one first.
+func (s *HubState) SetChosenPassword(person, pw string, now time.Time) error {
+	i := s.person(person)
+	if i < 0 {
+		return errors.New("nobody called " + person + " on this box")
+	}
+	if p := s.People[i]; !p.Active() {
+		return errors.New(p.Name + " is suspended or removed: turn them back on first")
+	}
+	if err := password.OK(pw); err != nil {
+		return err
+	}
+	kept := password.Chosen(pw, now)
+	s.People[i].Password = &kept
+	return nil
+}
+
 // ChoosePassword takes the password p chose, signed in with the one called
 // was (password.Password.ID), as a web node passes it on.
 func (p *Person) ChoosePassword(was string, chosen password.Password) error {

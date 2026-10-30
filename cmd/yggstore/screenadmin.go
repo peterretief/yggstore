@@ -410,7 +410,16 @@ func adminPeople(ctx context.Context, k keyReader, box string, d dash) error {
 				msg = "Not added: " + e.Error()
 				continue
 			}
-			if err := showPassword(ctx, k, box, title, out.Name+" is on the box now.", out); err != nil {
+			// If they're at the box, they type their own; otherwise a
+			// temporary one to give them.
+			chosen, m, err := choosePassword(ctx, k, box, title, d, out.Name,
+				out.Name+" is on the box now. If they're here, they type the password they'll use; otherwise press Esc for a temporary one to give them.")
+			if err != nil {
+				return err
+			}
+			if chosen {
+				msg = m
+			} else if err := showPassword(ctx, k, box, title, out.Name+" is on the box now.", out); err != nil {
 				return err
 			}
 		default:
@@ -462,6 +471,36 @@ func showPassword(ctx context.Context, k keyReader, box, title, head string, out
 	return err
 }
 
+// choosePassword lets the person at the box type their own password,
+// twice. chosen is false if they pressed Esc.
+func choosePassword(ctx context.Context, k keyReader, box, title string, d dash, name, head string) (chosen bool, msg string, err error) {
+	note := ""
+	for {
+		pw, ok, err := k.line(ctx, func(typed string) {
+			adminDraw(box, title, []string{head, "", "At least 10 characters; a few words together is easiest.", "",
+				name + "'s password: " + typed}, note, "Enter when done    Esc to skip")
+		}, true)
+		if err != nil || !ok {
+			return false, "", err
+		}
+		again, ok, err := k.line(ctx, func(typed string) {
+			adminDraw(box, title, []string{"The same password again: " + typed}, "", "Enter when done    Esc to skip")
+		}, true)
+		if err != nil || !ok {
+			return false, "", err
+		}
+		if again != pw {
+			note = "The two didn't match. Try again."
+			continue
+		}
+		if e := d.call("/api/box/people/set-password", map[string]string{"name": name, "password": pw}, nil); e != nil {
+			note = e.Error()
+			continue
+		}
+		return true, name + " has the password they chose.", nil
+	}
+}
+
 // adminPerson is one person's choices. It returns what was done.
 func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPersonView) (string, error) {
 	title := p.Name
@@ -476,7 +515,8 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 	adminDraw(box, title, []string{
 		fmt.Sprintf("Uses %s, limit %s, %d devices syncing", size(p.Bytes), limit, p.Syncthing), "",
 		"L  change their limit",
-		"P  a new temporary password",
+		"C  choose their password now (they're here)",
+		"P  a new temporary password, to give them",
 		shut,
 		"R  remove them from the box (their files stay)",
 	}, "", "Letter to choose    Esc to go back")
@@ -502,6 +542,9 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 			return "Not changed: " + e.Error(), nil
 		}
 		return "Changed " + p.Name + "'s limit.", nil
+	case 'c', 'C':
+		_, m, err := choosePassword(ctx, k, box, title, d, p.Name, "They type the password they'll use. Their old one, and the browsers it signed in, stop working.")
+		return m, err
 	case 'p', 'P':
 		yes, err := confirm(ctx, k, box, title, "A new temporary password for "+p.Name+"? Their old one, and the browsers it signed in, stop working.")
 		if err != nil || !yes {

@@ -10,6 +10,8 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -80,22 +82,48 @@ func OK(pw string) error {
 	return nil
 }
 
-// tempChars leaves out letters and digits that look alike.
-const tempChars = "abcdefghjkmnpqrstuvwxyz23456789"
+// tempWords are 256 short, common words, so one random byte picks one.
+var tempWords = [256]string{
+	"apple", "arm", "baby", "back", "ball", "band", "bank", "bath", "bean",
+	"bear", "bed", "bee", "bell", "belt", "bike", "bird", "boat", "body",
+	"bone", "book", "boot", "bowl", "box", "bread", "brick", "bridge", "brush",
+	"cake", "camp", "candy", "cap", "car", "card", "cart", "cat", "chair",
+	"chalk", "cheese", "chest", "chin", "city", "clock", "cloud", "coat",
+	"coin", "cook", "corn", "cow", "crab", "cup", "dance", "desk", "dog",
+	"door", "dot", "dream", "dress", "drum", "duck", "dust", "ear", "earth",
+	"egg", "farm", "fern", "field", "fire", "fish", "flag", "floor", "flower",
+	"fog", "foot", "fork", "fox", "frog", "garden", "gate", "gift", "girl",
+	"glass", "glove", "goat", "gold", "grape", "grass", "hair", "hall", "hand",
+	"hat", "hill", "home", "honey", "hook", "horn", "horse", "house", "ice",
+	"ink", "iron", "jam", "jar", "jelly", "juice", "key", "kite", "knee",
+	"knot", "lake", "lamp", "leaf", "leg", "lemon", "light", "lime", "lion",
+	"lip", "lock", "map", "milk", "mint", "moon", "moth", "mouse", "mud",
+	"nail", "nest", "net", "nose", "note", "nut", "oak", "ocean", "oil",
+	"onion", "orange", "owl", "page", "paint", "pan", "paper", "park", "pear",
+	"pen", "pencil", "piano", "pie", "pig", "pin", "pipe", "plant", "plate",
+	"plum", "pond", "pool", "pot", "rabbit", "rain", "ring", "river", "road",
+	"rock", "roof", "room", "rope", "rose", "salt", "sand", "seed", "sheep",
+	"shell", "ship", "shirt", "shoe", "shop", "silk", "sink", "sky", "smile",
+	"snow", "soap", "sock", "sofa", "soup", "spoon", "star", "stone", "stove",
+	"straw", "sugar", "sun", "swan", "table", "tail", "tea", "tent", "tiger",
+	"toast", "toe", "tooth", "towel", "town", "toy", "train", "tree", "truck",
+	"tulip", "van", "vase", "wall", "wave", "well", "whale", "wheel", "wind",
+	"window", "wing", "wolf", "wood", "wool", "yard", "zebra", "bus", "flute",
+	"harp", "drawer", "basket", "button", "carrot", "cherry", "cloak", "coral",
+	"daisy", "eagle", "feather", "forest", "grain", "hammer", "island",
+	"ladder", "lettuce", "maple", "marble", "meadow", "mirror", "olive",
+	"parrot", "pebble", "pepper", "pillow", "pumpkin", "quilt", "rocket",
+	"saddle", "shovel", "spider",
+}
 
-// NewTemp makes a temporary password, easy to read out over the phone,
-// such as "kf7m-q2xp-9tcw", and what to keep of it.
+// NewTemp makes a temporary password, easy to read out over the phone and
+// type, such as "river-tea-lamp-428" (about 34 bits; sign-ins are
+// throttled and it lasts a week unused), and what to keep of it.
 func NewTemp(now time.Time) (string, Password) {
-	b := make([]byte, 12)
+	b := make([]byte, 3)
 	rand.Read(b)
-	var sb strings.Builder
-	for i, c := range b {
-		if i > 0 && i%4 == 0 {
-			sb.WriteByte('-')
-		}
-		sb.WriteByte(tempChars[int(c)%len(tempChars)])
-	}
-	pw := sb.String()
+	n, _ := rand.Int(rand.Reader, big.NewInt(900))
+	pw := fmt.Sprintf("%s-%s-%s-%d", tempWords[b[0]], tempWords[b[1]], tempWords[b[2]], n.Int64()+100)
 	return pw, Password{Hash: Hash(pw), Temp: true, Expires: now.Add(TempFor).Unix(), Set: now.Unix()}
 }
 

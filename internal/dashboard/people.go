@@ -175,12 +175,19 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 		Quota      *int64 // bytes, 0 for no limit
 		MaxDevices *int   `json:"max_devices"`
 		Label      string // for "name": the name to ask the group for
+		Password   string // for "set-password"
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	action := r.PathValue("action")
+	// A chosen password is typed on the box itself (yggstore admin), with
+	// the person there; the admin page gives temporary ones instead.
+	if action == "set-password" && !fromThisMachine(r) {
+		http.Error(w, "a password can only be chosen on the box itself", http.StatusForbidden)
+		return
+	}
 	if action == "name" {
 		msg, err := d.claimForPerson(r.Context(), req.Name, req.Label)
 		if err != nil {
@@ -203,6 +210,9 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 			pw, err = s.SetTempPassword(p.Name, time.Now())
 			done = p.Name + " is on the box now: give them their temporary password"
 			return err
+		case "set-password":
+			done = req.Name + " has the password they chose: their old one, and the browsers it signed in, stop working"
+			return s.SetChosenPassword(req.Name, req.Password, time.Now())
 		case "password":
 			var err error
 			pw, err = s.SetTempPassword(req.Name, time.Now())

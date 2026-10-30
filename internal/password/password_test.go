@@ -9,8 +9,11 @@ import (
 func TestPassword(t *testing.T) {
 	now := time.Now()
 	pw, p := NewTemp(now)
-	if len(pw) != 14 || strings.Count(pw, "-") != 2 || !p.Temp || !p.Matches(pw) || p.Matches(pw+"x") {
+	if f := strings.Split(pw, "-"); len(f) != 4 || len(f[3]) != 3 || !p.Temp || !p.Matches(pw) || p.Matches(pw+"x") {
 		t.Fatalf("temporary %q %+v", pw, p)
+	}
+	if other, _ := NewTemp(now); other == pw {
+		t.Fatal("the same temporary password twice")
 	}
 	if !p.Live(now) || p.Live(now.Add(TempFor)) {
 		t.Fatal("a temporary password works for TempFor")

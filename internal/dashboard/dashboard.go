@@ -492,6 +492,17 @@ func localIP(r *http.Request) net.IP {
 	return net.ParseIP(host)
 }
 
+// fromThisMachine is whether r came from this machine itself, not over
+// Yggdrasil or the LAN (unknown, as in tests, counts as this machine).
+func fromThisMachine(r *http.Request) bool {
+	local := localIP(r)
+	if local == nil {
+		return true
+	}
+	remote := net.ParseIP(remoteIP(r))
+	return local.IsLoopback() && remote != nil && remote.IsLoopback()
+}
+
 func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

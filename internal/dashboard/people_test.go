@@ -1,7 +1,9 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,7 +46,7 @@ func TestPeopleOnTheBox(t *testing.T) {
 	w := do("POST", "/api/box/people/add", `{"name":"anna"}`)
 	var added struct{ Password, Login string }
 	json.Unmarshal(w.Body.Bytes(), &added)
-	if w.Code != 200 || len(added.Password) != 14 || added.Login == "" {
+	if w.Code != 200 || strings.Count(added.Password, "-") != 3 || added.Login == "" {
 		t.Fatalf("add: %d %s", w.Code, w.Body)
 	}
 	w = do("POST", "/api/box/people/invite", `{"name":"anna"}`)
@@ -62,6 +64,25 @@ func TestPeopleOnTheBox(t *testing.T) {
 	if w := do("POST", "/api/box/people/limit", `{"name":"anna","quota":1073741824,"max_devices":2}`); w.Code != 200 {
 		t.Fatalf("limit: %d %s", w.Code, w.Body)
 	}
+	// A password chosen on the box's own screen; never from elsewhere.
+	if w := do("POST", "/api/box/people/set-password", `{"name":"anna","password":"short"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("a short chosen password: %d", w.Code)
+	}
+	r := httptest.NewRequest("POST", "/api/box/people/set-password", strings.NewReader(`{"name":"anna","password":"tea at four on fridays"}`))
+	r.Host, r.RemoteAddr = "[200::7]:7480", "[200::9]:5555"
+	r.Header.Set("X-Yggstore", "1")
+	r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.ParseIP("200::7"), Port: 7480}))
+	r.SetPathValue("action", "set-password")
+	rw := httptest.NewRecorder()
+	if d.handlePeopleAction(rw, r); rw.Code != http.StatusForbidden {
+		t.Fatalf("a chosen password from another device: %d %s", rw.Code, rw.Body)
+	}
+	if w := do("POST", "/api/box/people/set-password", `{"name":"anna","password":"tea at four on fridays"}`); w.Code != 200 {
+		t.Fatalf("set-password: %d %s", w.Code, w.Body)
+	}
+	if st, _ := hub.Load(state); !st.People[0].Password.Matches("tea at four on fridays") || st.People[0].Password.Temp {
+		t.Fatal("the chosen password isn't kept")
+	}
 	if w := do("POST", "/api/box/people/suspend", `{"name":"anna"}`); w.Code != 200 {
 		t.Fatalf("suspend: %d %s", w.Code, w.Body)
 	}
@@ -69,7 +90,7 @@ func TestPeopleOnTheBox(t *testing.T) {
 	if !out.On || len(out.People) != 1 {
 		t.Fatalf("people: %+v", out)
 	}
-	if p := out.People[0]; p.Quota != 1<<30 || p.MaxDevices != 2 || !p.Suspended || p.InviteUntil != 0 || p.Password != "temporary" {
+	if p := out.People[0]; p.Quota != 1<<30 || p.MaxDevices != 2 || !p.Suspended || p.InviteUntil != 0 || p.Password != "own" {
 		t.Fatalf("Anna: %+v", p)
 	}
 	st, _ := hub.Load(state)

@@ -16,10 +16,13 @@ files. That becomes the advanced, direct route, for people who want it.
 
 1. **The group's admin (or the box's owner) adds them** under People on
    the box and presses **Set temporary password** (or runs `yggstore hub
-   person add NAME`). The password is shown once, e.g. `kf7m-q2xp-9tcw`,
+   person add NAME`). The password is shown once, e.g. `milk-salt-jar-962`,
    with what they sign in as: their group address, such as
    `kath@group.example` (or `name@box` without one). The admin gives
    both to them by phone or in person, never by email. It works for a week.
+   On the box's own screen (`sudo yggstore admin`), with the person
+   there, they can type the password they'll use instead, and skip the
+   temporary one.
 2. **They sign in at `https://my.withcare.co.za`** (or their own address)
    with that address and password, and must choose their own password at
    once, of at least 10 characters. Their box keeps it, so the box has to
