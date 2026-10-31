@@ -8,7 +8,8 @@
 # NODE is a name from the table below; web is the web nodes, boxes the
 # rest. Web nodes go one at a time, each checked before the next, so the
 # group's sites and sign-in stay up. Each machine keeps the binary it ran
-# before as EXE.prev. The working tree must be committed (--dirty builds it
+# before as EXE.prev. A machine that doesn't answer (switched off, moving)
+# is skipped, and named at the end. The working tree must be committed (--dirty builds it
 # anyway, as dev-HASH-dirty), so what runs always matches a commit.
 #
 # Machines need ssh from here, and sudo (or root) there. See docs/deploy.md.
@@ -134,18 +135,34 @@ join=bin/deploy/yggstore-join-$version.exe
 echo "== building the Windows installer"
 env CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$version" -o "$join" ./cmd/yggstore-join
 
+skipped=()
 for n in "${ordered[@]}"; do
 	exe=$(field "$n" 4) host=$(field "$n" 2) r=$(root "$n") bin=${built[$(field "$n" 3)]}
 	echo "== $n ($host): $version"
+	if [ "$host" != local ] && ! ssh -o ConnectTimeout=10 "$host" true </dev/null 2>/dev/null; then
+		echo "  not answering: skipped"
+		skipped+=("$n")
+		continue
+	fi
 	if $dry; then
 		echo "  would copy $bin to $exe (keeping the old one as $exe.prev), the Windows installer beside it, and restart: $(rest "$n")"
 		continue
 	fi
 	tmp=/tmp/yggstore-$version
-	if [ "$host" = local ]; then cp "$bin" "$tmp"; cp "$join" "$tmp.exe"; else scp -q "$bin" "$host:$tmp"; scp -q "$join" "$host:$tmp.exe"; fi
+	if [ "$host" = local ]; then
+		cp "$bin" "$tmp"; cp "$join" "$tmp.exe"
+	elif ! { scp -q "$bin" "$host:$tmp" && scp -q "$join" "$host:$tmp.exe"; }; then
+		echo "  couldn't copy the binary there: skipped"
+		skipped+=("$n")
+		continue
+	fi
 	# install keeps the binary's owner, and replaces it even while it runs.
 	# The installer goes beside the binary, where the hub looks for it.
 	on "$n" "set -e; ${r}cp -p $exe $exe.prev; ${r}install -o \$(stat -c %u $exe) -g \$(stat -c %g $exe) -m 644 $tmp.exe \$(dirname $exe)/yggstore-join.exe; ${r}install -o \$(stat -c %u $exe) -g \$(stat -c %g $exe) -m 755 $tmp $exe; rm -f $tmp $tmp.exe; $(restart "$n") sleep 3; $(running "$n") $exe version" ||
 		die "$n didn't come back up: scripts/deploy.sh --back $n puts its old binary back. Stopping here."
 done
-echo "Done. scripts/deploy.sh --status shows what each machine runs."
+if [ ${#skipped[@]} -gt 0 ]; then
+	echo "Done, except ${skipped[*]}, which didn't answer. Once it's back: scripts/deploy.sh ${skipped[*]}"
+else
+	echo "Done. scripts/deploy.sh --status shows what each machine runs."
+fi
