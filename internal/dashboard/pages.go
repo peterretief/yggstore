@@ -32,7 +32,7 @@ var pageNames = map[string]string{"files": "Files", "web": "Website", "messages"
 // pageRoutes give each address the page it belongs to; an address is
 // matched exactly or as a folder.
 var pageRoutes = []struct{ path, page string }{
-	{"/admin", "admin"}, {"/network", "admin"}, {"/api/network", "admin"}, {"/api/nodes", "admin"},
+	{"/admin", "admin"}, {"/network", "admin"}, {"/api/network", "admin"}, {"/usage", "admin"}, {"/api/usage", "admin"}, {"/api/nodes", "admin"},
 	{"/sites", "admin"}, {"/api/moves", "admin"},
 	{"/api/invites", "admin"}, {"/api/box", "admin"}, {"/api/devices", "admin"},
 

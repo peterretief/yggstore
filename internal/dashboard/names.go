@@ -110,6 +110,8 @@ func (d *Dashboard) syncNames(ctx context.Context, list []peers.Peer) {
 					takeAnswer(&f, list, m.From, m.Body)
 				case typeNameReturn:
 					d.takeReturn(list, m.From, m.FromName, m.Body)
+				case typeBoxUsage:
+					d.takeUsage(list, m.From, m.FromName, m.Body)
 				}
 			}
 		}

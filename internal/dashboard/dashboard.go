@@ -261,8 +261,10 @@ type Dashboard struct {
 	repair       func()               // asks for a repair pass now (see SetRepair)
 	noRoom       func() map[string]int
 	down         func() map[string]int64
-	asks         []deviceAsk     // devices asking to be let in
-	usage        usageCache      // what the box's people store
+	asks         []deviceAsk // devices asking to be let in
+	usage        usageCache  // what the box's people store
+	usageOnce    sync.Once   // usageR, the boxes' usage summaries (groupusage.go)
+	usageR       *usageReports
 	netProbe     netProbe        // the network page's probes
 	yggName      string          // this machine's name for its Yggdrasil address (see peers.YggNames), under mu
 	yggDNSAt     time.Time       // when the machines' names were last added to DNS, used only by poll
@@ -398,6 +400,8 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/devices", d.handleDevices)
 	mux.HandleFunc("POST /api/devices/{action}", d.handleDeviceAction)
 	mux.HandleFunc("GET /network", d.handleNetworkPage)
+	mux.HandleFunc("GET /usage", d.handleUsagePage)
+	mux.HandleFunc("GET /api/usage", d.handleUsage)
 	mux.HandleFunc("GET /sites", d.handleSitesPage)
 	mux.HandleFunc("GET /api/moves", d.handleMoves)
 	mux.HandleFunc("POST /api/moves", d.handleMoveStart)
@@ -767,6 +771,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 		d.syncLists(ctx, mainList, st.Peers, st.AdminEntry != "")
 		d.syncNames(ctx, mainList)
 		d.approveNames(ctx, mainList)
+		d.sendUsage(ctx, mainList)
 		d.syncWallet(ctx, mainList)
 		if st.AdminEntry != "" && time.Since(d.yggDNSAt) > 30*time.Minute {
 			d.yggDNSAt = time.Now()

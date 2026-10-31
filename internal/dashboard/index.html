@@ -209,6 +209,7 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <span class="sub">this node <span class="mono" id="self">…</span></span>
     <a class="sub" id="netLink" href="/network" hidden>Network: every node's addresses and links</a>
     <a class="sub" id="sitesLink" href="/sites" hidden>Websites: every site in the group, and moving them</a>
+    <a class="sub" id="usageLink" href="/usage" hidden>Usage: storage, people over their limits, and who has which website</a>
     <span class="live"><span class="dot" id="dot"></span><span id="updated">connecting…</span></span>
   </header>
   <nav class="pages" id="pagenav"></nav>
@@ -556,6 +557,7 @@ function renderMyBox(s) {
   const admin = !!s.admin_entry;
   $("netLink").hidden = !admin || !(s.pages || []).includes("admin");
   $("sitesLink").hidden = $("netLink").hidden;
+  $("usageLink").hidden = $("netLink").hidden;
   $("mybox").innerHTML = `
     <div class="row"><span class="name">${esc(b.hostname || me?.name || "This box")}</span>${admin ? ` <span class="pill info">admin</span>` : ""}<span style="margin-left:auto">${pill}</span></div>
     <div class="sub" style="margin:4px 0 12px">${line}</div>

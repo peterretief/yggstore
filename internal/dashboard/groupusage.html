@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>yggstore usage</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea;
+  --ok: #1f9d55; --ok-bg: #e5f5ec; --warn: #b7791f; --warn-bg: #fdf3e1;
+  --bad: #d64545; --bad-bg: #fbe9e9; --info: #3b6fd8; --info-bg: #e8effc;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418; --panel: #1a1e24; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038;
+    --ok: #3ccf7e; --ok-bg: #173225; --warn: #e3a948; --warn-bg: #3a2c14;
+    --bad: #f07070; --bad-bg: #3d1c1c; --info: #79a2f2; --info-bg: #1b2842;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 8px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 10px; font-weight: 600; }
+a { color: var(--info); }
+.sub { color: var(--muted); font-size: 13px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.live { margin-left: auto; color: var(--muted); font-size: 13px; }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+thead th { border-top: 0; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+tr.test td { opacity: .7; }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; margin: 1px 2px 1px 0; white-space: nowrap; }
+.up { background: var(--ok-bg); color: var(--ok); }
+.down { background: var(--bad-bg); color: var(--bad); }
+.role { background: var(--info-bg); color: var(--info); }
+.warn { background: var(--warn-bg); color: var(--warn); }
+.copy { cursor: pointer; border-bottom: 1px dotted var(--muted); }
+.copy:hover { color: var(--info); }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 6px 12px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; min-width: 80px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--ok); }
+.bar.near i { background: var(--warn); } .bar.over i { background: var(--bad); }
+td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); padding: 12px 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Usage</h1>
+    <a class="sub" href="/admin">&larr; Admin</a>
+    <span class="live" id="updated">loading&hellip;</span>
+  </header>
+  <div class="sub">What each machine stores against what it gives the group, what each person on a box uses against
+    their limit (each box reports every hour), and who has which website and email address. Anything over or near
+    its limit comes first.</div>
+
+  <h2>Machines</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Machine</th><th></th><th>Stores</th><th>Gives the group</th><th></th></tr></thead>
+    <tbody id="machines"></tbody>
+  </table></div>
+
+  <h2>People on the boxes</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Person</th><th>Box</th><th></th><th>Uses</th><th>Limit</th><th></th><th>Box reported</th></tr></thead>
+    <tbody id="people"></tbody>
+  </table></div>
+
+  <h2>Websites and email addresses</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Website</th><th>Email</th><th>Whose</th><th>Given</th></tr></thead>
+    <tbody id="names"></tbody>
+  </table></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
+function size(n) {
+  if (!n) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : n) + " " + u[i];
+}
+const pill = {ok: '<span class="pill up">ok</span>', near: '<span class="pill warn">near its limit</span>',
+  over: '<span class="pill down">over</span>', down: '<span class="pill down">not answering</span>',
+  "shut-out": '<span class="pill warn">shut out</span>'};
+function bar(used, quota, status) {
+  if (!quota) return "";
+  const pct = Math.min(100, Math.round(100 * used / quota));
+  return `<div class="bar ${status}"><i style="width:${pct}%"></i></div>`;
+}
+function when(ms) {
+  if (!ms) return "";
+  const d = new Date(ms), mins = Math.round((Date.now() - ms) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  if (mins < 48 * 60) return Math.round(mins / 60) + " h ago";
+  return d.toLocaleDateString();
+}
+function rows(id, list, row, empty, cols) {
+  $(id).innerHTML = list.length ? list.map(row).join("") : `<tr><td class="empty" colspan="${cols}">${empty}</td></tr>`;
+}
+async function load() {
+  const r = await fetch("api/usage", {cache: "no-store"});
+  if (!r.ok) { $("updated").textContent = (await r.text()).trim(); return; }
+  const u = await r.json();
+  const rank = {over: 0, near: 1, down: 2, ok: 3};
+  u.machines.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.used - a.used));
+  rows("machines", u.machines, m => `<tr><td>${esc(m.machine)}</td><td>${pill[m.status]}</td>
+    <td class="num">${m.up ? size(m.used) : ""}</td><td class="num">${m.up ? size(m.quota) : ""}</td>
+    <td>${m.up ? bar(m.used, m.quota, m.status) : ""}</td></tr>`, "No machines answered yet.", 5);
+  rows("people", u.people, p => `<tr><td>${esc(p.name)}</td><td>${esc(p.box)}</td><td>${pill[p.status]}</td>
+    <td class="num">${size(p.bytes)}</td><td class="num">${p.quota ? size(p.quota) : "no limit"}</td>
+    <td>${bar(p.bytes, p.quota, p.status)}</td><td class="sub">${when(p.at)}</td></tr>`,
+    "No box has reported yet: each sends its people's usage within an hour of running this version.", 7);
+  rows("names", u.names, n => `<tr><td><a href="${esc(n.website)}" target="_blank" rel="noopener">${esc(n.website.replace("https://", ""))}</a></td>
+    <td>${esc(n.email)}</td><td>${esc(n.who)}</td><td class="sub">${when(n.given)}</td></tr>`,
+    "No websites in the group yet.", 4);
+  $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+}
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>
