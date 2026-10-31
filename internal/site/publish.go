@@ -2,6 +2,8 @@ package site
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,6 +54,10 @@ type state struct {
 	Uploaders []string `json:"uploaders,omitempty"`
 	// Code: the web nodes run the site's handlers (api/NAME.wasm).
 	Code bool `json:"code,omitempty"`
+	// Preview is a version the web nodes show only to browsers that
+	// opened the preview link, with PreviewKey in it (see PreviewPath).
+	Preview    string `json:"preview,omitempty"`
+	PreviewKey string `json:"preview_key,omitempty"`
 }
 
 func (p *Publisher) siteDir(name string) string { return filepath.Join(p.Dir, name) }
@@ -130,23 +136,128 @@ func (p *Publisher) Versions(name string) ([]Version, error) {
 // Unchanged content makes no new version; it is announced again, so web
 // nodes that missed it catch up.
 func (p *Publisher) Publish(ctx context.Context, name, folder string, online []peers.Peer) (Version, int, error) {
-	if err := ValidName(name); err != nil {
+	m, reused, same, err := p.store(ctx, name, folder, online)
+	if err != nil {
 		return Version{}, 0, err
 	}
+	if same != nil {
+		// Nothing changed: announce the current version again.
+		v, err := p.announce(ctx, name, *same)
+		return v, reused, err
+	}
+	v, err := p.announce(ctx, name, m)
+	return v, reused, err
+}
+
+// PublishPreview stores folder as a new version of the site, which the web
+// nodes show only to browsers that open the preview link; the live site
+// stays as it is until GoLive. It returns the link.
+func (p *Publisher) PublishPreview(ctx context.Context, name, folder string, online []peers.Peer) (string, error) {
+	cur, err := p.Current(name)
+	if err != nil {
+		return "", fmt.Errorf("publish %s once before previewing a new version: %w", name, err)
+	}
+	m, _, same, err := p.store(ctx, name, folder, online)
+	if err != nil {
+		return "", err
+	}
+	if same != nil {
+		m = *same
+	}
+	s := p.readState(name)
+	s.Preview = m.FileID
+	if s.PreviewKey == "" {
+		b := make([]byte, 16)
+		rand.Read(b)
+		s.PreviewKey = hex.EncodeToString(b)
+	}
+	if err := p.writeState(name, s); err != nil {
+		return "", err
+	}
+	if _, err := p.announce(ctx, name, cur); err != nil {
+		return "", err
+	}
+	return p.PreviewLink(name), nil
+}
+
+// PreviewLink is the link that shows a site's preview, or "" with none.
+func (p *Publisher) PreviewLink(name string) string {
+	s := p.readState(name)
+	if s.Preview == "" || s.PreviewKey == "" {
+		return ""
+	}
+	return "https://" + name + PreviewPath + "?key=" + s.PreviewKey
+}
+
+// GoLive serves the preview to everyone.
+func (p *Publisher) GoLive(ctx context.Context, name string) (Version, error) {
+	s := p.readState(name)
+	if s.Preview == "" {
+		return Version{}, fmt.Errorf("%s has no preview", name)
+	}
+	m, err := p.version(name, s.Preview)
+	if err != nil {
+		return Version{}, err
+	}
+	s.Preview, s.PreviewKey = "", ""
+	if err := p.writeState(name, s); err != nil {
+		return Version{}, err
+	}
+	return p.announce(ctx, name, m)
+}
+
+// DropPreview stops showing the preview; its version stays among the
+// site's versions.
+func (p *Publisher) DropPreview(ctx context.Context, name string) error {
+	s := p.readState(name)
+	if s.Preview == "" {
+		return nil
+	}
+	s.Preview, s.PreviewKey = "", ""
+	if err := p.writeState(name, s); err != nil {
+		return err
+	}
+	vs, err := p.Versions(name)
+	if err != nil {
+		return err
+	}
+	return p.announceCurrent(ctx, name, vs)
+}
+
+// version is a stored version of a site, by ID.
+func (p *Publisher) version(name, id string) (manifest.Manifest, error) {
+	vs, err := p.Versions(name)
+	if err != nil {
+		return manifest.Manifest{}, err
+	}
+	for _, v := range vs {
+		if v.ID == id {
+			return files.ReadStub(v.stub)
+		}
+	}
+	return manifest.Manifest{}, fmt.Errorf("%s has no version %s", name, id)
+}
+
+// store puts folder in the group as a version of the site, and keeps its
+// stub. same is the current version when nothing changed.
+func (p *Publisher) store(ctx context.Context, name, folder string, online []peers.Peer) (m manifest.Manifest, reused int, same *manifest.Manifest, err error) {
+	if err := ValidName(name); err != nil {
+		return m, 0, nil, err
+	}
 	if fi, err := os.Stat(folder); err != nil || !fi.IsDir() {
-		return Version{}, 0, fmt.Errorf("%s is not a folder", folder)
+		return m, 0, nil, fmt.Errorf("%s is not a folder", folder)
 	}
 	// Markdown pages are built into a folder of their own first (see
 	// markdown.go); a folder without them goes as it is.
 	if HasMarkdown(folder) {
 		build, err := os.MkdirTemp("", "yggstore-site-*")
 		if err != nil {
-			return Version{}, 0, err
+			return m, 0, nil, err
 		}
 		defer os.RemoveAll(build)
 		n, _, err := BuildMarkdown(folder, build, name, p.Contact(name) != "")
 		if err != nil {
-			return Version{}, 0, fmt.Errorf("building its Markdown pages: %w", err)
+			return m, 0, nil, fmt.Errorf("building its Markdown pages: %w", err)
 		}
 		p.logf("%s: %d pages from Markdown", name, n)
 		folder = build
@@ -166,32 +277,29 @@ func (p *Publisher) Publish(ctx context.Context, name, folder string, online []p
 		}
 		opts.Previous = prev
 	}
-	m, _, _, err := files.PutFolder(ctx, p.Client, folder, online, opts)
+	m, _, _, err = files.PutFolder(ctx, p.Client, folder, online, opts)
 	if err != nil {
-		return Version{}, 0, err
+		return m, 0, nil, err
 	}
-	reused := 0
 	if prev != nil {
 		reused = files.Reused(m, *prev)
 		if reused == len(m.Chunks) && len(m.Chunks) == len(prev.Chunks) {
 			// Nothing changed: drop the new item (its shards are the old
-			// ones) and announce the current version again.
-			v, err := p.announce(ctx, name, *prev)
-			return v, reused, err
+			// ones).
+			return m, reused, prev, nil
 		}
 		m.Lineage = manifest.LineageOf(*prev)
 	}
 	m.StoredAt = time.Now().Unix()
 	dir := filepath.Join(p.siteDir(name), "versions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return Version{}, 0, err
+		return m, 0, nil, err
 	}
 	stub := filepath.Join(dir, time.Unix(m.StoredAt, 0).UTC().Format("20060102T150405Z")+"-"+m.FileID[:8]+files.StubExt)
 	if err := files.WriteJSON(stub, m); err != nil {
-		return Version{}, 0, err
+		return m, 0, nil, err
 	}
-	v, err := p.announce(ctx, name, m)
-	return v, reused, err
+	return m, reused, nil, nil
 }
 
 // Rollback serves an earlier version again: the one with the ID (or ID
@@ -360,7 +468,13 @@ func (p *Publisher) Contact(name string) string { return p.readState(name).Conta
 
 func (p *Publisher) announce(ctx context.Context, name string, m manifest.Manifest) (Version, error) {
 	s := p.readState(name)
-	typ, body, err := encode(Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders, Code: s.Code})
+	a := Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders, Code: s.Code}
+	if s.Preview != "" && s.PreviewKey != "" && s.Preview != m.FileID {
+		if pm, err := p.version(name, s.Preview); err == nil {
+			a.Preview, a.PreviewKey = &pm, PreviewKeyHash(s.PreviewKey)
+		}
+	}
+	typ, body, err := encode(a)
 	if err != nil {
 		return Version{}, err
 	}

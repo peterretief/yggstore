@@ -28,6 +28,10 @@ const siteUsage = `yggstore site: static websites hosted on the group
                                                 defaults to the folder's name); with a
                                                 Cloudflare API token it also adds the
                                                 site's tunnel route and DNS (and www.)
+  yggstore site preview FOLDER [-name DOMAIN]   store a new version as a preview: the live site
+                                                stays, and the link it prints shows the new one
+  yggstore site live DOMAIN                     serve the preview to everyone
+  yggstore site drop DOMAIN                     stop showing the preview; the live site stays
   yggstore site list                            sites published from this machine
   yggstore site versions DOMAIN                 a site's versions, newest first
   yggstore site rollback DOMAIN [VERSION]       serve an earlier version (default: the one before)
@@ -133,6 +137,58 @@ func cmdSite(ctx context.Context, args []string) error {
 		if routed && !*noWait {
 			waitPublic(ctx, domain)
 		}
+	case "preview":
+		if fs.NArg() != 1 {
+			return errors.New("usage: yggstore site preview FOLDER [-name DOMAIN]")
+		}
+		folder := filepath.Clean(arg(0))
+		domain := site.Normalise(*name)
+		if domain == "" {
+			domain = site.Normalise(filepath.Base(folder))
+		}
+		if err := site.ValidName(domain); err != nil {
+			return fmt.Errorf("%w\nGive it with -name, e.g. -name example.org", err)
+		}
+		if err := announcer(); err != nil {
+			return err
+		}
+		online, err := onlinePeers(ctx, *peersPath)
+		if err != nil {
+			return err
+		}
+		link, err := pub.PublishPreview(ctx, domain, folder, online)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s: the live site stays as it is. The new version, for whoever has this link:\n\n  %s\n\n", domain, link)
+		fmt.Printf("Web nodes fetch it within a minute. To serve it to everyone: yggstore site live %s\n", domain)
+	case "live":
+		if fs.NArg() != 1 {
+			return errors.New("usage: yggstore site live DOMAIN")
+		}
+		if err := announcer(); err != nil {
+			return err
+		}
+		domain := site.Normalise(arg(0))
+		v, err := pub.GoLive(ctx, domain)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s: serving the preview, version %s, to everyone.\n", domain, v.ID[:8])
+		if !*noWait {
+			waitServed(ctx, *peersPath, domain, v.ID)
+		}
+	case "drop":
+		if fs.NArg() != 1 {
+			return errors.New("usage: yggstore site drop DOMAIN")
+		}
+		if err := announcer(); err != nil {
+			return err
+		}
+		if err := pub.DropPreview(ctx, site.Normalise(arg(0))); err != nil {
+			return err
+		}
+		fmt.Printf("%s: the preview is gone; its link doesn't work any more. The live site is as it was.\n", arg(0))
 	case "list":
 		for _, s := range pub.Sites() {
 			vs, _ := pub.Versions(s)
@@ -145,6 +201,9 @@ func cmdSite(ctx context.Context, args []string) error {
 			form := ""
 			if pub.Contact(s) != "" {
 				form = ", contact form on"
+			}
+			if link := pub.PreviewLink(s); link != "" {
+				form += ", preview at " + link
 			}
 			fmt.Printf("%-30s %d version(s), serving %s%s\n", s, len(vs), cur, form)
 		}

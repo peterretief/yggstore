@@ -244,6 +244,30 @@ Cloudflare's free certificate covers one level of subdomain, so
 `anna.example.org` works and `www.anna.example.org` doesn't; members' names
 get no `www.`.
 
+## A preview before going live
+
+A new version can be seen on the site's own address before anyone else
+sees it:
+
+- **From a folder:** beside the site's folder, make one with the same
+  name and ` (preview)` after it, such as `shop.example.org (preview)`,
+  and put the next version in it. Whenever it changes it's published as
+  the site's preview, and `shop.example.org (preview) - LINK.txt` beside
+  it has the link. This works in a dashboard's `websites/` folder and in a
+  person's folder on a box (on their network drive, say).
+- **From the command line:** `yggstore site preview FOLDER -name DOMAIN`
+  prints the link.
+- **The link** (`https://DOMAIN/_yggstore/preview?key=...`) sets a cookie
+  in that browser, which then sees the preview on every page of the site,
+  with a bar at the bottom saying so and a link to leave. Everyone else
+  sees the live site. The web nodes only know a hash of the key.
+- **Going live** serves the preview to everyone at once (the web nodes
+  have it already): **Go live** on the dashboard's website card, `G` in
+  the box's admin (a person's menu), or `yggstore site live DOMAIN`. The
+  site's folder then holds the new version. **Drop** (or `yggstore site
+  drop DOMAIN`) throws the preview away and leaves the live site as it is.
+- A site's code (`/api/`) and data are the live site's, in a preview too.
+
 ## Markdown pages
 
 A site's folder can hold pages written in Markdown, beside or instead of

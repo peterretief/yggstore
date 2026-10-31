@@ -40,6 +40,15 @@ const NoteSuffix = " - NOT PUBLISHED.txt"
 // MovedSuffix ends the name of the file that says where a site moved to.
 const MovedSuffix = " - MOVED.txt"
 
+// PreviewSuffix ends a folder that holds a site's next version: "DOMAIN
+// (preview)" is published as DOMAIN's preview whenever it changes, and
+// "DOMAIN (preview) - LINK.txt" beside it has the link that shows it.
+// The live site stays as it is until the preview goes live.
+const (
+	PreviewSuffix = " (preview)"
+	LinkSuffix    = " - LINK.txt"
+)
+
 // ErrNoToken is what Route returns when there is no Cloudflare API token:
 // routes are then added by hand.
 var ErrNoToken = errors.New("no Cloudflare API token")
@@ -233,6 +242,15 @@ func (w *Watcher) Step(ctx context.Context) {
 		}
 		folder := e.Name()
 		present[folder] = true
+		if base, ok := strings.CutSuffix(folder, PreviewSuffix); ok {
+			name := site.Normalise(base)
+			if published[name] {
+				w.preview(ctx, folder, name, filepath.Join(w.cfg.Dir, folder))
+			} else {
+				w.note(folder, name, fmt.Sprintf("%s isn't published from here yet, so this folder can't be its preview. Publish the site first, from the folder %s.", name, base))
+			}
+			continue
+		}
 		name := site.Normalise(folder)
 		if err := site.ValidName(name); err != nil {
 			w.note(folder, folder, fmt.Sprintf("%q isn't a domain name, so it can't be a website. Name the folder after the site's domain, such as example.org or shop.example.org.", folder))
@@ -255,6 +273,7 @@ func (w *Watcher) Step(ctx context.Context) {
 		if !present[f] {
 			delete(w.sites, f)
 			os.Remove(w.notePath(f))
+			os.Remove(filepath.Join(w.cfg.Dir, f+LinkSuffix))
 			gone = true
 		}
 	}
@@ -277,7 +296,7 @@ func (w *Watcher) fill(ctx context.Context, name string) {
 	defer os.RemoveAll(tmp)
 	root, err := files.Restore(ctx, w.cfg.Client, m, tmp, nil)
 	if err == nil {
-		err = os.Rename(root, filepath.Join(w.cfg.Dir, name))
+		err = os.Rename(site.Unbuilt(root), filepath.Join(w.cfg.Dir, name))
 	}
 	if err != nil {
 		w.cfg.Logf("websites: %s: fetching the version being served: %v (will try again)", name, err)
@@ -323,6 +342,7 @@ func (w *Watcher) catchUp(ctx context.Context, folder, name, path string, sc sca
 	defer os.RemoveAll(tmp)
 	root, err := files.Restore(ctx, w.cfg.Client, m, tmp, nil)
 	if err == nil {
+		root = site.Unbuilt(root) // a Markdown site gets its source back
 		if err = os.Rename(path, old); err == nil {
 			if err = os.Rename(root, path); err != nil {
 				os.Rename(old, path)
@@ -400,7 +420,10 @@ func (w *Watcher) publish(ctx context.Context, folder, name, path string, route 
 		return
 	}
 	if changed {
-		if problem := w.check(name, sc); problem != "" && !force {
+		w.mu.Lock()
+		last := e.last
+		w.mu.Unlock()
+		if problem := w.check(name, path, sc, last); problem != "" && !force {
 			w.note(folder, name, problem)
 			return
 		}
@@ -462,18 +485,82 @@ func (w *Watcher) publish(ctx context.Context, folder, name, path string, route 
 	w.note(folder, name, w.notOnline(name, routeErr))
 }
 
+// preview publishes a "DOMAIN (preview)" folder as the site's preview when
+// it has changed and settled, and keeps the link beside it; once the
+// preview went live or was dropped, the link file goes.
+func (w *Watcher) preview(ctx context.Context, folder, name, path string) {
+	e := w.entry(folder)
+	sc := scanSite(path)
+	now := w.cfg.Now()
+	link := filepath.Join(w.cfg.Dir, folder+LinkSuffix)
+	w.mu.Lock()
+	if e.seen != sc {
+		e.seen, e.seenAt = sc, now
+		w.mu.Unlock()
+		return
+	}
+	settled := !sc.temp && now.Sub(e.seenAt) >= w.cfg.Quiet
+	changed := e.last != sc
+	early := now.Sub(e.tried) < w.cfg.Gap
+	w.mu.Unlock()
+	if settled && changed && !early {
+		w.mu.Lock()
+		last := e.last
+		w.mu.Unlock()
+		if problem := w.check(name, path, sc, last); problem != "" {
+			w.note(folder, name, problem)
+			return
+		}
+		w.mu.Lock()
+		e.tried = now
+		w.mu.Unlock()
+		online, err := w.cfg.Online(ctx)
+		if err == nil {
+			_, err = w.cfg.Pub.PublishPreview(ctx, name, path, online)
+		}
+		if err != nil {
+			w.note(folder, name, fmt.Sprintf("The preview of %s couldn't be published: %v.\nThis node tries again in a minute; the live site is as it was.", name, err))
+			return
+		}
+		w.mu.Lock()
+		e.last = sc
+		w.save()
+		w.mu.Unlock()
+		w.clear(folder, name, "a preview")
+		w.cfg.Logf("websites: %s: preview published", name)
+	}
+	url := w.cfg.Pub.PreviewLink(name)
+	if url == "" {
+		os.Remove(link)
+		return
+	}
+	text := fmt.Sprintf("The next version of %s, from the folder %q, can be seen at:\n\n  %s\n\n"+
+		"Only browsers that open this link see it; everyone else sees the live site. Changes in the folder show there within a minute.\n\n"+
+		"To make it live for everyone, press Go live for %s on your dashboard or the box's admin. To drop it, press Drop.\n", name, folder, url, name)
+	if old, err := os.ReadFile(link); err != nil || string(old) != text {
+		os.WriteFile(link, []byte(text), 0o644)
+	}
+}
+
 // check is why a folder shouldn't be published as it is: it would break or
 // empty the site, most likely by mistake.
-func (w *Watcher) check(name string, sc scan) string {
+func (w *Watcher) check(name, path string, sc, last scan) string {
 	keep := "\nThe version being served (if there is one) stays online. Once the folder is fixed, it is published by itself."
 	if !sc.index {
-		return fmt.Sprintf("%s isn't published: its folder has no index.html, the site's home page.%s", name, keep)
+		return fmt.Sprintf("%s isn't published: its folder has no index.html (or index.md), the site's home page.%s", name, keep)
 	}
 	if w.cfg.MaxBytes > 0 && sc.bytes > w.cfg.MaxBytes {
 		return fmt.Sprintf("%s isn't published: its folder holds %.1f MB, more than the %.1f MB a site may.%s",
 			name, float64(sc.bytes)/(1<<20), float64(w.cfg.MaxBytes)/(1<<20), keep)
 	}
-	if vs, _ := w.cfg.Pub.Versions(name); len(vs) > 0 {
+	// A Markdown site's version holds its built pages beside the source, so
+	// its folder is measured against itself when last published instead.
+	if site.HasMarkdown(path) {
+		if last.bytes > 0 && sc.bytes < last.bytes/2 {
+			return fmt.Sprintf("The latest change to %s isn't published: its folder went from %s to %s, which looks like a mistake. The site online is unchanged.",
+				name, amount(last.files, last.bytes), amount(sc.files, sc.bytes))
+		}
+	} else if vs, _ := w.cfg.Pub.Versions(name); len(vs) > 0 {
 		for _, v := range vs {
 			if v.Current && v.Bytes > 0 && sc.bytes < v.Bytes/2 {
 				if w.cfg.Buttons {
@@ -725,8 +812,8 @@ func scanSite(dir string) scan {
 		if info.Mode().IsRegular() {
 			sc.files++
 			sc.bytes += info.Size()
-			if filepath.Dir(p) == dir && name == "index.html" {
-				sc.index = true
+			if filepath.Dir(p) == dir && (name == "index.html" || name == "index.md") {
+				sc.index = true // a Markdown home page counts (site.BuildMarkdown)
 			}
 		}
 		return nil

@@ -73,8 +73,43 @@ func (ps *PeopleSites) SetCode(ctx context.Context, p Person, on bool) error {
 	return r.pub.SetCode(ctx, r.name, on)
 }
 
+// PreviewLink is the link that shows person's site's preview, or "".
+func (ps *PeopleSites) PreviewLink(p Person) string {
+	r := ps.site(p)
+	if r == nil {
+		return ""
+	}
+	return r.pub.PreviewLink(r.name)
+}
+
+// GoLive serves person's site's preview to everyone; the site's folder
+// then holds it, and what was in it is kept on the box.
+func (ps *PeopleSites) GoLive(ctx context.Context, p Person) error {
+	r := ps.site(p)
+	if r == nil {
+		return errors.New("you have no website yet")
+	}
+	v, err := r.pub.GoLive(ctx, r.name)
+	if err != nil {
+		return err
+	}
+	r.w.Refill(r.name)
+	ps.cfg.Logf("%s: %s's preview is live: version %s", p.Name, r.name, v.ID[:min(8, len(v.ID))])
+	return nil
+}
+
+// DropPreview stops showing person's site's preview.
+func (ps *PeopleSites) DropPreview(ctx context.Context, p Person) error {
+	r := ps.site(p)
+	if r == nil {
+		return errors.New("you have no website yet")
+	}
+	return r.pub.DropPreview(ctx, r.name)
+}
+
 // siteAsk does what the box's admin asked for person's site on the command
-// line: "back" or "back:ID", "anyway", "keep", or "code-on", "code-off".
+// line or its admin page: "back" or "back:ID", "anyway", "keep", "live",
+// "drop", or "code-on", "code-off".
 func (ps *PeopleSites) siteAsk(ctx context.Context, p Person, ask string) error {
 	switch what, id, _ := strings.Cut(ask, ":"); what {
 	case "back":
@@ -84,6 +119,10 @@ func (ps *PeopleSites) siteAsk(ctx context.Context, p Person, ask string) error 
 		return ps.PublishAnyway(p)
 	case "keep":
 		return ps.KeepServed(p)
+	case "live":
+		return ps.GoLive(ctx, p)
+	case "drop":
+		return ps.DropPreview(ctx, p)
 	case "code-on", "code-off":
 		err := ps.SetCode(ctx, p, what == "code-on")
 		if err == nil {

@@ -83,6 +83,21 @@ func TestPeopleOnTheBox(t *testing.T) {
 	if st, _ := hub.Load(state); !st.People[0].Password.Matches("tea at four on fridays") || st.People[0].Password.Temp {
 		t.Fatal("the chosen password isn't kept")
 	}
+	// Going live and dropping need a preview; with one, the hub is asked.
+	if w := do("POST", "/api/box/people/site-live", `{"name":"anna"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("going live with no preview: %d", w.Code)
+	}
+	hub.Update(context.Background(), state, func(s *hub.HubState) error {
+		s.People[0].Preview = "https://anna.example.org/_yggstore/preview?key=k"
+		return nil
+	})
+	if w := do("POST", "/api/box/people/site-live", `{"name":"anna"}`); w.Code != 200 {
+		t.Fatalf("site-live: %d %s", w.Code, w.Body)
+	}
+	if st, _ := hub.Load(state); st.People[0].SiteAsk != "live" {
+		t.Fatalf("the hub wasn't asked: %q", st.People[0].SiteAsk)
+	}
+	hub.Update(context.Background(), state, func(s *hub.HubState) error { s.People[0].SiteAsk = ""; return nil })
 	if w := do("POST", "/api/box/people/suspend", `{"name":"anna"}`); w.Code != 200 {
 		t.Fatalf("suspend: %d %s", w.Code, w.Body)
 	}

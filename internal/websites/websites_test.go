@@ -316,3 +316,53 @@ func TestSkip(t *testing.T) {
 		}
 	}
 }
+
+// A "DOMAIN (preview)" folder is published as the site's preview, with the
+// link beside it; going live brings the live folder up to it, and a
+// Markdown site gets its source back, not the built pages.
+func TestPreviewFolder(t *testing.T) {
+	x := setup(t)
+	ctx := context.Background()
+	pub := x.w.cfg.Pub
+	x.site("me.group.example (preview)", map[string]string{"index.md": "# Next"})
+	x.settle(t)
+	if !strings.Contains(x.note("me.group.example (preview)"), "isn't published from here yet") {
+		t.Fatalf("a preview of a site not yet published: %q", x.note("me.group.example (preview)"))
+	}
+
+	x.site("me.group.example", map[string]string{"index.md": "# Live\n\nThe first version."})
+	x.settle(t)
+	live, err := pub.Current("me.group.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.now = x.now.Add(5 * time.Minute)
+	x.site("me.group.example (preview)", map[string]string{"index.md": "# Next\n\nThe new look.", "_drafts/x.md": "# draft"})
+	x.settle(t)
+	x.now = x.now.Add(2 * time.Minute)
+	x.w.Step(ctx)
+	link := pub.PreviewLink("me.group.example")
+	note, _ := os.ReadFile(filepath.Join(x.dir, "me.group.example (preview)"+LinkSuffix))
+	if link == "" || !strings.Contains(string(note), link) {
+		t.Fatalf("link %q, note %q", link, note)
+	}
+	if cur, _ := pub.Current("me.group.example"); cur.FileID != live.FileID {
+		t.Fatal("the preview changed the live site")
+	}
+
+	// Going live: the live folder catches up, with the Markdown source.
+	if _, err := pub.GoLive(ctx, "me.group.example"); err != nil {
+		t.Fatal(err)
+	}
+	x.settle(t)
+	b, err := os.ReadFile(filepath.Join(x.dir, "me.group.example", "index.md"))
+	if err != nil || !strings.Contains(string(b), "The new look.") {
+		t.Fatalf("live folder after going live: %q %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(x.dir, "me.group.example", "index.html")); err == nil {
+		t.Fatal("the live folder got the built pages instead of its source")
+	}
+	if _, err := os.Stat(filepath.Join(x.dir, "me.group.example (preview)"+LinkSuffix)); err == nil {
+		t.Fatal("the link file stayed after going live")
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -85,6 +86,11 @@ type webEntry struct {
 	Contact   string             `json:"contact,omitempty"`   // the contact form's sharing code; "" if off
 	Uploaders []string           `json:"uploaders,omitempty"` // who may add photos and files
 	Code      bool               `json:"code,omitempty"`      // run its handlers (see ApiPath)
+	// Preview is the version shown with the preview key (its hash is
+	// PreviewKey); PreviewWant one announced and not fetched yet.
+	Preview     string             `json:"preview,omitempty"`
+	PreviewWant *manifest.Manifest `json:"preview_want,omitempty"`
+	PreviewKey  string             `json:"preview_key,omitempty"`
 }
 
 // NodeStatus is what a web node reports in its info.
@@ -228,6 +234,14 @@ func (w *Web) handle(s msg.Stored) {
 			go w.warm(a.Site, filepath.Join(w.Dir, "sites", a.Site, e.Serving)) // code just turned on
 		}
 		e.Contact, e.Uploaders, e.Code = a.Contact, a.Uploaders, a.Code
+		switch {
+		case a.Preview == nil || a.PreviewKey == "":
+			e.Preview, e.PreviewWant, e.PreviewKey = "", nil, ""
+		case a.Preview.FileID != e.Preview:
+			e.PreviewWant, e.PreviewKey = a.Preview, a.PreviewKey
+		default:
+			e.PreviewWant, e.PreviewKey = nil, a.PreviewKey
+		}
 		if a.Stub.FileID == e.Serving {
 			e.Want = nil
 		} else {
@@ -359,12 +373,30 @@ func (w *Web) fetchWanted(ctx context.Context) {
 	defer fetchMu.Unlock()
 	w.mu.Lock()
 	todo := map[string]manifest.Manifest{}
+	previews := map[string]manifest.Manifest{}
 	for name, e := range w.st.Sites {
 		if e.Want != nil {
 			todo[name] = *e.Want
 		}
+		if e.PreviewWant != nil {
+			previews[name] = *e.PreviewWant
+		}
 	}
 	w.mu.Unlock()
+	for name, m := range previews {
+		err := w.fetch(ctx, name, m)
+		w.mu.Lock()
+		if e := w.st.Sites[name]; e != nil && e.PreviewWant != nil && e.PreviewWant.FileID == m.FileID {
+			if err != nil {
+				w.logf("web: could not fetch the preview of %s (will retry): %v", name, err)
+			} else {
+				e.Preview, e.PreviewWant = m.FileID, nil
+				w.logf("web: preview of %s is version %s", name, m.FileID[:8])
+				w.save()
+			}
+		}
+		w.mu.Unlock()
+	}
 	for name, m := range todo {
 		err := w.fetch(ctx, name, m)
 		w.mu.Lock()
@@ -384,7 +416,7 @@ func (w *Web) fetchWanted(ctx context.Context) {
 			if e.Code && !w.NoCode {
 				go w.warm(name, w.roots[name]) // so the first request needn't wait
 			}
-			w.cleanup(name, old, m.FileID)
+			w.cleanup(name, old, m.FileID, e.Preview)
 		}
 		w.save()
 		w.mu.Unlock()
@@ -414,13 +446,13 @@ func (w *Web) fetch(ctx context.Context, name string, m manifest.Manifest) error
 	return os.Rename(got, final)
 }
 
-// cleanup keeps the version being served and the one before it, for a
-// quick rollback.
-func (w *Web) cleanup(name, previous, current string) {
+// cleanup keeps the version being served, the one before it for a quick
+// rollback, and the preview.
+func (w *Web) cleanup(name, previous, current, preview string) {
 	dir := filepath.Join(w.Dir, "sites", name)
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if n := e.Name(); n != previous && n != current {
+		if n := e.Name(); n != previous && n != current && (n != preview || preview == "") {
 			os.RemoveAll(filepath.Join(dir, n))
 		}
 	}
@@ -481,11 +513,12 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		name = strings.TrimPrefix(host, "www.")
 		root, ok = w.roots[name]
 	}
-	var owner, contact string
+	var owner, contact, preview, previewKey string
 	var uploaders []string
 	code := false
 	if e := w.st.Sites[name]; ok && e != nil {
 		owner, contact, uploaders, code = e.Owner, e.Contact, e.Uploaders, e.Code
+		preview, previewKey = e.Preview, e.PreviewKey
 	}
 	w.mu.Unlock()
 	if ok && !servable(w.Peers(), name, owner) {
@@ -493,6 +526,14 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		http.Error(rw, "There is no site called "+host+" here.", http.StatusNotFound)
+		return
+	}
+	if r.URL.Path == PreviewPath {
+		previewSwitch(rw, r, previewKey)
+		return
+	}
+	if p := path.Clean("/" + r.URL.Path); p == "/"+SourceDir || strings.HasPrefix(p, "/"+SourceDir+"/") {
+		http.Error(rw, "Not found.", http.StatusNotFound) // a Markdown site's source isn't served
 		return
 	}
 	if r.URL.Path == ContactPath {
@@ -505,6 +546,11 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	if p := r.URL.Path; p == strings.TrimSuffix(ApiPath, "/") || strings.HasPrefix(p, ApiPath) {
 		w.api(rw, r, name, root, owner, code)
+		return
+	}
+	if preview != "" && previewKey != "" && inPreview(r, previewKey) {
+		rw.Header().Set("Cache-Control", "no-store")
+		servePreview(rw, r, filepath.Join(w.Dir, "sites", name, preview))
 		return
 	}
 	rw.Header().Set("Cache-Control", "public, max-age=300")

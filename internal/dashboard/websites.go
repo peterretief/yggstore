@@ -48,6 +48,7 @@ type websiteInfo struct {
 	Previous bool          `json:"previous,omitempty"` // an earlier version to go back to
 	Contact  bool          `json:"contact,omitempty"`
 	Ygg      bool          `json:"ygg,omitempty"`     // the ygg button is on its home page
+	Preview  string        `json:"preview,omitempty"` // the link that shows its preview, if it has one
 	Forward  *forwardInfo  `json:"forward,omitempty"` // where its contact messages go too
 	Served   []string      `json:"served"`            // web nodes serving the current version
 	Waiting  []string      `json:"waiting,omitempty"` // web nodes still fetching it, or failing to
@@ -140,7 +141,7 @@ func (d *Dashboard) handleSites(w http.ResponseWriter, r *http.Request) {
 	}
 	names, all := d.mySites(pub)
 	for _, s := range all {
-		info := websiteInfo{Site: s, Name: names[s], Served: []string{}, Contact: pub.Contact(s) != "", Ygg: d.yggButtonOn(s)}
+		info := websiteInfo{Site: s, Name: names[s], Served: []string{}, Contact: pub.Contact(s) != "", Ygg: d.yggButtonOn(s), Preview: pub.PreviewLink(s)}
 		if f := d.loadForward(s); f != nil {
 			info.Forward = &forwardInfo{To: f.To, Confirmed: f.Confirmed}
 		}
@@ -503,6 +504,15 @@ func (d *Dashboard) handleSiteAction(w http.ResponseWriter, r *http.Request) {
 		}
 	case "ygg":
 		err = d.setYggButton(ctx, pub, name, req.On)
+	case "live":
+		var v site.Version
+		if v, err = pub.GoLive(ctx, name); err == nil {
+			d.event("ok", fmt.Sprintf("website %s: the preview is live, version %s", name, v.ID[:8]))
+		}
+	case "drop":
+		if err = pub.DropPreview(ctx, name); err == nil {
+			d.event("info", "website "+name+": preview dropped; the live site is as it was")
+		}
 	case "forward":
 		err = d.sendForwardCode(ctx, name, req.To)
 	case "forward-confirm":

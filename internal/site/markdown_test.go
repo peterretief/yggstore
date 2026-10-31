@@ -63,10 +63,26 @@ func TestBuildMarkdown(t *testing.T) {
 	read("hake.jpg")
 	read("style.css")
 	read(NoticesFile)
-	for _, gone := range []string{"README.md", "_drafts/next.md", "_drafts/next/index.html", ".hidden", "node_modules/x/index.js", "index.md"} {
+	for _, gone := range []string{"README.md", "_drafts/next.md", "_drafts/next/index.html", ".hidden", "node_modules/x/index.js", "index.md", SourceDir + "/.hidden"} {
 		if _, err := os.Stat(filepath.Join(dst, gone)); err == nil {
 			t.Errorf("%s was published", gone)
 		}
+	}
+
+	// The source rides along, for filling a folder back.
+	if got := Unbuilt(dst); got != filepath.Join(dst, SourceDir) {
+		t.Fatalf("Unbuilt: %s", got)
+	}
+	for _, rel := range []string{"index.md", "about/index.md", "_drafts/next.md", "README.md", "hake.jpg"} {
+		if _, err := os.Stat(filepath.Join(dst, SourceDir, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("source lacks %s", rel)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dst, SourceDir, "node_modules")); err == nil {
+		t.Error("node_modules in the source")
+	}
+	if plain := t.TempDir(); Unbuilt(plain) != plain {
+		t.Error("Unbuilt of a plain folder")
 	}
 
 	// A layout of the site's own.

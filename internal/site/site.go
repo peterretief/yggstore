@@ -6,6 +6,8 @@
 package site
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,6 +84,22 @@ type Announcement struct {
 	// Code asks the web nodes to run the site's handlers: a request for
 	// /api/NAME runs api/NAME.wasm (see ApiPath).
 	Code bool `json:"code,omitempty"`
+	// Preview is a version shown only to browsers that opened the preview
+	// link; PreviewKey is the link's key, hashed (PreviewKeyHash), so
+	// members reading the topic can't open it.
+	Preview    *manifest.Manifest `json:"preview,omitempty"`
+	PreviewKey string             `json:"preview_key,omitempty"`
+}
+
+// PreviewPath opens a site's preview in a browser: with ?key=KEY it sets
+// a cookie, and the browser sees the preview version until it leaves
+// (?leave=1) or the preview goes.
+const PreviewPath = "/_yggstore/preview"
+
+// PreviewKeyHash is what the web nodes are told of a preview's key.
+func PreviewKeyHash(key string) string {
+	sum := sha256.Sum256([]byte("yggstore preview\x00" + key))
+	return hex.EncodeToString(sum[:])
 }
 
 var domain = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)

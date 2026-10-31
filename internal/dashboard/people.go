@@ -52,6 +52,7 @@ type boxPerson struct {
 	// Their password: what they sign in with, and whether it is still the
 	// temporary one (until when), or since when their own.
 	Login    string `json:"login"`
+	Preview  string `json:"preview,omitempty"`  // their site's preview link
 	Password string `json:"password,omitempty"` // "temporary" or "own"
 	PwUntil  int64  `json:"pw_until,omitempty"`
 	PwSet    int64  `json:"pw_set,omitempty"`
@@ -149,6 +150,7 @@ func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {
 			bp.Forward = &boxFwd{To: f.To, Confirmed: f.Confirmed, Allowed: f.Allowed}
 		}
 		bp.Passkeys, bp.WebOff, bp.Login = []boxKey{}, p.WebOff, hub.LoginOf(list, d.cfg.SelfID, p.Name)
+		bp.Preview = p.Preview
 		if pw := p.Password; pw != nil {
 			bp.Password, bp.PwSet = map[bool]string{true: "temporary", false: "own"}[pw.Temp], pw.Set
 			if pw.Temp {
@@ -269,6 +271,20 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 			}
 			s.People[i].WebOff = action == "web-off" // the box tells the web nodes, which end their sessions
 			done = req.Name + map[bool]string{true: " can't open their files through the web now", false: " can open their files through the web again"}[s.People[i].WebOff]
+			return nil
+		case "site-live", "site-drop":
+			// The hub does it within seconds (Person.SiteAsk).
+			i := -1
+			for j, p := range s.People {
+				if strings.EqualFold(p.Name, req.Name) {
+					i = j
+				}
+			}
+			if i < 0 || s.People[i].Preview == "" {
+				return fmt.Errorf("%s's site has no preview", req.Name)
+			}
+			s.People[i].SiteAsk = strings.TrimPrefix(action, "site-")
+			done = map[string]string{"site-live": req.Name + "'s preview goes live within seconds", "site-drop": req.Name + "'s preview is dropped"}[action]
 			return nil
 		case "device-remove":
 			who, dev, err := s.LetOut(req.Name, req.Addr)

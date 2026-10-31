@@ -79,6 +79,9 @@ type Person struct {
 	// SiteAsk is what the box's admin asked for their site on the command
 	// line, done at the next step (see siteversions.go).
 	SiteAsk string `json:"site_ask,omitempty"`
+	// Preview is the link that shows their site's preview, if it has one,
+	// for the box's admin page and screen (see websites.PreviewSuffix).
+	Preview string `json:"preview,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.

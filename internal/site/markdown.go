@@ -38,6 +38,22 @@ import (
 // node_modules aren't published; every other file is, as it is. A folder
 // with no .md pages is published exactly as it is.
 
+// SourceDir, in a version built from Markdown, holds the folder as it
+// was written (the .md files, layouts, drafts), so a folder filled from
+// that version (a rollback, going live, a lost folder) gets the source,
+// not the built pages. Hidden files and node_modules aren't in it. Web
+// nodes never serve it.
+const SourceDir = "_yggstore-source"
+
+// Unbuilt is the folder to put back from a version unpacked at root: its
+// source, if it was built from Markdown, or else root itself.
+func Unbuilt(root string) string {
+	if fi, err := os.Stat(filepath.Join(root, SourceDir)); err == nil && fi.IsDir() {
+		return filepath.Join(root, SourceDir)
+	}
+	return root
+}
+
 // defaultLayout is the page around Markdown pages of a site with no
 // _layout.html of its own.
 const defaultLayout = `<!doctype html>
@@ -163,6 +179,29 @@ func BuildMarkdown(src, dst, siteName string, contact bool) (pages, files int, e
 			return "", fmt.Errorf("the layout %s: %w", name, err)
 		}
 		return layouts[name], nil
+	}
+	// The source, as written, for filling a folder back (SourceDir).
+	err = filepath.WalkDir(src, func(p string, e os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == src {
+			return nil
+		}
+		// Hidden files (.env, .git) stay out: they may hold secrets.
+		if n := e.Name(); n == "node_modules" || strings.HasPrefix(n, ".") || n == SourceDir {
+			if e.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !e.Type().IsRegular() {
+			return nil
+		}
+		return copyFile(p, filepath.Join(dst, SourceDir, must(filepath.Rel(src, p))))
+	})
+	if err != nil {
+		return 0, 0, err
 	}
 	var mds []string
 	err = filepath.WalkDir(src, func(p string, e os.DirEntry, err error) error {

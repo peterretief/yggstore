@@ -513,6 +513,7 @@ type boxPersonView struct {
 	Site       string // their name in the group, once given
 	Asked      string // the name asked for, while it waits
 	Login      string // what they sign in on the web as
+	Preview    string // their site's preview link, if it has one
 }
 
 func (p boxPersonView) summary() string {
@@ -704,6 +705,12 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 	case p.Asked != "":
 		web = "Website " + p.Asked + ": asked for, waiting for the group's admin"
 	}
+	preview := "   Preview: put the next version in the folder \"" + p.Site + " (preview)\" beside the site's"
+	if p.Site == "" {
+		preview = ""
+	} else if p.Preview != "" {
+		preview = "V  preview: " + p.Preview + "   (G go live, D drop it)"
+	}
 	list, _ := peers.Load(defaultPeers())
 	signIn := "Signs in on the web as " + p.Login
 	if at := hub.SignInAt(list); at != "" {
@@ -713,6 +720,7 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 		fmt.Sprintf("Uses %s, limit %s, %d devices syncing", size(p.Bytes), limit, p.Syncthing),
 		web, signIn, "",
 		"N  notices on their website, for visitors to read",
+		preview,
 		"L  change their limit",
 		"C  choose their password now (they're here)",
 		"P  a new temporary password, to give them",
@@ -741,6 +749,27 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 			return "Not changed: " + e.Error(), nil
 		}
 		return "Changed " + p.Name + "'s limit.", nil
+	case 'g', 'G', 'd', 'D':
+		if p.Preview == "" {
+			return "Their site has no preview.", nil
+		}
+		live := b == 'g' || b == 'G'
+		q := "Make the preview of " + p.Site + " live for everyone?"
+		if !live {
+			q = "Drop the preview of " + p.Site + "? The live site stays as it is."
+		}
+		yes, err := confirm(ctx, k, box, title, q)
+		if err != nil || !yes {
+			return "", err
+		}
+		action := map[bool]string{true: "site-live", false: "site-drop"}[live]
+		if e := d.call("/api/box/people/"+action, map[string]any{"name": p.Name}, nil); e != nil {
+			return "Not done: " + e.Error(), nil
+		}
+		if live {
+			return "The preview goes live within seconds; their folder gets it too.", nil
+		}
+		return "The preview is dropped.", nil
 	case 'n', 'N':
 		if p.Site == "" {
 			return "They need a website first: W.", nil

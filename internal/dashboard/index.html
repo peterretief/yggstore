@@ -1640,6 +1640,10 @@ async function refreshSites() {
         <button class="del" data-site-act="remove" data-site="${n}">Take it down</button>` : ""}
         <span class="sub" data-site-msg="${n}"></span>
       </div>
+      ${s.preview ? `<div class="sub" style="margin-top:6px">Preview of the next version, for whoever has the link:
+        <a href="${esc(s.preview)}" target="_blank" rel="noopener">open it</a>
+        <button data-site-act="live" data-site="${n}">Go live</button>
+        <button data-site-act="drop" data-site="${n}">Drop it</button></div>` : ""}
       <div data-editor="${n}"></div>
       ${c && s.contact ? `<div class="sub">Visitors can write to you at <a href="https://${n}/_yggstore/contact" target="_blank" rel="noopener">${n}/_yggstore/contact</a>; it arrives in Mail. Your home page has a Contact link to it at the bottom (unless it linked to the form already); add the same link to other pages if you like.</div>
       <div class="sub" style="margin-top:4px">${siteForward(s)}</div>` : ""}
@@ -1785,6 +1789,8 @@ $("sites").addEventListener("click", async ev => {
   if (!act || act.type === "checkbox") return;
   const name = act.dataset.site;
   if (act.dataset.siteAct === "remove" && !confirm(`Take ${name} down? Web nodes stop serving it and every version is deleted.`)) return;
+  if (act.dataset.siteAct === "live" && !confirm(`Make the preview of ${name} live for everyone?`)) return;
+  if (act.dataset.siteAct === "drop" && !confirm(`Drop the preview of ${name}? The live site stays as it is.`)) return;
   siteMsg(name, "…");
   const r = await post("api/sites/" + act.dataset.siteAct, {body: JSON.stringify({site: name})});
   if (!r.ok) { siteMsg(name, await r.text(), true); return; }
