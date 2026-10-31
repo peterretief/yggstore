@@ -1,290 +1,95 @@
 # Light clients: people on a box, through the web
 
-Status: approved 2026-10-16. Steps 1 to 4 are built, and always on (6); writing mail (5) and the rest are not.
+People on a box use their files, website and mail in a browser, at an
+ordinary `https://` address, with nothing to install: no Yggdrasil, no
+Syncthing, no node of their own.
 
-Most people on a box are **light clients**: they want files, a website and
-email, and nothing to install. Everything they do goes through their box,
-and they use it in a browser, at an ordinary `https://` address, with a
-passkey instead of a password. They don't install Yggdrasil or Syncthing,
-and they have no node, dashboard or wallet; the box's owner looks after
-those.
+## Sign in
 
-Today someone on a box must install Yggdrasil on every device to open their
-files. That becomes the advanced, direct route, for people who want it.
+1. **The box's owner adds the person** (the box's admin, **People**, **A**;
+   or **People on this box** on its dashboard). Either:
+   - with the person at the box, they type their own password there (**C**);
+   - or the box shows a temporary password, such as `milk-salt-jar-962`,
+     to give them by phone or in person, never by email. It works for a
+     week.
+2. **The person signs in** at `https://my.withcare.co.za`, or at their own
+   address (`https://kath.withcare.co.za/files`) if they have a name, with
+   their email address (or `name@box` without a name) and password. A
+   temporary password must be changed at once, to one of at least 10
+   characters.
+3. **Their page opens:** their files (browse, upload, download, rename,
+   delete), their mail, and **Your website** if they have a name.
 
-## What the person sees
-
-1. **The group's admin (or the box's owner) adds them** under People on
-   the box and presses **Set temporary password** (or runs `yggstore hub
-   person add NAME`). The password is shown once, e.g. `milk-salt-jar-962`,
-   with what they sign in as: their group address, such as
-   `kath@group.example` (or `name@box` without one). The admin gives
-   both to them by phone or in person, never by email. It works for a week.
-   On the box's own screen (A on the status screen), with the person
-   there, they can type the password they'll use instead, and skip the
-   temporary one.
-2. **They sign in at `https://my.withcare.co.za`** (or their own address)
-   with that address and password, and must choose their own password at
-   once, of at least 10 characters. Their box keeps it, so the box has to
-   be on for that first sign-in.
-3. **Their mail opens** (`/files/mail`), beside their files: browse,
-   upload, download, rename, delete, and **Your website** if they have a
-   name.
-4. **Next time** they go to `https://my.withcare.co.za` and press **Sign
-   in**. The browser offers their passkey.
-5. **Another device:** passkeys made on a phone or laptop often sync to
-   the person's other devices (Apple, Google and Microsoft accounts do
-   this). If not, they press **Add a device** on a device already signed
-   in, which shows a one-time link to open on the new one, valid for 15
-   minutes.
-6. **Lost every device:** the box's owner sends a new invite. Later,
-   perhaps a code by email to an address they already read.
+A session lasts 30 days unused. They see their signed-in browsers under
+**Your devices** and can sign any out.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  B["browser<br/>my.withcare.co.za"] -- https --> CF["Cloudflare"] -- tunnel --> W["web node<br/>(relay)"] -- "Yggdrasil" --> H["the person's box<br/>(hub, port 7490)"]
+  B["browser<br/>my.withcare.co.za"] -- https --> CF["Cloudflare"] -- tunnel --> W["web node"] -- "Yggdrasil" --> H["the person's box"]
 ```
 
-- **One address for the group:** `my.` and the group's domain, served by
-  the web nodes through the same Cloudflare tunnel as the group's sites.
-  It's its own address, not the person's website, so nothing on a website
-  can reach a signed-in session.
-- **The web node only relays.** It passes each request on to the person's
-  box over Yggdrasil, and the answer back. It keeps nothing.
-- **The box does the signing in.** It keeps each person's passkeys (only
-  the public half, in its state file), checks each sign-in, and gives the
-  browser a session cookie (`Secure`, `HttpOnly`, `SameSite=Lax`, so the
-  link in an email still opens signed in; every action also needs a
-  header other sites can't send), good for 30 days of use. The person sees their signed-in browsers under **Your
-  devices**, beside their Yggdrasil devices, and can sign any of them out.
-- **Which box:** the invite link names the box. The passkey carries the box
-  and the person in its user handle, which the browser sends back when
-  signing in, so the web node knows where to relay. After that a cookie
-  says which box.
-- **The box only takes relayed requests from the group's web nodes,**
-  known by their Yggdrasil addresses, as it already does for the recovery
-  link. Everything else still needs a device let in over Yggdrasil.
-- **It's the same page** as over Yggdrasil: one set of code, so files,
-  website, messages and (later) writing mail all work both ways.
-
-## At their own address
-
-Someone on a box who has a name in the group (see
-[hub.md](hub.md#a-website-and-email-address-for-someone-on-the-box)) signs
-in at their own address instead: `https://kath.withcare.co.za/files`.
-Their invite link uses it too. Decided 2026-10-16.
-
-- The web nodes send `/files` on that address to the person's box; the
-  rest of the address is still their website.
-- A passkey made there works only there, and only that person can make
-  one or sign in there: someone else's invite or passkey is refused at it.
-  A session started there counts only there.
-- People without a name keep using `my.` and the domain.
-- **The trade-off:** their website and their files share one address, so a
-  page they put on their own site could act on their files while they're
-  signed in. That's fine for pages they wrote; it's a reason to be careful
-  with scripts copied from elsewhere.
+- The web nodes serve `my.` and the group's domain through the group's
+  tunnel, and pass each request on to the person's box over Yggdrasil.
+- The box takes such requests only from the group's web nodes, known by
+  their Yggdrasil addresses. It's the same page people get over Yggdrasil.
+- At a person's own address, `/files` goes to their box and the rest is
+  their website. Only that person can sign in there.
 
 ## Passwords
 
-Added 2026-10-23, in place of invite links on the web (an invite is now only
-for a device with Yggdrasil). A password is something people already
-understand, and works on any device, with or without a screen lock.
-
-- **The box keeps the password,** as a salted PBKDF2-SHA256 hash
-  (`internal/password`), and sends the hash to the web nodes with the
-  person's keys. The web nodes check sign-ins, so signing in works while
-  the box is off, except for choosing a password, which the box must take.
-- **A temporary password** works for a week and only to choose their own.
-  A new one (**New temporary password**) ends the old password and every
-  browser it signed in: that is how someone who forgot theirs gets back in.
-- **Signing in:** their group address (`label@domain`) or `name@box`, and
-  the password. The session lasts 30 days unused, renewed while in use.
-- **Limits:** 5 wrong passwords in a row for someone make them wait 15
-  minutes, counted across the web nodes; one address may try 20 sign-ins
-  in 10 minutes. Wrong addresses and wrong passwords get the same answer.
-- **Later:** a passkey added once signed in, and a reset by email to a
-  backup address ([email-login.md](email-login.md)).
+- The box keeps each password as a salted PBKDF2-SHA256 hash, and sends
+  the hash to the web nodes, which check sign-ins. So signing in works
+  while the box is off, except for choosing a new password.
+- A new temporary password ends the old one and every browser it signed
+  in: that is how someone who forgot theirs gets back in.
+- Five wrong passwords in a row make that person wait 15 minutes; one
+  address may try 20 sign-ins in 10 minutes. A wrong address and a wrong
+  password get the same answer.
 
 ## Without a screen lock
 
-A phone makes a passkey only if it has a screen lock. From 2026-10-16 the
-invite page offered a key kept by the browser instead, with a PIN. It was
-removed on 2026-10-23: it lived in one browser, so clearing the browser's
-data, forgetting the PIN or changing device meant a new invite, and the
-first person to use it didn't trust it. Someone without a screen lock signs in
-with a password instead (see [Passwords](#passwords)). The box
-forgets any browser keys it still has.
-
-## What the box's owner sees
-
-On each person's row under People on this box:
-- the invite now gives the web link, with the Yggdrasil one under
-  "Advanced";
-- their passkeys and signed-in browsers, and when each was last used;
-- **Web access** on or off for that person (on by default);
-- Suspend and Remove sign every session out at once.
-
-## Privacy and safety
-
-- **Passkeys can't be phished or guessed.** A passkey only works on
-  `my.withcare.co.za`, and nothing secret is typed, so a fake site gets
-  nothing.
-- **What passes through:** over the web, the connection is encrypted from
-  the browser to Cloudflare, from Cloudflare to the web node, and from the
-  web node to the box, but Cloudflare and the web node see what passes
-  between them: the files being opened or uploaded, and messages. Files are
-  still stored encrypted in the group either way. The page says this, and
-  anyone who wants the direct route can use Yggdrasil instead.
-- **A web node can't sign in as someone:** it can't make a passkey's
-  signature. But it carries session cookies, so the web nodes must be
-  machines the group trusts, as they already are for the group's sites and
-  mail.
-- **Limits:** sign-in attempts and invite opens are rate-limited per
-  address and per person; sessions end after 30 days unused, or at once
-  when signed out, suspended or removed.
-
-## Limits
-
-- **Uploads go in pieces** of up to 32 MB, as the recovery link's page
-  already does, because Cloudflare refuses a single request over 100 MB.
-  Any size still works.
-- **With the box off,** signing in works and files open from the latest
-  recovery copy, with changes waiting for the box (see
-  [Always on](#always-on)).
-- **It's for people on a box.** Members with their own node keep their
-  dashboard, over Yggdrasil.
-- **At home too,** a light client uses `my.withcare.co.za`: the request
-  goes out to Cloudflare and back to the box. Browsers only allow passkeys
-  on `https://` pages, so the box's plain `http://` page on the LAN can't
-  sign them in. Later the box could get a certificate of its own for a
-  name like `localbox-003.withcare.co.za` pointing at its LAN address
-  (Cloudflare's DNS makes that possible), so traffic at home stays at
-  home.
-
-## How it's built
-
-- `internal/passkey`: checking passkeys with the standard library only.
-  The browser gives the public key in the usual form
-  (`getPublicKey()`), so no CBOR is needed; attestation isn't checked,
-  since only an invite can make a passkey. Challenges carry their time, so
-  a web node can make one a box will take, each good once for 5 minutes.
-- `internal/light`: the web node's relay (`Relay`, serving `my.` and the
-  domain for `site.Web`), and the sign-in and invite pages. A passkey's
-  user handle is the box's name and the person's, which is how a web node
-  routes a sign-in from a browser it hasn't seen.
-- `internal/hub/light.go`: on the box, requests with `X-Yggstore-Relay`
-  from one of the group's web nodes (by Yggdrasil address) are light
-  clients': `/files/join` makes a passkey with an invite, `/files/light/…`
-  signs in and out, and a session opens the same files page. Passkeys and
-  sessions are kept in the hub's state file.
-- Big uploads go in 32 MB parts (`X-Part`) when the page is on `https`.
-- For withcare.co.za, the domain's wildcard record already sends
-  `my.withcare.co.za` through the tunnel to the web nodes. A group without
-  one needs a record and tunnel route for `my.` added, as for a site.
+A password works on any device, with or without a screen lock. Keys kept
+in one browser, with a PIN, were tried and removed on 2026-10-23.
 
 ## Always on
 
-The point of the group is that it's always there: no one machine being
-off should stop anyone signing in or reaching their files. Today a light
-client depends on their box for both. The files themselves already survive
-a machine being off (they're in pieces across the group); what only the
-box has is the sign-in details and the stubs that open the files. So:
+No one machine being off stops anyone signing in or reaching their files:
 
-1. **Sign-in moves to the web nodes** (built 2026-10-17). Every web node keeps each light
-   client's passkeys (public halves only, so copying them is safe), checks sign-ins itself and keeps
-   the sessions. Boxes send their people's records to every web node when
-   they change, and the web nodes pass them among themselves, so a sign-in
-   works while any one web node is up. The web node then names the person to the box
-   (`X-Yggstore-Person`), and the box takes that only over Yggdrasil from
-   the group's web nodes, whose addresses can't be forged there.
-   - **How:** the box's hub sends `PUT /v1/light/people` to every web
-     node's node API when its state changes (and every 10 minutes); a web
-     node takes a box's people only from that box's address
-     (`light.Store`). Web nodes share sessions (`/v1/light/session`), asking
-     the others for one they don't know; they tell the box of each key's
-     use (`/files/light/seen`).
-     Using an invite still goes to the box, which holds the invites; the
-     web node that passed it on signs the person in with the new key.
-   - **Limits:** a passkey's signature counter isn't checked, since the
-     web nodes don't share one; a used challenge is remembered by the web
-     node that took it, so within its 5 minutes it could be replayed once at
-     the other (it's sent over https, so only someone who had broken that
-     could).
-   - **Trade-off:** today the box checks every passkey itself, so a web
-     node that was broken into couldn't open anyone's files. After this it
-     could pass as anyone. The web nodes already see all web traffic, so
-     the group trusts them already, but it is a step.
-2. **Every light client gets a recovery copy** (built 2026-10-17), on by
-   default, with no Syncthing ID or email needed: once someone with web
-   access has a key, the box makes them a sharing key, saves a first copy
-   and keeps their record on the web nodes, as for "work from anywhere"
-   (see [recovery](recovery.md)). It tells the web nodes their recovery ID
-   with their keys. If it can't start (the group's messaging or nodes
-   unreachable), it tries again every 10 minutes. No link is emailed: the
-   key half for the browser comes in step 3.
-3. **A box that's off is served from the recovery copy** (built
-   2026-10-17). When the box doesn't answer, the web node sends the
-   browser to the recovery link's page (`/_yggstore/work`, on `my.` or the
-   person's own address) with the key half it keeps, and the page says
-   "Your box is off right now… changes you make here are kept, and reach
-   your box when it's back". It's the same page as the recovery link:
-   browse and download from the group, upload, new folder, rename, move,
-   delete. Changes wait on the web nodes and the box makes them in the
-   person's folder within 20 seconds of being back.
-   - **The copy's key** is in two halves, as for the recovery link: the web
-     nodes hold one, and the person's browser keeps the other. While the box
-     is on, opening `/files` gives the browser its half (`X-Yggstore-Copy`
-     from the box, which the web node turns into the `ygg_copy` cookie:
-     `Secure`, `HttpOnly`, so no page script can read it, even on the
-     person's own website). Signing out removes it. So the web nodes alone
-     still can't open the copy at rest, though they see the half as it
-     passes, as they see the recovery link's.
-   - **Finding the box off quickly:** a web node checks a box it hasn't
-     heard from for a minute (4 seconds at most) before passing a request
-     on, and once a box hasn't answered it doesn't wait for it again, but
-     asks it every 10 seconds until it's back. While it's off, any page a
-     browser opens under `/files` (a link on the page included) goes to
-     the copy, and the files page reloads itself when the box stops
-     answering, so it goes there too. The box gives the half on any page
-     or listing, and starts a new key's copies at once.
-   - **Limits:** a browser that has never opened its files while the box
-     was on has no half, and gets "Your box isn't answering" (there's no
-     recovery email for light clients yet). The copy is as the box last
-     saved it, a couple of minutes after a change. Moving the folder to
-     another device through Syncthing is hidden on that page, since it
-     needs the box. The page doesn't ask for a sign-in itself: like the
-     recovery link, holding the half is enough, but only a signed-in
-     browser is sent there.
+- **Sign-in is on the web nodes.** Every web node keeps each person's
+  sign-in details and sessions, shared among them, so signing in works
+  while any one is up.
+- **Every person has a recovery copy** of their folder in the group, kept
+  by their box ([recovery](recovery.md)).
+- **When the box is off,** the web node opens the recovery copy instead,
+  and says so. The person can browse, download, upload and change files;
+  changes wait, and the box makes them within 20 seconds of being back.
+  The copy's key is in two halves: the web nodes hold one, and the
+  person's browser the other (a `Secure`, `HttpOnly` cookie), so the web
+  nodes alone can't open it. A browser that never opened its files while
+  the box was on has no half, and is told the box isn't answering.
 
-After these, losing any one machine (a box, a web node, a storage node)
-stops nobody. Mail (step 5 of the build order) should follow the same rule.
+## Privacy and safety
 
-## Build order
+- The connection is encrypted all the way, but Cloudflare and the web node
+  see what passes through: the files being opened or uploaded, and
+  messages. Files are still stored encrypted. Anyone who wants the direct
+  route can use Yggdrasil instead.
+- The web nodes check sign-ins and carry sessions, so they must be
+  machines the group trusts, as they already are for its sites and mail.
+- At their own address, a person's website shares an address with their
+  files, so a script on their site could act on their files while they're
+  signed in. Be careful with scripts copied from elsewhere.
+- Uploads go in pieces of up to 32 MB (Cloudflare refuses bigger
+  requests), so any size works.
 
-1. **The relay:** web nodes serve `my.` the group's domain and pass
-   requests to a box over Yggdrasil. The box accepts relayed requests from
-   web nodes only. The DNS record and tunnel route are added the same way
-   as for sites.
-2. **Passkeys and sessions on the box:** making a passkey from the invite,
-   signing in, sessions, signing out, and listing them under Your devices.
-3. **The web invite:** People on this box gives the web link, and the
-   person's row shows their passkeys and sessions, with Web access on/off.
-4. **Uploads in pieces** on the files page.
-5. **Writing mail:** write and reply from their own address, on their
-   page, through the group's mail relay. This works over Yggdrasil too.
-6. **Always on** (above): sign-in on the web nodes, a recovery copy for
-   every light client, and the web nodes serving it while the box is off.
-7. **Later:** signing back in with a code by email.
+## For developers
 
-## Decided (2026-10-16)
-
-- **The address** is `my.` and the group's domain: `my.withcare.co.za`.
-- **Web access is on by default** for new people; the box's owner can turn
-  it off for someone.
-- **Sessions** last 30 days of use.
-- **Lost every device:** for now, a new invite from the box's owner. A code
-  by email may come later, if people want it, knowing it makes their email
-  account the key to their files.
+- `internal/light`: the web node's relay and sign-in pages; `light.Store`
+  keeps people's records, sent by their boxes (`PUT /v1/light/people`).
+- `internal/hub/light.go`: on the box, requests from the group's web nodes
+  (`X-Yggstore-Relay`, `X-Yggstore-Person`) open the files page.
+- `internal/password`: the hashes and temporary passwords.
+- A group whose domain has no wildcard record needs a DNS record and
+  tunnel route for `my.`, as for a site.

@@ -1,194 +1,87 @@
 # Open your dashboard and files from your other devices
 
-The dashboard has no password: whoever can open it can restore, share and
-delete your files and read your mail. So by default it only answers on the
-machine it runs on, at <http://127.0.0.1:7480>.
+Open your dashboard and your files from your laptop or phone, at home or
+away, with no password: the dashboard knows your devices by their
+Yggdrasil address.
 
-It also serves [your files](#your-files) at `/files`, to browse and change
-in the browser, and both open on your own laptop and phone over Yggdrasil.
+Whoever opens the dashboard can restore, share and delete your files and
+read your mail, so it answers only on its own machine
+(<http://127.0.0.1:7480>) unless it's started with `-remote`
+(`yggstore join -service` does this). Then it also answers your own
+devices over Yggdrasil:
 
-Started with `-remote` (`yggstore join -service` does this), it also opens
-to **your own devices, over Yggdrasil**:
+- A Yggdrasil address can only be used by the device holding its key, so
+  it says which device is asking. Only you can add to your list of devices,
+  not even the group's admins.
+- On the local network, <http://BOX.local:7480> only sends the browser on
+  to the box's Yggdrasil address, where the device is checked.
+- A device not on the list is shown its address, and can ask to be let in.
 
-- A Yggdrasil address can only be used by the device holding its private
-  key, so the address says which device is asking. You list your devices'
-  addresses once, on the dashboard's machine; nobody else can add to that
-  list, not even the group's admins.
-- On the LAN the box has a name, such as `anna-box.local`. Opening
-  <http://anna-box.local:7480> sends the browser on to the box's Yggdrasil
-  address, where the device is checked. Nothing is served over the LAN
-  itself.
-- A device that isn't on the list is shown its own address and the command
-  that would add it.
+## Let a device in
 
-```mermaid
-flowchart LR
-  phone["your laptop<br/>(Yggdrasil)"] -- "anna-box.local:7480" --> lan["box, LAN<br/>sends you on"]
-  lan -. "[200:…]:7480" .-> ygg["box, Yggdrasil<br/>is this device on the list?"]
-  phone -- "[200:…]:7480" --> ygg
-```
+1. Install [Yggdrasil](https://yggdrasil-network.github.io/installation.html)
+   on the device. Away from the box's network, give it one of the public
+   peers shown under **Your devices**.
+2. On the device, open the box's address, such as
+   `http://[200:1f12::cfd6]:7480/files`. It says the device isn't let in,
+   and offers **Ask to let it in**.
+3. Press **Allow** next to it under **Your devices** on the dashboard (or
+   on the box's screen: **A**, **1**, its number). Reload the page on the
+   device.
 
-Each device needs Yggdrasil installed and running. On the same LAN it finds
-the box by itself; elsewhere it needs a public peer (see
-[the mesh](mesh.md#3-give-every-node-public-peers)).
-
-## 1. Give the box a name on the LAN
-
-Install Avahi, which answers for `HOSTNAME.local`:
-
-```sh
-sudo apt-get install -y avahi-daemon          # Debian, Ubuntu
-apk add avahi && rc-update add avahi-daemon && rc-service avahi-daemon start   # Alpine
-```
-
-Windows 10 and later, macOS, iOS and Android find `.local` names by
-themselves. Check from another machine with `ping anna-box.local`.
-
-## 2. Open the doors
-
-Let the LAN reach the dashboard (it only sends people on) and Avahi, and
-Yggdrasil reach the dashboard (it checks the device):
-
-```sh
-sudo ufw allow from 192.168.0.0/16 to any port 7480 proto tcp
-sudo ufw allow from 192.168.0.0/16 to any port 5353 proto udp
-sudo ufw allow in on tun0 to any port 7480 proto tcp
-```
-
-With ip6tables instead of ufw, add `-A YGG-IN -p tcp --dport 7480 -j ACCEPT`
-before the `DROP` and save.
-
-## 3. Start the dashboard with -remote
-
-`yggstore join -service` already does. Otherwise add `-remote` to the
-dashboard's command (in `~/.config/systemd/user/yggstore-dashboard.service`)
-and restart it:
-
-```sh
-systemctl --user daemon-reload && systemctl --user restart yggstore-dashboard
-```
-
-Its log says where it answers:
-
-```
-dashboard also on http://[200:1f12::cfd6]:7480 for the devices in /home/anna/.yggstore/devices.json, and http://anna-box.local:7480 on the LAN
-```
-
-## 4. Add your devices
-
-**Your devices**, on the dashboard's [Admin page](#pages), lists them and
-says how to add one:
-
-1. Install Yggdrasil on the device
-   ([Windows, Mac, Linux, Android and iPhone](https://yggdrasil-network.github.io/installation.html)).
-   It makes the device its own key, which never leaves it.
-2. Give it one of the public peers the section shows (in its settings,
-   under Peers), so it finds your computer from anywhere.
-3. On the device, open the address the section shows, such as
-   `http://[200:1f12::cfd6]:7480/files`. The page says the device isn't on
-   the list, shows its address, and has **Ask to let it in**.
-4. Press **Allow** next to it under **Your devices**, on your computer or
-   on a device already let in to Admin. Reload the page on the device.
-   It may open every page but Admin; tick what it may open (see
-   [pages](#pages)).
-
-**Remove** shuts a device out at once (the device you're using can't remove
-itself). Requests are kept for a day, ten at most, so strangers on
-Yggdrasil can't fill the list.
-
-Or add a device by its address, on the dashboard or the command line:
-
-```sh
-yggstore devices add 201:5e1:8a3c::7 "anna's laptop"
-```
-
-```sh
-yggstore devices                      # who may open it
-yggstore devices remove "anna's laptop"
-```
-
-A device added on the command line may open every page.
-
-Remove a device when you sell or lose it. Its Yggdrasil keys are in its
-`yggdrasil.conf`; anyone who copies that file can use its address.
-
-> [!NOTE]
-> The page goes over Yggdrasil, which encrypts it end to end, but the
-> browser sees plain `http://`. So "copy" buttons may not reach the
-> clipboard; they select the text instead, for Ctrl+C.
-
-## Names instead of bare addresses
-
-A link with a bare Yggdrasil address, such as `http://[201:1193::a74]:7480`,
-breaks in email and chat: Gmail, for one, sends links through its own page,
-which mangles the brackets. So each machine in a group with a domain gets a
-name for its Yggdrasil address under it, such as
-`localbox-003.ygg.withcare.co.za`: the name of the first node at the
-address, under `ygg.` and the group's domain.
-
-- Each is an **AAAA record pointing at the Yggdrasil address**, DNS only
-  (not proxied). Anyone can look the name up, but only devices on
-  Yggdrasil can reach the address, and the device list still decides who
-  gets in.
-- The dashboard and the box page **answer to their own name** as well as
-  their address. Any other name is still refused, which stops DNS
-  rebinding.
-- **Once DNS has the name, links use it:** the LAN sends you on to
-  `http://NAME:7480`, and the network page, Your devices and the box page
-  show it.
-- **An admin dashboard with a Cloudflare API token** (in
-  `~/.yggstore/cloudflare-api.token`, with Zone › DNS › Edit) adds the
-  records itself, every half hour, leaving out the test cluster. Without
-  one, the network page lists the records to add by hand.
+Or add it by address: `yggstore devices add 201:5e1:8a3c::7 "anna's laptop"`.
+`yggstore devices` lists them; `yggstore devices remove NAME` shuts one out
+at once. Remove a device you sell or lose.
 
 ## Pages
 
-The dashboard is a page for each thing it does, all on the same port. A
-menu at the top goes from one to another, and the overview at
-<http://127.0.0.1:7480/> links to the pages the device may open:
-
 | Page | Address | What's on it |
-|---|---|---|
-| Files | `/storage`, and `/files` | what's stored, restoring, sharing, work from anywhere; your files in the browser |
-| Website | `/web` | your name, address and website |
-| Messages | `/messages` | messages between the group's nodes |
-| Mail | `/mail` | your inbox, and writing mail |
-| Wallet | `/wallet` | your balance in yggs, paying other members, the group's balances ([ygg](ygg.md)) |
-| Admin | `/admin` | the group, its nodes and invites, people on the box, your devices, the network page, activity |
+| --- | --- | --- |
+| Files | `/storage`, `/files` | what's stored, restoring, sharing; your files in the browser |
+| Website | `/web` | your name, address and websites |
+| Messages | `/messages` | messages between the group's machines |
+| Mail | `/mail` | your mail |
+| Wallet | `/wallet` | your yggs ([ygg](ygg.md)) |
+| Admin | `/admin` | the group, invites, people on the box, devices, usage |
 
-Each device is let in to the pages ticked for it under **Your devices**,
-so a phone can have Mail and Messages and nothing else. A device that
-opens a page it isn't let in to is told so; every action and every part of
-the dashboard's state belongs to one page, and goes only to devices let
-in to it. The machine the dashboard runs on opens every page.
-
-- A device you **Allow** gets every page but Admin. Admin can change who
-  gets in, so it is only given on purpose.
-- The device you're using can't take Admin from itself, so you can't shut
-  yourself out.
-- Devices added before there were pages keep every page until you untick
-  some.
-
-On the command line:
-
-```sh
-yggstore devices pages "anna's phone" mail,messages   # of files, web, messages, mail, wallet, admin
-```
+A device you **Allow** gets every page but **Admin**, which changes who
+gets in, so it's only given on purpose: tick the pages each device may open
+under **Your devices**, or run
+`yggstore devices pages "anna's phone" mail,messages`. The device you're
+using can't take Admin from itself.
 
 ## Your files
 
-`/files` on the dashboard (`http://127.0.0.1:7480/files` on its own
-machine, or its Yggdrasil address on your devices) is the same page as
-your [work from anywhere](recovery.md#your-files-in-the-browser) link, but
-served by your computer and working on your folder directly:
+`/files` works on your folder directly: browse, download, upload files or
+whole folders of any size, make folders, and rename, move or delete with
+**⋯**. **Your websites** changes a site's files, published as any change
+is. A new upload shows *storing…* for a minute, until it's in the group.
 
-- browse, and click a file to download it;
-- upload files or whole folders, or drag them onto the page, of any size;
-- new folders, and **⋯** to rename, move or delete;
-- **Your websites**: change a site's files, which is published as when you
-  change them on the computer (a new site is still made on the computer).
+## Names instead of addresses
 
-Changes are made at once, with no waiting on the web nodes. A file just
-uploaded shows *storing…* until it's stored in the group, a minute or so,
-and is then a stub like any other. While your files are being worked on at
-another place, the page only shows them.
+A link like `http://[201:1193::a74]:7480` breaks in email and chat, so each
+machine also gets a name such as `localbox-003.ygg.withcare.co.za`: a DNS
+record pointing at its Yggdrasil address. Anyone can look it up, but only
+devices on Yggdrasil reach it, and the device list still decides who gets
+in. An admin dashboard with a Cloudflare API token adds the records itself;
+without one, its **Network** page lists them.
+
+## Setting it up by hand
+
+`yggstore join -service` and `provision-pi.sh` do this. Otherwise:
+
+1. Give the box a name on its network: install `avahi-daemon`.
+2. Let the network reach the dashboard and Avahi, and Yggdrasil reach the
+   dashboard:
+
+   ```sh
+   sudo ufw allow from 192.168.0.0/16 to any port 7480 proto tcp
+   sudo ufw allow from 192.168.0.0/16 to any port 5353 proto udp
+   sudo ufw allow in on tun0 to any port 7480 proto tcp
+   ```
+
+3. Add `-remote` to the dashboard's command and restart it. Its log says
+   where it answers.
+
+Pages over Yggdrasil are encrypted end to end, but the browser sees plain
+`http://`, so **Copy** buttons may select the text instead of copying it.
