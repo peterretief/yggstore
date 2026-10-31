@@ -1,11 +1,11 @@
 # Set up your yggstore storage box
 
-*For Windows users.* Turn a second-hand mini PC into your storage box: it stores your files across the group, and holds a share of everyone else's. You'll need about an hour, once. After that it runs by itself.
+Turn a second-hand mini PC into your storage box, using a Windows PC. It stores your files across the group and holds a share of everyone else's. It takes about an hour, once; then it runs by itself.
 
 | Word | Meaning |
 |---|---|
 | **Storage box** | The little computer you set up here. The technical word for it is a *node*. |
-| **Group** | The people and organisations whose boxes store each other's files. Each of your files is encrypted, cut into 6 pieces and spread over their boxes; any 4 pieces rebuild it. |
+| **Group** | The people and organisations whose boxes store each other's files. Each file is encrypted and spread over their boxes in pieces, so some can be lost without losing the file. |
 | **Invite** | A one-time code from the group's organiser, starting `yggjoin1:`. It works once, for 7 days. |
 | **Stub** | The small `.ystub` file left in place of a stored file. It holds the key; without it the file can't be rebuilt. |
 
@@ -220,9 +220,9 @@ Install [WinSCP](https://winscp.net) (free) and connect to `192.168.0.50` with y
 ## 11. Keep a copy of your keys — *on your Windows PC*
 
 > [!IMPORTANT]
-> **Your stubs exist only on your box.** If its drive dies, the pieces of your files are still safe on the other boxes, but without the stubs nobody can put them back together.
+> **Without your stubs, nobody can put your files back together.** A [recovery copy](recovery.md) of them is kept in the group by default. Keep one of your own too.
 
-With WinSCP, copy these to your PC (or another drive) now, and copy the stubs again whenever you've stored new files:
+With WinSCP, copy these to your PC (or another drive) now, and again whenever you've stored new files:
 
 - all `.ystub` files in `/srv/yggstore/outfiles` and its folders;
 - `/srv/yggstore/sharing.key`, which opens files people send you.
@@ -255,6 +255,4 @@ New versions of yggstore come from the organiser or the releases page; copy and 
 | The dashboard page doesn't load | The window from step 9 must stay open; run that command again. |
 | The box doesn't appear on the group's dashboard | `systemctl --user status yggstore-node` on the box; if it isn't running, `systemctl --user restart yggstore-node`. |
 
----
-
-*Written for yggstore as it is today. Later versions aim to replace steps 1–8 with a ready-made image and a setup page you open from Windows. A printable version with copy buttons is in [storage-box-guide.html](storage-box-guide.html).*
+A printable version with copy buttons is in [storage-box-guide.html](storage-box-guide.html).

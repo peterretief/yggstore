@@ -110,7 +110,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.9rem; }
 
   <dl class="words">
     <dt>Storage box</dt><dd>The little computer you set up here. The technical word for it is a <em>node</em>.</dd>
-    <dt>Group</dt><dd>The people who back each other up. Each of your files is encrypted, cut into 6 pieces and spread over their boxes; any 4 pieces rebuild it.</dd>
+    <dt>Group</dt><dd>The people and organisations whose boxes store each other's files. Each file is encrypted and spread over their boxes in pieces, so some can be lost without losing the file.</dd>
     <dt>Invite</dt><dd>A one-time code from the group's organiser, starting <code>yggjoin1:</code>. It works once, for 7 days.</dd>
     <dt>Stub</dt><dd>The small <code>.ystub</code> file left in place of a stored file. It holds the key; without it the file can't be rebuilt.</dd>
   </dl>
@@ -259,7 +259,7 @@ sudo ufw allow in on tun0 to any port 7480 proto tcp</pre><button type="button">
 
     <li><div class="step">
       <div class="step-head"><h2>Keep a copy of your keys</h2><span class="where pc">On your Windows PC</span></div>
-      <div class="warn"><strong>Your stubs exist only on your box.</strong> If its drive dies, the pieces of your files are still safe on the other boxes, but without the stubs nobody can put them back together.</div>
+      <div class="warn"><strong>Without your stubs, nobody can put your files back together.</strong> A <a href="recovery.md">recovery copy</a> of them is kept in the group by default. Keep one of your own too.</div>
       <p>With WinSCP, copy these to your PC (or another drive) now, and copy the stubs again whenever you've stored new files:</p>
       <ul class="choices">
         <li>all <code>.ystub</code> files in <code>/srv/yggstore/outfiles</code> and its folders;</li>
@@ -288,7 +288,6 @@ sudo ufw allow in on tun0 to any port 7480 proto tcp</pre><button type="button">
     </table></div>
   </section>
 
-  <footer>Written for yggstore as it is today. Later versions aim to replace steps 1–8 with a ready-made image and a setup page you open from Windows.</footer>
 </main>
 
 <script>

@@ -229,6 +229,18 @@ first. Every box gets the same image; at first start it makes its own
 keys, and the claim code (from the order) is what lets it join the group.
 That's a bigger change and comes after the steps below.
 
+## Still to build at the box
+
+What [the box's own screen](box-setup.md) does is built. Not yet:
+
+- in its admin: the box's name and domain, email addresses and
+  forwarding, the storage it gives the group, a new stick or disk, fixed
+  network addresses, and forgetting saved Wi-Fi;
+- opening the admin by approving with the owner's phone (a QR code on the
+  screen), for owners who never use a keyboard;
+- the screen and setup on the thin clients, in the x86 setup;
+- trying setup with someone who hasn't seen it, on another network.
+
 ## Build order
 
 1. **Unclaimed boxes and claim codes:** `provision-pi.sh` marks the box
