@@ -10,5 +10,4 @@ A box sets itself up from its own screen. Websites are folders of HTML
 or Markdown, previewed before they go live, and developers build sites
 with code and data on their own machine and publish with `git push`. It's
 open source ([AGPL-3.0](LICENSE)) and experimental: start with
-[setting up a box](docs/storage-box-guide.md) or
-[using yggstore](docs/using-yggstore.md).
+[setting up a box](docs/storage-box-guide.md), or see [all the docs](docs/README.md).

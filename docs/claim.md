@@ -24,7 +24,7 @@ in the group ([suppliers.md](suppliers.md)).
   `anna@withcare.co.za` and `anna.withcare.co.za`, approved by the group's
   admin.
 - **Sites on a domain of one's own** ([more-sites.md](more-sites.md), proposed;
-  [sites.md](sites.md#2-publish-a-site)): the domain on the group's
+  [sites.md](sites.md#publish-a-site)): the domain on the group's
   Cloudflare account, published from a box.
 - **Pages through the web** ([web-access.md](web-access.md), [login.md](login.md)):
   people on a box use their files and mail at an `https://` address,

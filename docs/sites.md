@@ -1,12 +1,12 @@
 # Websites on the group
 
-Static websites (HTML, CSS, images, JavaScript) can live on the group
-instead of on one server. Several machines serve them; if one goes down, or
-its whole site loses power or internet, visitors are sent to the others.
+Publish a website from a folder and several machines serve it, so it stays
+up when one of them is off. Every version is kept, and you can preview the
+next one before it goes live.
 
 ```mermaid
 flowchart LR
-  You["yggstore site publish"] --> G[("the group<br/>every version kept")]
+  You["you publish"] --> G[("the group<br/>every version kept")]
   G -- "new version announced" --> W1["web node 1"]
   G --> W2["web node 2"]
   G --> W3["web node 3"]
@@ -14,323 +14,78 @@ flowchart LR
   CF -- "tunnel" --> W1 & W2 & W3
 ```
 
-- **Publishing** stores the site's folder like any other item: encrypted,
-  in pieces across the group. Every version is kept, and an update stores
-  only what changed.
-- **Web nodes** hear about the new version within seconds, fetch it, and
-  switch to it all at once, so a visitor never sees half an update. They
-  serve from their own copy, so one cut off from the group keeps serving the
-  version it has. One that was off catches up when it's back.
-- **Cloudflare Tunnel** gives visitors HTTPS and sends each one to a web
-  node that is connected.
-- A site can only be changed by the machine that first published it, or by
-  an admin node. Under the group's domain it goes by name instead: see
-  [Members' websites](#members-websites).
+A site is plain files (HTML, Markdown, CSS, images, JavaScript). It can
+also have [code and data](site-code.md) that the web nodes run, and a
+[contact form](#a-contact-form).
 
-This suits plain-file sites. Anything that runs code on the server (PHP, a
-database, logins) needs a server of its own. A contact form is the
-exception: web nodes take it themselves (see [A contact form](#a-contact-form)).
+## Publish a site
 
-## 1. Choose the web nodes
+Choose the way that suits you; they all store a new version and the web
+nodes switch to it within a minute.
 
-Two or three machines in different places are enough: say the desktop at
-home and the office machine at the other site. Add `-web 127.0.0.1:8480` to each
-one's node command and restart it:
+- **On a box's network drive**, edit the files in `websites/DOMAIN`. A
+  change is published about 15 seconds after you stop editing.
+- **On your dashboard**, under **Your website**, **Publish a folder** or a
+  zip, or **Edit** single files.
+- **From a project on your machine**, `git push` (see
+  [publishing with git push](#publishing-with-git-push)).
+- **From the command line** on a machine that runs a node:
 
-```sh
-yggstore serve ... -web 127.0.0.1:8480
-```
+  ```sh
+  yggstore site publish ./example.org
+  yggstore site publish ./public -name www.example.org   # a folder with another name
+  ```
 
-On a Pi, add it to `command_args` in `/etc/init.d/yggstore`, then
-`rc-service yggstore restart` and `lbu commit`.
+A web node serves `index.html` (or `index.md`) for a folder, the site's
+`404.html` for a missing page, and `www.DOMAIN` as `DOMAIN` unless that is a
+site of its own.
 
-The web server only listens on the machine itself; Cloudflare reaches it
-through the tunnel.
+A site can only be changed by the machine that first published it, or by an
+admin. A site under the group's domain belongs to whoever holds the name.
 
-## 2. Publish a site
+### Folders that publish themselves
 
-On a machine running a node (your desktop, say), from the folder that holds
-the site:
-
-```sh
-yggstore site publish ./example.org
-yggstore site publish ./public -name www.example.org    # if the folder has another name
-```
-
-The site is published under its domain name. Then:
-
-```sh
-yggstore site status        # which web nodes serve which version
-```
-
-| Command | What it does |
-|---|---|
-| `yggstore site publish FOLDER` | Store and serve a new version (unchanged content makes no new version) |
-| `yggstore site versions DOMAIN` | List the versions, newest first |
-| `yggstore site rollback DOMAIN` | Serve the version before the current one again |
-| `yggstore site rollback DOMAIN ID` | Serve a particular version again |
-| `yggstore site list` | Sites published from this machine |
-| `yggstore site announce` | Tell web nodes about every site again, e.g. a new web node |
-| `yggstore site remove DOMAIN -yes` | Stop serving it and delete every version |
-
-The publishing machine keeps the list of versions in `~/.yggstore/sites/`.
-Back it up like your stubs.
-
-What a web node serves:
-
-- `index.html` for a folder, and `404.html` (if the site has one) for pages
-  that don't exist. Folders without `index.html` aren't listed.
-- `www.example.org` as `example.org`, unless `www.example.org` is a site of
-  its own.
-
-A web node only learns about versions announced while it is a web node or
-in the 30 days before. A web node added later needs `yggstore site announce`
-run once on the publishing machine.
-
-### Or keep them in the outbox's websites/ folder
-
-A node whose dashboard watches an outbox (`-outfiles`) also keeps its sites
-in the outbox's `websites/` folder, one folder per domain:
+A dashboard that watches an outbox (`-outfiles`), and a box for each of its
+people, keeps sites in a `websites/` folder, one folder per domain:
 
 ```
-outfiles/websites/
-├── example.org/                     the live site: change it here, and it's published
-├── shop.example.org/
-└── new.example.net/                 a new site, waiting for its domain on Cloudflare
-    new.example.net - NOT PUBLISHED.txt   why, and what to do
+websites/
+├── example.org/                      the live site: change it here
+├── example.org (preview)/            the next version (see Preview)
+└── new.example.net/                  a new site
+    new.example.net - NOT PUBLISHED.txt   why not yet, and what to do
 ```
 
-- **Sites published from this machine** get their folder filled with the
-  version being served. A change there is published about 15 seconds after
-  the last edit, with the same checks as a hub (it needs an `index.html`,
-  mustn't shrink to less than half and holds at most 500 MB), at most once
-  a minute. Every version is kept, so `yggstore site rollback` undoes one.
-- **A new folder** is published only once its domain is on Cloudflare
-  (added there, with its nameservers changed). Until then nothing is
-  published, and `DOMAIN - NOT PUBLISHED.txt` beside it explains how to add
-  it. The node checks every 5 minutes. With an API token (see
-  [below](#let-publishing-add-the-routes)) it then adds the site's route
-  itself; without one, the note says what to add by hand, and goes away
-  once `https://DOMAIN/` answers.
-- **Names the group gave this node** are published straight away.
-- **A domain another node publishes** is left alone, with a note saying so.
-- **Changed elsewhere** (the dashboard's Edit, or `yggstore site publish`):
-  the folder is brought up to that version, as long as nothing in it
-  changed meanwhile, so the next edit there doesn't undo it.
+- A change is published if it looks safe: the folder has a home page,
+  holds at most 500 MB, and hasn't shrunk to less than half. Otherwise the
+  note beside it says why, and the live site stays as it is.
+- A new domain is published once it's on Cloudflare; a name the group gave
+  you is published at once.
+- A site published another way (the dashboard, the command line) is copied
+  into its folder, unless you changed the folder meanwhile.
+- Deleting a folder doesn't take its site down. Use `yggstore site remove`.
 
-Deleting a site's folder doesn't take the site down: it comes back with the
-version being served. To take a site down, use `yggstore site remove`.
+## Preview before going live
 
-## 3. Put Cloudflare in front
+Put the next version beside the site's folder, in a folder with
+` (preview)` after the name, such as `shop.example.org (preview)`. Or run
+`yggstore site preview FOLDER -name DOMAIN`.
 
-Once, in the Cloudflare dashboard (Zero Trust → Networks → Tunnels):
+1. The preview is published, and the file `… (preview) - LINK.txt` holds
+   its link.
+2. Open the link. That browser now sees the preview on every page of the
+   real address, with a bar at the bottom; everyone else sees the live site.
+3. Press **Go live** on the dashboard's website card (`G` in the box's
+   admin, or `yggstore site live DOMAIN`). Every web node switches at once,
+   and the site's folder gets the new version. **Drop** throws it away.
 
-1. **Create a tunnel** of type Cloudflared, named e.g. `group-sites`. Copy
-   its token.
-2. **Add a published application route** (not a "hostname route", which
-   is for private access) for each site: the domain, service type **HTTP**,
-   URL `localhost:8480`. To try a site under a spare name first, set
-   *HTTP Settings → HTTP Host Header* to the site's real domain.
-
-On each web node, save the token in a file that only the node's user can
-read, and give it to the node with `-web-tunnel`:
-
-```sh
-umask 077; nano ~/.yggstore/group-sites.token     # paste the token (it starts with eyJ)
-yggstore serve ... -web 127.0.0.1:8480 -web-tunnel ~/.yggstore/group-sites.token
-```
-
-The node then runs `cloudflared` itself, **only while its web server
-answers** (it checks every 5 seconds). This matters: Cloudflare sends
-visitors to any connected connector without checking what is behind it, so
-a connector left running in front of a stopped web node turns every nearby
-visitor away with error 502, even when other web nodes are fine. With
-`-web-tunnel`, a node that stops, crashes or stops answering takes its
-connector down with it, and Cloudflare moves visitors to the others within
-seconds. If `cloudflared` isn't on the PATH, give it with `-cloudflared PATH`.
-
-For a node that runs as a service user (say `yggstore`), put the
-token where that user can read it:
-
-```sh
-sudo -u yggstore sh -c 'umask 077; cat > /var/lib/yggstore/group-sites.token'   # paste, Enter, Ctrl+D
-```
-
-Don't also run the tunnel as a separate `cloudflared` service on a web node:
-that brings back the 502 problem. A machine that already runs `cloudflared`
-for another tunnel can keep it; the node's connector uses its own settings
-file and doesn't touch it.
-
-Every web node runs the **same** tunnel. Cloudflare counts each as a
-replica and sends visitors only to replicas that are connected.
-
-### Let publishing add the routes
-
-With a Cloudflare API token on the publishing machine, `yggstore site
-publish` adds the site's route and DNS record itself, plus `www.` for a bare
-domain, so a new site needs no trip to the dashboard. Create the token once
-in the dashboard (My Profile → API Tokens → Create Token → Custom token)
-with these permissions:
-
-- Account › Cloudflare Tunnel › Edit
-- Zone › Zone › Read
-- Zone › DNS › Edit (all zones, or just the ones your sites are in)
-
-and save it on the publishing machine:
-
-```sh
-(umask 077; nano ~/.yggstore/cloudflare-api.token)
-```
-
-The tunnel is the one in `~/.yggstore/group-sites.token` (`-tunnel-token`
-to use another), which the publishing machine has if it is a web node. A
-name that already has a DNS record pointing somewhere else is left alone:
-publish says so, and you delete the old record or route when you're ready
-to move the site. `-no-route` skips this.
-
-Then putting a new site online is one command:
-
-```sh
-$ yggstore site publish ./example.org
-example.org: serving version 1a2b3c4d (12 files, 340.2 KiB).
-Served by desktop, office.
-Added tunnel route example.org → http://localhost:8480.
-Added DNS record example.org.
-Added tunnel route www.example.org → http://localhost:8480.
-Added DNS record www.example.org.
-Online: https://example.org/
-```
-
-The domain has to be on Cloudflare already (added as a site in the
-dashboard, with its nameservers changed).
-
-To move a site that is on a server now: publish it, add the public hostname,
-and check it, before you remove the old copy.
-
-## Members' websites
-
-Every name the group gives (see [mail.md](mail.md#addresses-for-members))
-is a website too: `anna@example.org` has `anna.example.org`. The member
-publishes it from their box's dashboard, under **Your website**: *Publish a
-folder* takes the folder that holds `index.html`, stores it on the group as
-a new version, and the web nodes serve it within a minute. The same place
-has *Back to the previous version*, the contact form, and *Take it down*.
-
-Web nodes take a site under the group's domain only from the node the list
-gives that name to (or an admin), and stop serving it as soon as the name
-is taken back. Names no one holds, and the domain itself, are the admins'.
-
-To change a site, *Edit* lists its files: open a page and change it, add
-a new page or pictures (into a folder if you like), or delete a file; each
-save publishes a new version. To replace the whole site, publish a folder
-or a zip (one with the site inside a folder is fine); *Download* gives the
-version being served as a zip. Your box also shows its own site
-over Yggdrasil, without Cloudflare, at `http://[its Yggdrasil address]:8480/`
-(the dashboard prints the address; `-site-port 0` turns it off). The box's
-firewall must let TCP 8480 in on the Yggdrasil interface, e.g.
-`sudo ufw allow in on tun0 to any port 8480 proto tcp`.
-
-One route covers every name. Add it once, from a machine with the API
-token (see above):
-
-```
-yggstore site route '*.example.org'
-```
-
-or by hand: a published application route `*.example.org` → HTTP
-`localhost:8480` on the web nodes' tunnel, and if Cloudflare doesn't add it
-for you, a proxied DNS record `CNAME * → TUNNEL-ID.cfargotunnel.com`.
-Cloudflare's free certificate covers one level of subdomain, so
-`anna.example.org` works and `www.anna.example.org` doesn't; members' names
-get no `www.`.
-
-## Working on a site on your own machine
-
-`yggstore site dev FOLDER` serves a site's folder on your machine
-exactly as the group's web nodes will once it's published: Markdown
-pages built, notices, the site's 404 page, and its `/api/` code with its
-data rules, at `http://127.0.0.1:8484/` (`-port` for another). Saving a
-file builds it again and the open pages reload. The contact form's
-messages are printed in the terminal instead of sent.
-
-The heavy work stays on your machine: build with Vite, TinyGo or
-anything else into the folder, and the group only ever gets the result.
-The site's data while you work (registrations and the like) is kept in
-`FOLDER/.yggstore-dev/`, which is never published, so it lasts between
-runs; delete it to start again. Nothing needs the group or a node.
-
-To work with the live site's data instead (its registrations, bookings
-and the rest), copy it in first, on the machine that publishes the site
-(the web nodes give a site's data only to it and to each other):
-
-```
-yggstore site data pull shop.example.org ./shop
-yggstore site dev ./shop -name shop.example.org
-```
-
-What the folder's local data was is kept beside it
-(`.yggstore-dev/data/SITE.before-pull-...`), not mixed in. What you do
-with the copy stays on your machine: nothing goes back to the live site.
-
-## Publishing with git push
-
-A project on a developer's machine, built there, publishes to the box
-that holds the site. Set it up once in the project's folder:
-
-```
-yggstore site init -name shop.example.org -box http://[200:...]:7480 -build "npm run build" -output dist
-```
-
-`-box` is the box's dashboard, as your browser opens it; this machine
-must be one of its owner's devices (the box's admin, Devices). Leave out
-`-build` and `-output` for a folder of plain HTML or Markdown. It writes
-`yggstore.json`, adds `.yggstore-dev/` to `.gitignore`, and installs a
-git hook, so that:
-
-| `git push` of | does |
-| --- | --- |
-| `main` (or `master`) | builds here and publishes the result |
-| a branch called `preview` | builds here and publishes it as the site's preview |
-| any other branch | nothing |
-
-Only the built folder goes to the box, never hidden files (`.env`),
-`node_modules` or the local data. If the build fails, the push stops and
-nothing is sent (`git push --no-verify` skips publishing once).
-`yggstore site push` (`-preview`) does the same without git. For a site
-of someone on a box, the push goes into their website folder (or its
-`(preview)` folder), which the box publishes from; what was there is kept
-beside it, hidden.
-
-## A preview before going live
-
-A new version can be seen on the site's own address before anyone else
-sees it:
-
-- **From a folder:** beside the site's folder, make one with the same
-  name and ` (preview)` after it, such as `shop.example.org (preview)`,
-  and put the next version in it. Whenever it changes it's published as
-  the site's preview, and `shop.example.org (preview) - LINK.txt` beside
-  it has the link. This works in a dashboard's `websites/` folder and in a
-  person's folder on a box (on their network drive, say).
-- **From the command line:** `yggstore site preview FOLDER -name DOMAIN`
-  prints the link.
-- **The link** (`https://DOMAIN/_yggstore/preview?key=...`) sets a cookie
-  in that browser, which then sees the preview on every page of the site,
-  with a bar at the bottom saying so and a link to leave. Everyone else
-  sees the live site. The web nodes only know a hash of the key.
-- **Going live** serves the preview to everyone at once (the web nodes
-  have it already): **Go live** on the dashboard's website card, `G` in
-  the box's admin (a person's menu), or `yggstore site live DOMAIN`. The
-  site's folder then holds the new version. **Drop** (or `yggstore site
-  drop DOMAIN`) throws the preview away and leaves the live site as it is.
-- A site's code (`/api/`) and data are the live site's, in a preview too.
+The link's key never leaves the publishing machine; the web nodes know only
+its hash. In a preview, the site's code and data are the live site's.
 
 ## Markdown pages
 
-A site's folder can hold pages written in Markdown, beside or instead of
-HTML. They're built into pages when the site is published, on whichever
-machine publishes it (a box, a dashboard, `yggstore site publish`), by
-the same rules as the desktop's `./sites build`:
+Write pages in Markdown, beside or instead of HTML. They're built into
+pages when the site is published:
 
 | In the folder | On the site |
 | --- | --- |
@@ -338,55 +93,80 @@ the same rules as the desktop's `./sites build`:
 | `about.md` | `/about/` |
 | `courses/intro.md` | `/courses/intro/` |
 
-- **The look** is `_layout.html` in the folder, with `{{title}}`,
-  `{{content}}` and `{{site}}`; without one, a plain layout with a link
-  home is used. A page may start with `title:` (and `layout:` for another
-  layout) between `---` lines; otherwise its title is its first `#`
-  heading.
-- **Links** to another page can name its `.md` file
-  (`[Our menu](menu.md)`), and pictures and files beside a page
-  (`![](photo.jpg)`) keep working once the page has a folder of its own.
-  Headings get ids to link to: `## Fish {#fish}`, or made from the words.
-  Tables and the rest of GitHub's Markdown work, and so does HTML in a
-  page.
-- **Not published:** files and folders starting with `_` or `.` (keep
-  drafts in `_drafts/`), `README.md` and `node_modules`. Every other file
-  is published as it is, and a page wins over a file of the same name.
-- **On the home page** the contact link and notices go in as they do on an
-  `index.html`.
-- A folder with no Markdown pages is published exactly as it is, so a
-  site built elsewhere (Vite, the starter) is unchanged.
+- **Layout:** `_layout.html` with `{{title}}`, `{{content}}` and
+  `{{site}}`, or a plain built-in one. A page can set `title:` and
+  `layout:` between `---` lines at the top; otherwise its title is its
+  first `#` heading.
+- **Links:** link to a page by its `.md` file (`[Our menu](menu.md)`).
+  Pictures beside a page (`![](photo.jpg)`) keep working. Headings get ids
+  (`## Fish {#fish}`). GitHub's Markdown and HTML both work.
+- **Not published:** names starting with `_` or `.` (keep drafts in
+  `_drafts/`), `README.md` and `node_modules`. A page wins over a file of
+  the same name.
+
+The Markdown source goes with each version, so a site's folder never gets
+built pages back in place of its `.md` files.
+
+## Working on a site on your own machine
+
+```sh
+yggstore site dev ./shop
+```
+
+This serves the folder at `http://127.0.0.1:8484/` exactly as the web nodes
+will: Markdown, notices, the 404 page, and the site's `/api/` code with its
+data. Saving a file rebuilds it, and open pages reload. The contact form's
+messages are printed instead of sent. It needs no node.
+
+Build with whatever you like (Vite, TinyGo) into the folder; the group only
+gets the result. Data you create while working stays in
+`.yggstore-dev/`, which is never published; delete it to start again.
+
+To work with the live site's data, copy it in first, on the machine that
+publishes the site:
+
+```sh
+yggstore site data pull shop.example.org ./shop
+yggstore site dev ./shop -name shop.example.org
+```
+
+The folder's old local data is set aside, and nothing goes back to the
+live site.
+
+## Publishing with git push
+
+Set a project up once:
+
+```sh
+yggstore site init -name shop.example.org -box http://[200:...]:7480 -build "npm run build" -output dist
+```
+
+- `-box` is the box's dashboard address; your machine must be one of its
+  owner's devices (the box's admin, **Devices**).
+- Leave out `-build` and `-output` for a folder of plain HTML or Markdown.
+
+Then:
+
+| You push | What happens |
+| --- | --- |
+| `main` (or `master`) | builds here and publishes the result |
+| `preview` | builds here and publishes a preview |
+| any other branch | nothing |
+
+Only the built folder is sent: no hidden files (`.env`), `node_modules` or
+local data. If the build fails, the push stops. `git push --no-verify`
+skips publishing once, and `yggstore site push` (`-preview`) publishes
+without git.
 
 ## A contact form
 
-A site's contact form can send its messages to your mailbox on the group,
-read on your dashboard or in your mail program like any other mail. They
-never go through a mail relay or a form service: the web node that takes the
-form writes it up as an email, seals it for your sharing code and hands it
-to your node.
+Turn it on with the **Contact form** box on the dashboard (or
+`yggstore site contact DOMAIN on`). The site gets a contact page at
+`/_yggstore/contact` and a **Contact** link on its home page. Messages
+arrive in your mailbox on the group, sealed for you; no mail relay or form
+service sees them.
 
-Turn it on from the machine that published the site (its node collects your
-mail):
-
-```sh
-yggstore site contact example.org on
-```
-
-The site then has a contact page of its own at `/_yggstore/contact`
-(name, email, subject, message), so a link is all it needs:
-
-```html
-<a href="/_yggstore/contact">Contact us</a>
-```
-
-Turned on with the *Contact form* box on the dashboard, the link is added
-for you: a new version of the site goes out with a Contact link at the
-bottom of `index.html`, between `<!-- yggstore: contact link -->` markers.
-If the home page links to `/_yggstore/contact` already, it is left alone.
-Unticking the box takes the marked link out again. The command line only
-switches the form.
-
-For a form in the site's own design, put one on any page instead:
+For a form in your own design, post to the same address:
 
 ```html
 <form method="post" action="/_yggstore/contact">
@@ -399,42 +179,87 @@ For a form in the site's own design, put one on any page instead:
 </form>
 ```
 
-- **Any fields** can be used; the message lists them in the form's order.
-  A field called `email` becomes the message's Reply-To, so replying answers
-  the visitor (from your dashboard or mail program, through the group's
-  [relay](mail.md#sending)). The subject is `_subject` if the form has one,
-  else a `subject` field, else the start of `message`.
-- **`_next`** is the page to show afterwards, on the same site. Without it
-  the visitor sees a short thank-you. A script posting with
-  `Accept: application/json` gets `{"ok":true}` or `{"ok":false,"error":"…"}`.
-- **`_gotcha`** is a trap for robots: people never see it, so a post with
-  anything in it is answered as if sent, and dropped.
-- **Limits**: 64 KiB a message (no attachments), five messages from one
-  address every ten minutes, and 100 a day per site on each web node.
-  Posts from forms on other sites are refused.
+- Any fields work. `email` becomes the Reply-To; `_subject` or `subject`
+  the subject.
+- `_next` is the page shown afterwards. A script posting with
+  `Accept: application/json` gets `{"ok":true}`.
+- `_gotcha` catches robots: a post with it filled is dropped.
+- Limits: 64 KiB a message, five from one address every ten minutes, 100 a
+  day per site on each web node.
 
-**Sending them on**: under Websites on the dashboard, *Also send its
-messages to* an ordinary email address: a code goes there, and once it's
-typed in beside the site, each new message from that site's form is also
-sent there through the group's [relay](mail.md#sending), from your address,
-with the visitor as Reply-To. It's per site, so a site you run for someone
-else can send its messages to them while the rest of your mail stays here.
-*Stop* ends it. Messages that came before it was confirmed stay here only.
+To also get the messages at another address, use **Also send its messages
+to** on the dashboard and type in the code sent there.
 
-The message shows the visitor's address and the page the form was on. The
-web node sees the form as it arrives, as Cloudflare does; from then on only
-you can read it. `yggstore site contact example.org off` turns it off.
+## Websites for members
+
+Every name the group gives is a website and an address: `anna@example.org`
+has `anna.example.org` ([mail](mail.md#addresses-for-members)). Web nodes
+take a site under the group's domain only from whoever holds the name, and
+stop serving it when the name is taken back. Names get no `www.`.
+
+A box also serves its own sites over Yggdrasil, without Cloudflare, at
+`http://[its address]:8480/` (`-site-port 0` turns this off).
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `yggstore site publish FOLDER` | store and serve a new version |
+| `yggstore site preview FOLDER` | store a preview, and print its link |
+| `yggstore site live DOMAIN` / `drop DOMAIN` | the preview goes live, or away |
+| `yggstore site versions DOMAIN` | the versions, newest first |
+| `yggstore site rollback DOMAIN [ID]` | serve an earlier version again |
+| `yggstore site list` | sites published from this machine |
+| `yggstore site status` | which web nodes serve which version |
+| `yggstore site announce` | tell the web nodes about every site again |
+| `yggstore site remove DOMAIN -yes` | stop serving it and delete every version |
+| `yggstore site dev FOLDER` | serve a folder on this machine |
+| `yggstore site data pull DOMAIN FOLDER` | copy a site's live data to a folder |
+| `yggstore site init` / `push` | publish from a project with `git push` |
+
+The publishing machine keeps each site's versions in `~/.yggstore/sites/`.
+Back it up with your stubs.
+
+## Setting up web nodes
+
+Once, for the group's admin.
+
+1. **Choose two or three machines in different places** and add
+   `-web 127.0.0.1:8480` to each one's node command:
+
+   ```sh
+   yggstore serve ... -web 127.0.0.1:8480
+   ```
+
+2. **Create a Cloudflare tunnel** (Zero Trust → Networks → Tunnels, type
+   Cloudflared, named `group-sites`) and copy its token.
+3. **Give the token to each web node**, readable only by the node's user:
+
+   ```sh
+   (umask 077; nano ~/.yggstore/group-sites.token)
+   yggstore serve ... -web 127.0.0.1:8480 -web-tunnel ~/.yggstore/group-sites.token
+   ```
+
+   The node runs `cloudflared` itself, only while its web server answers,
+   so a stopped web node never takes visitors. Don't also run the tunnel as
+   a separate service.
+4. **Let publishing add each site's route and DNS record:** create a
+   Cloudflare API token (Account › Cloudflare Tunnel › Edit, Zone › Zone ›
+   Read, Zone › DNS › Edit) and save it in `~/.yggstore/cloudflare-api.token`
+   on the publishing machine. Without it, add a published application route
+   (the domain → HTTP `localhost:8480`) by hand for each site.
+5. **For members' names**, add one route for all of them:
+   `yggstore site route '*.example.org'`.
+
+A domain must be on Cloudflare (added there, with its nameservers changed)
+before its site can go online. A web node added later needs
+`yggstore site announce` once on each publishing machine.
 
 ## Checking it works
 
 ```sh
-curl -H 'Host: example.org' http://127.0.0.1:8480/      # on a web node
-yggstore site status                                   # on any machine
+yggstore site status                                  # each web node's version and tunnel
+curl -H 'Host: example.org' http://127.0.0.1:8480/    # on a web node
 ```
 
-To test failover, stop one web node (or its whole machine) and reload the
-site in a browser: it should keep loading from the others.
-
-```sh
-yggstore site status     # shows each web node's tunnel: connected, or why it is stopped
-```
+Stop one web node and reload the site: it keeps loading from the others.

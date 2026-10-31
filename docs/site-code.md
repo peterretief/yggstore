@@ -20,7 +20,7 @@ Start from the people, not the technology.
 3. **Code is its own project, apart from the display.** The HTML only
    shows things. The logic lives beside it, built and tested on a
    developer's machine, and goes up with the site as one folder
-   ([the starter](#a-starter-to-build-on)).
+   ([the starter](#one-project-two-halves)).
 4. **No box is the only way in.** A site, its code and its data keep
    working when any one machine is off, the owner's box included (see
    [data that lasts](#data-that-lasts)).
