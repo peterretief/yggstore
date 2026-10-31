@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
+	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -426,36 +427,106 @@ func (d *Dashboard) handleDecide(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such request", http.StatusNotFound)
 		return
 	}
-	if req.Approve {
+	if err := d.decideName(r.Context(), *c, req.Approve); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// decideName gives c's name (approve) or declines it, notes the answer,
+// and tells the box that asked.
+func (d *Dashboard) decideName(ctx context.Context, c nameClaim, approve bool) error {
+	if approve {
 		if err := d.giveName(c.Node, c.Name, c.Code, c.Person); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-			return
+			return err
 		}
 	}
-	status := map[bool]string{true: "approved", false: "declined"}[req.Approve]
+	status := map[bool]string{true: "approved", false: "declined"}[approve]
 	d.namesMu.Lock()
-	f = d.loadNames()
+	f := d.loadNames()
 	for i := range f.Claims {
-		if f.Claims[i].Name == req.Name && f.Claims[i].Node == req.Node && !f.Claims[i].Mine {
+		if f.Claims[i].Name == c.Name && f.Claims[i].Node == c.Node && !f.Claims[i].Mine {
 			f.Claims[i].Status = status
 		}
 	}
-	err = d.saveNames(f)
+	err := d.saveNames(f)
 	d.namesMu.Unlock()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 	if lc, err := d.msgClient(); err == nil {
-		body, _ := json.Marshal(map[string]any{"name": req.Name, "approved": req.Approve})
-		lc.Send(r.Context(), req.Node, typeNameAnswer, string(body))
+		body, _ := json.Marshal(map[string]any{"name": c.Name, "approved": approve})
+		lc.Send(ctx, c.Node, typeNameAnswer, string(body))
 	}
-	who := c.NodeName
+	d.event("ok", fmt.Sprintf("%s %s for %s", status, peers.MailAddress(c.Name), claimWho(c)))
+	return nil
+}
+
+func claimWho(c nameClaim) string {
 	if c.Person != "" {
-		who = c.Person + " on " + c.NodeName
+		return c.Person + " on " + c.NodeName + "'s box"
 	}
-	d.event("ok", fmt.Sprintf("%s %s for %s", status, peers.MailAddress(req.Name), who))
-	w.WriteHeader(http.StatusNoContent)
+	return c.NodeName
+}
+
+// approveNames gives the names asked for at once, on an admin dashboard
+// with ApproveNames: a free name not kept for the group is given, one
+// that's taken is declined, and the admin gets a report in their
+// mailbox. Names kept for the group wait under Names.
+func (d *Dashboard) approveNames(ctx context.Context, list []peers.Peer) {
+	if !d.cfg.ApproveNames || d.cfg.NamesPath == "" || !isAdmin(list, d.cfg.SelfID) {
+		return
+	}
+	d.namesMu.Lock()
+	var asked []nameClaim
+	for _, c := range d.loadNames().Claims {
+		if c.Status == "asked" && !c.Mine {
+			asked = append(asked, c)
+		}
+	}
+	d.namesMu.Unlock()
+	domain := peers.GroupDomain(list)
+	for _, c := range asked {
+		if l, ok := strings.CutSuffix(c.Name, "."+domain); !ok || reserved[l] {
+			continue
+		}
+		approve := true
+		if p, ok := peers.NameOwner(list, c.Name); ok && p.IP() != c.Node {
+			approve = false
+		}
+		if err := d.decideName(ctx, c, approve); err != nil {
+			d.event("warn", fmt.Sprintf("could not give %s to %s: %v", c.Name, claimWho(c), err))
+			continue
+		}
+		if approve {
+			d.reportName(ctx, c)
+		}
+	}
+}
+
+// reportName puts a note in the admin's mailbox that a name was given.
+func (d *Dashboard) reportName(ctx context.Context, c nameClaim) {
+	box, err := d.mailBox()
+	if err != nil {
+		return
+	}
+	list, _ := peers.Load(d.cfg.PeersPath)
+	to := box.Address()
+	domain := peers.GroupDomain(list)
+	now := time.Now()
+	body := fmt.Sprintf("Given automatically to %s:\r\n\r\n  website  https://%s\r\n  email    %s\r\n\r\n"+
+		"Nothing needs doing. To take it back, open Names on your dashboard and press Take back.\r\n",
+		claimWho(c), c.Name, peers.MailAddress(c.Name))
+	raw := "From: yggstore <noreply@" + domain + ">\r\n" +
+		"To: " + to + "\r\n" +
+		"Subject: New website and email: " + c.Name + "\r\n" +
+		"Date: " + now.Format(time.RFC1123Z) + "\r\n" +
+		fmt.Sprintf("Message-ID: <names.%d@%s>\r\n", now.UnixNano(), domain) +
+		"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" + body
+	if _, err := box.Keep(ctx, d.cfg.Client, list, []byte(raw), mail.Inbox, nil, now); err != nil {
+		d.event("warn", "the report on "+c.Name+" didn't reach your mailbox: "+err.Error())
+	}
 }
 
 // handleRemoveName takes a name back (admin dashboards).

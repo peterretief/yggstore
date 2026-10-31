@@ -87,6 +87,10 @@ type Config struct {
 	// NamesPath keeps name requests: those made here, and on an admin
 	// dashboard those members sent (see names.go).
 	NamesPath string
+	// ApproveNames gives a name asked for at once when it's free and not
+	// kept for the group, on an admin dashboard, and reports it to the
+	// admin's mailbox; otherwise it waits under Names.
+	ApproveNames bool
 	// WalletDir keeps the wallet (see wallet.go): what the ledger's keeper
 	// last said about this account, and on the keeper, the ledger itself.
 	// "" for no wallet.
@@ -762,6 +766,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 	if st.PeersError == "" {
 		d.syncLists(ctx, mainList, st.Peers, st.AdminEntry != "")
 		d.syncNames(ctx, mainList)
+		d.approveNames(ctx, mainList)
 		d.syncWallet(ctx, mainList)
 		if st.AdminEntry != "" && time.Since(d.yggDNSAt) > 30*time.Minute {
 			d.yggDNSAt = time.Now()

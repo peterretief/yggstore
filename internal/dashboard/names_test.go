@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/peterretief/yggstore/internal/client"
 	"github.com/peterretief/yggstore/internal/hub"
 	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/msg"
@@ -256,5 +257,39 @@ func TestPersonName(t *testing.T) {
 		} else if time.Now().After(deadline) {
 			t.Fatal("the name was never taken back")
 		}
+	}
+}
+
+func TestNamesGivenAtOnce(t *testing.T) {
+	ctx, admin, member, do, names, listOf := namePair(t, nil)
+	admin.cfg.ApproveNames, admin.cfg.Client = true, client.New()
+	for _, label := range []string{"anna", "admin"} {
+		if w := do(member, post("/api/names/claim", strings.NewReader(`{"label":"`+label+`"}`))); w.Code != http.StatusNoContent && label == "anna" {
+			t.Fatalf("claim %s: %d %s", label, w.Code, w.Body)
+		}
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		admin.syncNames(ctx, listOf(admin))
+		admin.approveNames(ctx, listOf(admin))
+		if _, ok := peers.MailOwner(listOf(admin), "anna@example.org"); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("anna was never given: %+v", names(admin))
+		}
+	}
+	for _, c := range names(admin).Requests {
+		if c.Name == "anna.example.org" && c.Status != "approved" {
+			t.Fatalf("anna's request: %+v", c)
+		}
+	}
+	// The admin gets a report in their mailbox.
+	box, err := admin.mailBox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, _ := box.List()
+	if len(list) != 1 || !strings.Contains(list[0].Subject, "anna.example.org") {
+		t.Fatalf("report: %+v", list)
 	}
 }

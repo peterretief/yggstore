@@ -119,9 +119,13 @@ ask for a name on their dashboard, and you approve it on yours.
    (step 5), and verify the domain at the relay ([Sending](#sending)).
 2. A member types a name under *Your name* and asks for
    it. The request goes to the admin nodes as a message.
-3. On your dashboard it shows under *Requests*: Approve adds the name, and
-   the member's sharing code, to their node's entry in the list, which
-   every node then gets. Decline tells them no.
+3. Your dashboard gives it at once if it's free, adds it with the
+   member's sharing code to their node's entry in the list (which every
+   node then gets), and puts a report in your mailbox ("New website and
+   email: ..."). A name that's taken is declined. Names kept for the
+   group (`admin`, `www`, `postmaster` and the like) wait under
+   *Requests* for you to Approve or Decline. To decide on every name
+   yourself, start the dashboard with `-approve-names=false`.
 
 From then on `anna@example.org` arrives in Anna's mailbox and her box may
 send as it; `anna.example.org` is kept for her website. Her dashboard sets

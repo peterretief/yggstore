@@ -702,6 +702,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	pushed := fs.String("pushed", "", "the member list the admin pushed to this machine's node, taken over -peers when newer (default: shards/peers.pushed.json next to -peers)")
 	imapAddr := fs.String("imap", mailbridge.DefaultIMAP, `mail bridge: IMAP for your mail program, on this machine ("" for none; see docs/mail.md)`)
 	smtpAddr := fs.String("smtp", mailbridge.DefaultSMTP, `mail bridge: SMTP for your mail program ("" for none)`)
+	approveNames := fs.Bool("approve-names", true, "admin dashboards: give a free name someone asks for at once, and report it in your mailbox, instead of waiting under Names")
 	bridgePw := fs.String("mail-bridge-password", filepath.Join(yggstoreHome(), "mail-bridge.password"), "the mail bridge's password file (made if missing)")
 	fs.Parse(args)
 
@@ -741,7 +742,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 	cfg := dashboard.Config{HubState: *hubStatePath, HubPeople: filepath.Join(*hubPeople, "users"), PeersPath: *peersPath, StubDir: absStubs, SelfID: selfID, Interval: *interval, Client: c,
 		TestPeersPath: *testPeers, Identity: id, ContactsPath: *contactsPath, Name: *me, Listen: *listen,
 		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken,
-		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"), WalletDir: filepath.Join(yggstoreHome(), "ygg"),
+		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"), ApproveNames: *approveNames, WalletDir: filepath.Join(yggstoreHome(), "ygg"),
 		SitesDir: filepath.Join(yggstoreHome(), "sites"), Home: yggstoreHome(), MePath: filepath.Join(yggstoreHome(), "me.name"), Version: versionString(),
 		CloudflareToken: filepath.Join(yggstoreHome(), "cloudflare-api.token"), TunnelToken: filepath.Join(yggstoreHome(), "group-sites.token")}
 	serveAddr := *listen
