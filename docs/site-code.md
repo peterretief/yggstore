@@ -1,10 +1,10 @@
 # Websites that do things: code and data on the web nodes
 
-Status: proposed on 2026-10-22; on 2026-10-23 planned together with the
-starter (one project, two halves; see [one project](#one-project-two-halves)),
-with Kath's site as the first real use; the data design decided the
-same day (a write log and a read database, merged by replay). Stage 1 is
-built (see [what's built](#whats-built-stage-1-2026-10-23)).
+How a website runs code and keeps data on the group's web nodes, and why
+it's built this way. Built: handlers (stage 1), data with its write log,
+replay and rules (most of stage 3), previews, and
+[developing locally](sites.md#working-on-a-site-on-your-own-machine). Not
+yet: handing on (stage 2), snapshots, the data key and big records.
 
 ## What we want
 
@@ -313,17 +313,19 @@ is the first question below.
 
 0. **Publishing that can't break a site:** new pages as new folders, the
    preview, one step back ([above](#publishing-without-breaking-a-live-site)).
-   Nothing else is built until this works on Kath's site.
+   Built, previews on 2026-10-31.
 1. **Handlers that need no data:** checks, conversions, calculations, a
    page built from a query. This is wazero in the web nodes, the CGI
    interface, the limits, the admin's switch per site, and `yggstore site
-   dev` for the developer. The starter gets `api/hello`.
+   dev` for the developer. The starter gets `api/hello`. Built.
 2. **Handing on:** a handler sends a message to the site's owner, sealed
    for them, as the contact form does (a booking request, an order).
 3. **Data that lasts:** the write log on the data topic, replay into
    SQLite, `db.Query` and `db.Record` for handlers, rules at replay and
    held bookings, then snapshots, the data key and big records. The starter
-   gets registrations and bookings.
+   gets registrations and bookings. Built up to held bookings, with
+   `yggstore site data pull`; snapshots, the data key and big records are
+   not.
 
 Each stage is useful by itself, and each needs the one before. Each is
 tried on a test site, then on Kath's, with her.

@@ -487,7 +487,12 @@ func main() {
 </script>
 ```
 
-A push builds `api/signup/` into `api/signup.wasm` and takes the two SQL files with it. None of the three is handed out to visitors. The form only works on the live site, once the code is on (step 9): the preview doesn't answer `/api/`.
+A push builds `api/signup/` into `api/signup.wasm` and takes the two SQL files with it. None of the three is handed out to visitors. The Vite preview doesn't answer `/api/`; to try the form before going live, build the site and serve the result as the web nodes will, with its data kept on your machine:
+
+```sh
+./devbox bash -c "cd garden.withcare.co.za && npm run build"
+bin/yggstore site dev garden.withcare.co.za/public -name garden.withcare.co.za
+```
 
 Need only an email of each answer, no list kept? Post the form to `/_yggstore/contact` instead and turn it on with `bin/yggstore site contact garden.withcare.co.za on`; answers then arrive in the dashboard's Mail.
 
@@ -530,7 +535,7 @@ curl "https://garden.withcare.co.za/api/signup?day=2026-11-07"
 | `504` | the handler took longer than 2 seconds |
 | `429` | more than 120 requests a minute from one visitor |
 
-To try a handler without data on the desktop first: `./devbox bash -c "cd garden.withcare.co.za && npm run api && cd tools/apirun && go run . ../../public/api/hello.wasm GET /api/hello"`. Handlers that use `db` only run on the site.
+To try handlers, with or without data, before going live: build the site and run `bin/yggstore site dev garden.withcare.co.za/public -name garden.withcare.co.za` ([working on a site on your own machine](sites.md#working-on-a-site-on-your-own-machine)).
 
 ## Step 10: go back to an earlier version
 

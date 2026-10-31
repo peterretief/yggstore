@@ -182,7 +182,7 @@ A form that posts to `/_yggstore/contact` reaches you as an email in the dashboa
 - Any field names, up to 30; they arrive in order. `email` becomes the reply-to address.
 - `_subject` is the email's subject, `_next` the page shown afterwards, `_gotcha` a hidden trap: a post that fills it is dropped as a robot's.
 - Limits: 5 messages per sender in a short time, 100 per site a day.
-- It only works on the live site: in the preview, sending it gives "page not found", since only the web nodes answer `/_yggstore/contact`.
+- The Vite preview answers it with "page not found". `yggstore site dev` on the built folder takes it and prints what was sent.
 
 Turn the form on once the site is published (step 6): `bin/yggstore site contact courses.withcare.co.za on`, in `/media/peter/storage1/YGGSTORE`.
 
@@ -241,8 +241,11 @@ A handler is an ordinary Go web app (the standard library's router, or chi) serv
 2. Try it on the desktop first, the way the web nodes run it:
 
    ```sh
-   ./devbox bash -c "cd courses.withcare.co.za && npm run api && cd tools/apirun && go run . ../../public/api/hello.wasm GET '/api/hello?name=Kath'"
+   ./devbox bash -c "cd courses.withcare.co.za && npm run build"
+   bin/yggstore site dev courses.withcare.co.za/public -name courses.withcare.co.za
    ```
+
+   Then open http://127.0.0.1:8484/api/hello?name=Kath.
 3. Publish as usual (step 6): `npm run build` builds each `api/NAME/` into `api/NAME.wasm` beside the pages.
 4. Turn the site's code on, once, in `/media/peter/storage1/YGGSTORE`:
 
@@ -258,7 +261,7 @@ A handler is an ordinary Go web app (the standard library's router, or chi) serv
 | gets more than 120 requests a minute from one visitor | 429 |
 | belongs to a site your admin node doesn't publish | 403, until you can approve other sites |
 
-The `.wasm` files themselves are never handed out. `npm run dev` doesn't answer `/api/` yet, so try handlers with `tools/apirun` or on the live site.
+The `.wasm` files themselves are never handed out. `npm run dev` doesn't answer `/api/`; try handlers with `yggstore site dev` on the built folder.
 
 ## Step 8: data the site keeps
 

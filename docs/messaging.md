@@ -1,6 +1,7 @@
 # Messaging: nodes talking to each other
 
-Every node can message the others in the group:
+Send messages between the group's machines, from the dashboard, the command
+line or your own programs:
 
 - **Direct messages** go to one node.
 - **Topics** are named channels, such as `alerts` or `family/photos`. Any node
@@ -28,8 +29,7 @@ node sent each one. They are kept for 30 days.
 - **Nothing arrives twice,** even after restarts and retries.
 
 Messages are for short things, up to 64 KB of text. To send something bigger,
-store it and send its stub in a message. File sync (coming next) works this
-way.
+store it and send its stub in a message.
 
 ## On the dashboard
 
@@ -96,8 +96,6 @@ only carries the body.
 
 ## Things to know
 
-- **Every node needs this version of yggstore.** Nodes on older versions are
-  skipped, and get their messages once they're updated.
 - **Any member can follow any topic.** Topics are for the group, not secret
   from it. Messages are encrypted between nodes by Yggdrasil, but they are
   readable on the nodes that receive them.
@@ -107,5 +105,4 @@ only carries the body.
   messages from different publishers may interleave differently on different
   nodes.
 - **This is meant for small groups.** Each publisher sends to every follower
-  itself, which is simple and fast for tens of nodes. Very large groups would
-  need messages passed on by other nodes; that can come later.
+  itself, which suits tens of nodes, not hundreds.

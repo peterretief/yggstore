@@ -22,12 +22,11 @@
 
 - [Using yggstore](using-yggstore.md): how it works, commands, the outbox, the dashboard
 - [Command-line cheatsheet](cli-cheatsheet.md)
-- [Site code and data](site-code.md)
 - [Messaging](messaging.md)
 - [Repair](repair.md), [history](history.md), [leases](leases.md)
 - [Built-in Yggdrasil](builtin.md), [the mesh](mesh.md), [members on Yggdrasil only](ygg-only.md)
 - [Websites for people on a box](box-people-sites.md), [photos and files on their sites](site-uploads.md)
-- [Light clients](web-access.md), [one login for the group](login.md)
+- [Signing in on the web](web-access.md)
 
 ## Design
 
@@ -35,6 +34,8 @@ Plans and the reasons behind them. Each page says what's built and what isn't.
 
 | Page | Status |
 | --- | --- |
+| [Site code and data](site-code.md) | mostly built |
+| [One login for the group](login.md) | first step built |
 | [Boxes claimed by new owners](claim.md) | proposed |
 | [Orders and invoices between boxes](suppliers.md) | proposed |
 | [Yggs](ygg.md) | wallet built; the rest proposed |
