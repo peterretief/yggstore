@@ -20,7 +20,7 @@ files. That becomes the advanced, direct route, for people who want it.
    with what they sign in as: their group address, such as
    `kath@group.example` (or `name@box` without one). The admin gives
    both to them by phone or in person, never by email. It works for a week.
-   On the box's own screen (`sudo yggstore admin`), with the person
+   On the box's own screen (A on the status screen), with the person
    there, they can type the password they'll use instead, and skip the
    temporary one.
 2. **They sign in at `https://my.withcare.co.za`** (or their own address)

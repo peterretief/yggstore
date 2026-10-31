@@ -13,6 +13,9 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/peterretief/yggstore/internal/hub"
+	"github.com/peterretief/yggstore/internal/peers"
 )
 
 // yggstore admin is the box's admin on its own screen (docs/box-setup.md,
@@ -203,6 +206,61 @@ func cut(s string, n int) string {
 func pick(b byte, n int) (int, bool) {
 	i := int(b) - '1'
 	return i, i >= 0 && i < n && i < 9
+}
+
+// adminGate opens the admin from the status screen: the box's owner (its
+// first person) types their name and password, as they set them up. Five
+// wrong tries close it for an hour, for as long as the screen runs.
+type adminGate struct {
+	wrong int
+	until time.Time
+}
+
+func (g *adminGate) login(ctx context.Context, k keyReader, box, statePath string) (bool, error) {
+	const title = "Admin"
+	back := func(lines ...string) (bool, error) {
+		adminDraw(box, title, lines, "", "Any key to go back")
+		_, err := k.key(ctx)
+		return false, err
+	}
+	st, err := hub.Load(statePath)
+	if err != nil {
+		return back("Can't read who is on this box: " + err.Error())
+	}
+	var owner *hub.Person
+	for i := range st.People {
+		if st.People[i].Active() {
+			owner = &st.People[i]
+			break
+		}
+	}
+	switch {
+	case owner == nil:
+		return back("Nobody is on this box yet.", "", "Press Enter on the status screen to set it up.")
+	case time.Now().Before(g.until):
+		return back("Too many wrong tries.", "", "Try again after "+g.until.Format("15:04")+".")
+	}
+	name, ok, err := k.line(ctx, func(t string) {
+		adminDraw(box, title, []string{"Your name: " + t}, "", "Enter when done    Esc to go back")
+	}, false)
+	if err != nil || !ok {
+		return false, err
+	}
+	pw, ok, err := k.line(ctx, func(t string) {
+		adminDraw(box, title, []string{"Your name: " + name, "Your password: " + t}, "", "Enter when done    Esc to go back")
+	}, true)
+	if err != nil || !ok {
+		return false, err
+	}
+	adminDraw(box, title, []string{"Checking..."}, "", "")
+	if strings.EqualFold(strings.TrimSpace(name), owner.Name) && owner.Password.Live(time.Now()) && owner.Password.Matches(pw) {
+		g.wrong = 0
+		return true, nil
+	}
+	if g.wrong++; g.wrong >= 5 {
+		g.wrong, g.until = 0, time.Now().Add(time.Hour)
+	}
+	return back("That isn't the box owner's name and password.")
 }
 
 // runAdmin is the admin menu. It returns when the owner leaves, or after
@@ -412,7 +470,7 @@ func adminPeople(ctx context.Context, k keyReader, box string, d dash) error {
 			}
 			// If they're at the box, they type their own; otherwise a
 			// temporary one to give them.
-			chosen, m, err := choosePassword(ctx, k, box, title, d, out.Name, personPath(d, out.Name),
+			chosen, m, err := choosePassword(ctx, k, box, title, d, out.Name, personPath(d, out.Name), len(shown) == 0,
 				out.Name+" is on the box now. If they're here, they type the password they'll use; otherwise press Esc for a temporary one to give them.")
 			if err != nil {
 				return err
@@ -424,7 +482,7 @@ func adminPeople(ctx context.Context, k keyReader, box string, d dash) error {
 			}
 		default:
 			if i, ok := pick(b, len(shown)); ok {
-				if msg, err = adminPerson(ctx, k, box, d, shown[i]); err != nil {
+				if msg, err = adminPerson(ctx, k, box, d, shown[i], i == 0); err != nil {
 					return err
 				}
 			}
@@ -488,7 +546,9 @@ func personPath(d dash, name string) string {
 
 // choosePassword lets the person at the box type their own password,
 // twice. chosen is false if they pressed Esc.
-func choosePassword(ctx context.Context, k keyReader, box, title string, d dash, name, path, head string) (chosen bool, msg string, err error) {
+// The box's owner (its first person) also gets a login at the box with
+// it, and so its admin.
+func choosePassword(ctx context.Context, k keyReader, box, title string, d dash, name, path string, owner bool, head string) (chosen bool, msg string, err error) {
 	note := ""
 	for {
 		pw, ok, err := k.line(ctx, func(typed string) {
@@ -513,6 +573,13 @@ func choosePassword(ctx context.Context, k keyReader, box, title string, d dash,
 			continue
 		}
 		msg = name + " has the password they chose."
+		if owner {
+			if e := boxLogin(name, pw); e != nil {
+				msg += " No login at the box: " + e.Error() + "."
+			} else {
+				msg += " It's also their login at the box."
+			}
+		}
 		if sambaOn() {
 			if e := sambaShare(name, path, pw); e != nil {
 				msg += " Their network drive isn't set up: " + e.Error()
@@ -525,7 +592,7 @@ func choosePassword(ctx context.Context, k keyReader, box, title string, d dash,
 }
 
 // adminPerson is one person's choices. It returns what was done.
-func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPersonView) (string, error) {
+func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPersonView, owner bool) (string, error) {
 	title := p.Name
 	limit := "no limit"
 	if p.Quota > 0 {
@@ -535,8 +602,16 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 	if p.Suspended {
 		shut = "S  let them use the box again"
 	}
+	web := "W  a website and email address for them"
+	switch {
+	case p.Site != "":
+		web = "Website https://" + p.Site + ", email " + peers.MailAddress(p.Site)
+	case p.Asked != "":
+		web = "Website " + p.Asked + ": asked for, waiting for the group's admin"
+	}
 	adminDraw(box, title, []string{
-		fmt.Sprintf("Uses %s, limit %s, %d devices syncing", size(p.Bytes), limit, p.Syncthing), "",
+		fmt.Sprintf("Uses %s, limit %s, %d devices syncing", size(p.Bytes), limit, p.Syncthing),
+		web, "",
 		"L  change their limit",
 		"C  choose their password now (they're here)",
 		"P  a new temporary password, to give them",
@@ -565,8 +640,24 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 			return "Not changed: " + e.Error(), nil
 		}
 		return "Changed " + p.Name + "'s limit.", nil
+	case 'w', 'W':
+		if p.Site != "" || p.Asked != "" {
+			return "", nil
+		}
+		list, _ := peers.Load(defaultPeers())
+		label, ok, err := askWebName(ctx, k, box, title, "A name for "+p.Name+"'s website and email: ", list)
+		if err != nil || !ok {
+			return "", err
+		}
+		if e := d.call("/api/box/people/name", map[string]string{"name": p.Name, "label": label}, nil); e != nil {
+			return "Not asked: " + e.Error(), nil
+		}
+		if q, ok := personNamed(d, p.Name); ok && q.Site != "" {
+			return p.Name + " has https://" + q.Site + " and " + peers.MailAddress(q.Site) + " now.", nil
+		}
+		return label + " is asked of the group: the website and email start once the group's admin gives it.", nil
 	case 'c', 'C':
-		_, m, err := choosePassword(ctx, k, box, title, d, p.Name, p.Path, "They type the password they'll use. Their old one, and the browsers it signed in, stop working.")
+		_, m, err := choosePassword(ctx, k, box, title, d, p.Name, p.Path, owner, "They type the password they'll use. Their old one, and the browsers it signed in, stop working.")
 		return m, err
 	case 'p', 'P':
 		yes, err := confirm(ctx, k, box, title, "A new temporary password for "+p.Name+"? Their old one, and the browsers it signed in, stop working.")

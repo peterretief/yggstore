@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -116,33 +117,9 @@ func runSetup(ctx context.Context, k keyReader, box string, d dash, peersPath st
 	}
 
 	// 3. A name for the website and email.
-	note = ""
-	var label string
-	for {
-		typed, ok, err := k.line(ctx, func(t string) {
-			show := t
-			if show == "" {
-				show = "yourname"
-			}
-			lines := []string{"3  A name for your website and email, such as your business's: " + t}
-			if domain != "" {
-				lines = append(lines, "", "   https://"+show+"."+domain, "   "+show+"@"+domain)
-			}
-			adminDraw(box, title, lines, note, "Enter when done    Esc to stop")
-		}, false)
-		if err != nil || !ok {
-			return err
-		}
-		label = strings.ToLower(strings.TrimSpace(typed))
-		if e := peers.ValidLabel(label); e != nil {
-			note = e.Error()
-			continue
-		}
-		if _, taken := peers.NameOwner(list, label+"."+domain); taken && domain != "" {
-			note = label + "." + domain + " is taken; choose another."
-			continue
-		}
-		break
+	label, ok, err := askWebName(ctx, k, box, title, "3  A name for your website and email, such as your business's: ", list)
+	if err != nil || !ok {
+		return err
 	}
 
 	yes, err := confirm(ctx, k, box, title, "Set up the box for "+name+", with the name "+label+"?")
@@ -187,11 +164,44 @@ func runSetup(ctx context.Context, k keyReader, box string, d dash, peersPath st
 	return waitAny(ctx, k, box, name, done)
 }
 
+// askWebName asks for a name for a website and email under the group's
+// domain, showing what it gives and refusing names that are taken.
+func askWebName(ctx context.Context, k keyReader, box, title, prompt string, list []peers.Peer) (string, bool, error) {
+	domain := peers.GroupDomain(list)
+	if domain == "" {
+		return "", false, errors.New(`the group has no domain yet`)
+	}
+	note := ""
+	for {
+		typed, ok, err := k.line(ctx, func(t string) {
+			show := t
+			if show == "" {
+				show = "yourname"
+			}
+			adminDraw(box, title, []string{prompt + t, "", "   https://" + show + "." + domain, "   " + show + "@" + domain},
+				note, "Enter when done    Esc to stop")
+		}, false)
+		if err != nil || !ok {
+			return "", false, err
+		}
+		label := strings.ToLower(strings.TrimSpace(typed))
+		if e := peers.ValidLabel(label); e != nil {
+			note = e.Error()
+			continue
+		}
+		if _, taken := peers.NameOwner(list, label+"."+domain); taken {
+			note = label + "." + domain + " is taken; choose another."
+			continue
+		}
+		return label, true, nil
+	}
+}
+
 func waitAny(ctx context.Context, k keyReader, box, name string, done []string) error {
 	adminDraw(box, "Setting up "+name+"'s box", append(done, "",
 		"The status screen shows these from now on. Everything else, such as",
 		"your phone and PCs, other people and your own domain, is in the admin:",
-		"Ctrl+Alt+F2, log in as "+name+", then  sudo yggstore admin"), "", "Any key to finish")
+		"press A on the status screen, with your name and password."), "", "Any key to finish")
 	_, err := k.key(ctx)
 	return err
 }
@@ -209,10 +219,19 @@ func personNamed(d dash, name string) (boxPersonView, bool) {
 // boxLogin lets the owner log in at the box with their password, and use
 // sudo (so its admin). An account that's there already is left alone.
 func boxLogin(name, pw string) error {
-	if exec.Command("id", "-u", name).Run() == nil {
-		return fmt.Errorf("there's a login called %s already, left as it is", name)
-	}
-	if out, err := exec.Command("useradd", "--create-home", "--shell", "/bin/bash", "--groups", "sudo",
+	if out, err := exec.Command("getent", "passwd", name).Output(); err == nil {
+		// One made only for their network drive becomes a login; any
+		// other account is left as it is.
+		if f := strings.Split(string(out), ":"); len(f) < 5 || f[4] != sambaGecos {
+			return fmt.Errorf("there's a login called %s already, left as it is", name)
+		}
+		if out, err := exec.Command("usermod", "--shell", "/bin/bash", "--append", "--groups", "sudo",
+			"--comment", "box owner", "--home", "/home/"+name, "--move-home", name).CombinedOutput(); err != nil {
+			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		}
+		os.MkdirAll("/home/"+name, 0o750)
+		exec.Command("chown", name+":", "/home/"+name).Run()
+	} else if out, err := exec.Command("useradd", "--create-home", "--shell", "/bin/bash", "--groups", "sudo",
 		"--comment", "box owner", name).CombinedOutput(); err != nil {
 		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
 	}

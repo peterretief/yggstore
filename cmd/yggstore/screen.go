@@ -84,6 +84,7 @@ func cmdScreen(ctx context.Context, args []string) error {
 	}()
 
 	var st screenStatus
+	var gate adminGate
 	asking := "" // "restart" or "shut down", while it waits for Y
 	refresh := time.NewTimer(0)
 	for {
@@ -114,6 +115,16 @@ func cmdScreen(ctx context.Context, args []string) error {
 				asking = ""
 			case (k == "\r" || k == "\n") && st.Setup:
 				err := runSetup(ctx, keyReader{keys}, *name, d, *peersPath)
+				if errors.Is(err, io.EOF) {
+					return err
+				}
+				st = checkScreen(ctx, *peersPath, *name, d)
+			case k == "a" && !st.Setup:
+				k := keyReader{keys}
+				ok, err := gate.login(ctx, k, *name, hubState())
+				if err == nil && ok {
+					err = runAdmin(ctx, k, *name, d)
+				}
 				if errors.Is(err, io.EOF) {
 					return err
 				}
@@ -368,8 +379,11 @@ func renderScreen(st screenStatus, asking string) string {
 	b.WriteString("\n")
 	switch asking {
 	case "":
-		b.WriteString("  " + bold + "R" + off + " Restart    " + bold + "S" + off + " Shut down\n")
-		b.WriteString("\n  " + dim + "Admin: Ctrl+Alt+F2, log in, then type  sudo yggstore admin" + off + "\n")
+		b.WriteString("  " + bold + "R" + off + " Restart    " + bold + "S" + off + " Shut down")
+		if !st.Setup {
+			b.WriteString("    " + bold + "A" + off + " Admin")
+		}
+		b.WriteString("\n")
 	default:
 		b.WriteString("  " + bold + strings.ToUpper(asking[:1]) + asking[1:] + " the box?" + off +
 			"  Press Y for yes, any other key for no.\n")

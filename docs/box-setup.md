@@ -109,11 +109,12 @@ Anyone near the box can use its keyboard, so without unlocking it only
 does what's safe for anyone in the room: Status, Wi-Fi, Restart and Shut
 down.
 
-**Settings is the owner's, and logging in on the box is the key.** The
-status screen says how: Ctrl+Alt+F2, log in with the box's user and its
-password, then `sudo yggstore admin` (sudo asks for the password again).
-It leaves after five minutes without a key pressed, back to the login
-shell. Changes that can't be undone ask first, as on the admin page.
+**Settings is the owner's, and their name and password are the key.**
+A on the status screen asks for them (the box's first person, with the
+password they chose), then shows the admin on the same screen; Esc goes
+back, and so do five minutes without a key pressed. Five wrong tries
+close it for an hour. Changes that can't be undone ask first, as on the
+admin page. Over SSH the same admin is `sudo yggstore admin`.
 
 Later, for owners who never use a console, approving with their phone's
 passkey (a QR code on the screen) could open it too.
