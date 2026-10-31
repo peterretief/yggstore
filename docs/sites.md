@@ -244,6 +244,21 @@ Cloudflare's free certificate covers one level of subdomain, so
 `anna.example.org` works and `www.anna.example.org` doesn't; members' names
 get no `www.`.
 
+## Working on a site on your own machine
+
+`yggstore site dev FOLDER` serves a site's folder on your machine
+exactly as the group's web nodes will once it's published: Markdown
+pages built, notices, the site's 404 page, and its `/api/` code with its
+data rules, at `http://127.0.0.1:8484/` (`-port` for another). Saving a
+file builds it again and the open pages reload. The contact form's
+messages are printed in the terminal instead of sent.
+
+The heavy work stays on your machine: build with Vite, TinyGo or
+anything else into the folder, and the group only ever gets the result.
+The site's data while you work (registrations and the like) is kept in
+`FOLDER/.yggstore-dev/`, which is never published, so it lasts between
+runs; delete it to start again. Nothing needs the group or a node.
+
 ## A preview before going live
 
 A new version can be seen on the site's own address before anyone else

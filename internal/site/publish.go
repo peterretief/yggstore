@@ -265,7 +265,13 @@ func (p *Publisher) store(ctx context.Context, name, folder string, online []pee
 	if _, err := os.Stat(filepath.Join(folder, "index.html")); err != nil {
 		p.logf("note: %s has no index.html, so its home page will be empty", folder)
 	}
-	opts := files.PutOptions{Log: p.Log, Skip: p.Skip}
+	// A folder's local web node (yggstore site dev) is never published.
+	opts := files.PutOptions{Log: p.Log, Skip: func(rel string, dir bool) bool {
+		if first, _, _ := strings.Cut(filepath.ToSlash(rel), "/"); first == DevDir {
+			return true
+		}
+		return p.Skip != nil && p.Skip(rel, dir)
+	}}
 	var prev *manifest.Manifest
 	if vs, _ := p.Versions(name); len(vs) > 0 {
 		for _, v := range vs {

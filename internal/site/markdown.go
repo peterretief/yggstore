@@ -89,7 +89,7 @@ func mdPage(rel string) string {
 }
 
 func mdSkipped(name string) bool {
-	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "node_modules"
+	return (strings.HasPrefix(name, ".") && name != ".well-known") || strings.HasPrefix(name, "_") || name == "node_modules"
 }
 
 // HasMarkdown is whether folder has Markdown pages to build.

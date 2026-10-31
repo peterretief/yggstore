@@ -7,10 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +30,11 @@ const siteUsage = `yggstore site: static websites hosted on the group
                                                 defaults to the folder's name); with a
                                                 Cloudflare API token it also adds the
                                                 site's tunnel route and DNS (and www.)
+  yggstore site dev FOLDER [-name DOMAIN] [-port 8484]
+                                                serve FOLDER on this machine as the web nodes
+                                                would once published (Markdown, /api/ code and
+                                                its data, 404 page), rebuilt and reloaded as
+                                                you save; the data stays in FOLDER/.yggstore-dev
   yggstore site preview FOLDER [-name DOMAIN]   store a new version as a preview: the live site
                                                 stays, and the link it prints shows the new one
   yggstore site live DOMAIN                     serve the preview to everyone
@@ -82,6 +89,7 @@ func cmdSite(ctx context.Context, args []string) error {
 	noRoute := fs.Bool("no-route", false, "don't add Cloudflare routes")
 	noWait := fs.Bool("no-wait", false, "don't wait for the web nodes and the public address")
 	keyPath := fs.String("sharing-key", filepath.Join(yggstoreHome(), "sharing.key"), "your sharing key (contact)")
+	devPort := fs.Int("port", 8484, "site dev: the port to serve on, on this machine only")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, siteUsage) }
 	fs.Parse(reorder(args[1:]))
 
@@ -136,6 +144,39 @@ func cmdSite(ctx context.Context, args []string) error {
 		}
 		if routed && !*noWait {
 			waitPublic(ctx, domain)
+		}
+	case "dev":
+		if fs.NArg() != 1 {
+			return errors.New("usage: yggstore site dev FOLDER [-name DOMAIN] [-port 8484]")
+		}
+		folder := filepath.Clean(arg(0))
+		if fi, err := os.Stat(folder); err != nil || !fi.IsDir() {
+			return fmt.Errorf("%s is not a folder", folder)
+		}
+		domain := site.Normalise(*name)
+		if domain == "" {
+			domain = site.Normalise(filepath.Base(folder))
+		}
+		if site.ValidName(domain) != nil {
+			domain = "site.localhost"
+		}
+		d := &site.Dev{Folder: folder, Name: domain, Log: log.Printf}
+		if err := d.Start(); err != nil {
+			return err
+		}
+		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(*devPort))
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("%w (another port: -port 8485)", err)
+		}
+		fmt.Printf("%s, as the group's web nodes would serve it, at:\n\n  http://%s/\n\n", domain, addr)
+		fmt.Printf("Pages reload when you save. The site's data is in %s. Ctrl-C to stop.\n",
+			filepath.Join(folder, site.DevDir))
+		go d.Watch(ctx)
+		srv := &http.Server{Handler: d, ReadHeaderTimeout: 10 * time.Second}
+		go func() { <-ctx.Done(); srv.Close() }()
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
 		}
 	case "preview":
 		if fs.NArg() != 1 {
