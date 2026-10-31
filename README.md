@@ -1,9 +1,8 @@
 # yggstore
 
 yggstore runs email, websites and file storage for people and
-organisations on small machines they own, such as a Raspberry Pi or a
-second-hand mini PC at home or in the office, linked with the machines of
-others who do the same.
+organisations on machines they own, at home or in the office, linked with
+the machines of others who do the same.
 
 A shop, for example, gets its website and its email address at its own
 domain, a shared drive for its files, and a screen on the box to set it
