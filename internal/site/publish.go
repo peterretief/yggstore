@@ -136,6 +136,21 @@ func (p *Publisher) Publish(ctx context.Context, name, folder string, online []p
 	if fi, err := os.Stat(folder); err != nil || !fi.IsDir() {
 		return Version{}, 0, fmt.Errorf("%s is not a folder", folder)
 	}
+	// Markdown pages are built into a folder of their own first (see
+	// markdown.go); a folder without them goes as it is.
+	if HasMarkdown(folder) {
+		build, err := os.MkdirTemp("", "yggstore-site-*")
+		if err != nil {
+			return Version{}, 0, err
+		}
+		defer os.RemoveAll(build)
+		n, _, err := BuildMarkdown(folder, build, name, p.Contact(name) != "")
+		if err != nil {
+			return Version{}, 0, fmt.Errorf("building its Markdown pages: %w", err)
+		}
+		p.logf("%s: %d pages from Markdown", name, n)
+		folder = build
+	}
 	if _, err := os.Stat(filepath.Join(folder, "index.html")); err != nil {
 		p.logf("note: %s has no index.html, so its home page will be empty", folder)
 	}

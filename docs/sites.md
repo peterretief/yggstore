@@ -244,6 +244,38 @@ Cloudflare's free certificate covers one level of subdomain, so
 `anna.example.org` works and `www.anna.example.org` doesn't; members' names
 get no `www.`.
 
+## Markdown pages
+
+A site's folder can hold pages written in Markdown, beside or instead of
+HTML. They're built into pages when the site is published, on whichever
+machine publishes it (a box, a dashboard, `yggstore site publish`), by
+the same rules as the desktop's `./sites build`:
+
+| In the folder | On the site |
+| --- | --- |
+| `index.md` | the home page |
+| `about.md` | `/about/` |
+| `courses/intro.md` | `/courses/intro/` |
+
+- **The look** is `_layout.html` in the folder, with `{{title}}`,
+  `{{content}}` and `{{site}}`; without one, a plain layout with a link
+  home is used. A page may start with `title:` (and `layout:` for another
+  layout) between `---` lines; otherwise its title is its first `#`
+  heading.
+- **Links** to another page can name its `.md` file
+  (`[Our menu](menu.md)`), and pictures and files beside a page
+  (`![](photo.jpg)`) keep working once the page has a folder of its own.
+  Headings get ids to link to: `## Fish {#fish}`, or made from the words.
+  Tables and the rest of GitHub's Markdown work, and so does HTML in a
+  page.
+- **Not published:** files and folders starting with `_` or `.` (keep
+  drafts in `_drafts/`), `README.md` and `node_modules`. Every other file
+  is published as it is, and a page wins over a file of the same name.
+- **On the home page** the contact link and notices go in as they do on an
+  `index.html`.
+- A folder with no Markdown pages is published exactly as it is, so a
+  site built elsewhere (Vite, the starter) is unchanged.
+
 ## A contact form
 
 A site's contact form can send its messages to your mailbox on the group,

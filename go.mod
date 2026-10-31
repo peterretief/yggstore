@@ -14,6 +14,7 @@ require (
 	github.com/quic-go/quic-go v0.59.0
 	github.com/tetratelabs/wazero v1.9.0
 	github.com/yggdrasil-network/yggdrasil-go v0.5.13
+	github.com/yuin/goldmark v1.7.8
 	golang.org/x/sys v0.41.0
 )
 
