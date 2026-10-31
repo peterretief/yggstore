@@ -160,7 +160,7 @@ func checkScreen(ctx context.Context, peersPath, name string, d dash) screenStat
 			st.Setup = true
 		} else {
 			list, _ := peers.Load(peersPath)
-			st.Have = ownerLines(people[0], peers.GroupDomain(list))
+			st.Have = ownerLines(people[0], list)
 		}
 	}
 	return st

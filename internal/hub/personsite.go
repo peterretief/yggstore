@@ -283,7 +283,7 @@ const starterPage = `<!doctype html>
 </head>
 <body>
 <h1>%[1]s</h1>
-<p>This page is new. Change it on your files page, under Your websites.</p>
+<p>This page is new. Its owner changes it in the websites folder on their box.</p>
 </body>
 </html>
 `

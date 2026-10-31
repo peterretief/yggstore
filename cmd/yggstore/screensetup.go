@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/peterretief/yggstore/internal/hub"
 	"github.com/peterretief/yggstore/internal/password"
 	"github.com/peterretief/yggstore/internal/peers"
 )
@@ -36,8 +37,9 @@ func boxPeople(d dash) (on bool, people []boxPersonView, err error) {
 	return st.On, people, err
 }
 
-// ownerLines are what the box's first person has, for the status screen.
-func ownerLines(p boxPersonView, domain string) []screenLine {
+// ownerLines are what the box's first person has, for the status screen:
+// their website, email, where they sign in on the web, and their drive.
+func ownerLines(p boxPersonView, list []peers.Peer) []screenLine {
 	var out []screenLine
 	switch {
 	case p.Site != "":
@@ -45,6 +47,9 @@ func ownerLines(p boxPersonView, domain string) []screenLine {
 			screenLine{Label: "Email", Text: peers.MailAddress(p.Site), OK: true})
 	case p.Asked != "":
 		out = append(out, screenLine{Label: "Website", Text: p.Asked + ": asked for, waiting", OK: true})
+	}
+	if at := hub.SignInAt(list); at != "" && p.Login != "" {
+		out = append(out, screenLine{Label: "Sign in", Text: at + "  as " + p.Login, OK: true})
 	}
 	if sambaOn() {
 		if _, err := os.Stat(sambaDir + "/" + strings.ToLower(p.Name) + ".conf"); err == nil {
@@ -159,6 +164,11 @@ func runSetup(ctx context.Context, k keyReader, box string, d dash, peersPath st
 			step("Your email: "+peers.MailAddress(p.Site), nil)
 		} else {
 			step("Your name "+label+" is asked of the group: your website and email start once it's given", nil)
+		}
+	}
+	if p, ok := personNamed(d, name); ok && p.Login != "" {
+		if at := hub.SignInAt(list); at != "" {
+			step("On the web: sign in at "+at+" as "+p.Login, nil)
 		}
 	}
 	return waitAny(ctx, k, box, name, done)

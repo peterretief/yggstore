@@ -501,6 +501,7 @@ type boxPersonView struct {
 	Path       string
 	Site       string // their name in the group, once given
 	Asked      string // the name asked for, while it waits
+	Login      string // what they sign in on the web as
 }
 
 func (p boxPersonView) summary() string {
@@ -609,9 +610,14 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 	case p.Asked != "":
 		web = "Website " + p.Asked + ": asked for, waiting for the group's admin"
 	}
+	list, _ := peers.Load(defaultPeers())
+	signIn := "Signs in on the web as " + p.Login
+	if at := hub.SignInAt(list); at != "" {
+		signIn = "Signs in at " + at + " as " + p.Login
+	}
 	adminDraw(box, title, []string{
 		fmt.Sprintf("Uses %s, limit %s, %d devices syncing", size(p.Bytes), limit, p.Syncthing),
-		web, "",
+		web, signIn, "",
 		"L  change their limit",
 		"C  choose their password now (they're here)",
 		"P  a new temporary password, to give them",
@@ -644,7 +650,6 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 		if p.Site != "" || p.Asked != "" {
 			return "", nil
 		}
-		list, _ := peers.Load(defaultPeers())
 		label, ok, err := askWebName(ctx, k, box, title, "A name for "+p.Name+"'s website and email: ", list)
 		if err != nil || !ok {
 			return "", err
