@@ -1,215 +1,46 @@
 # A box that devices sync with (hub)
 
-`yggstore hub` turns a box such as a Raspberry Pi into a place the
-computers and phones on your LAN sync their files with. Each device gets its
-own folder on the box, through [Syncthing](https://syncthing.net). Whatever
-it puts there is stored in the group: encrypted, split up and spread over the
-members' machines. The device doesn't need yggstore, only Syncthing.
+A box running `yggstore hub` holds a folder for each person who uses it,
+and stores everything put there in the group. People reach their folder as
+a network drive, in a browser, or synced to their laptops and phones with
+[Syncthing](https://syncthing.net); none of these needs yggstore on their
+device.
 
-The hub pairs devices by itself. Any device on the local network that adds
-the box is accepted, and you can turn that off at any time.
+The box's page, at `http://NAME.local:7490` on its local network, shows
+people how to connect. It holds nothing private, so anyone on the network
+can open it and nobody outside it can.
 
-Once paired, a device keeps syncing when it is away, at a client's office
-or at home: the box uses Syncthing's global discovery and relays to reach
-it. What it syncs is encrypted end to end, so a relay only passes it on.
-New devices still pair only from the local network.
+## Open your files
 
-The admin sets each box up before it goes out ([below](#setting-up-a-box-in-the-factory)):
-its name, its group and its websites are on it already. Where it ends up,
-it needs only power and a network cable, and users need only its page.
+- **As a network drive**, on the box's network: `\\BOX\NAME` in File
+  Explorer, or `smb://BOX.local/NAME` on a Mac or Linux, with your name and
+  password ([network drives](box-setup.md#network-drives)).
+- **In a browser**, from anywhere with Yggdrasil: the address under **Your
+  files** on the box's page, such as `http://[200:1f12::cfd6]:7490/files`.
+  Browse, upload, download, rename, move and delete. Your device's
+  Yggdrasil address says who you are, so you only ever see your own folder
+  ([your files](remote-dashboard.md#your-files)).
+- **Synced to a device**, with Syncthing: see
+  [sync a device](#sync-a-device).
 
-The hub serves that page on the LAN, at `http://NAME.local:7490`. It is
-written for the people who use the box, not for developers. It leads with
-**Your files**: install Yggdrasil once, open the invite link from the box's
-owner, then open your files in the browser at the address shown (see
-[your files in the browser](#your-files-in-the-browser)).
+The folder works the same in each:
 
-Syncthing is the advanced option, folded away under **Advanced**, for
-people who want a folder on their device kept in step with the box. It is
-opened by itself when the box doesn't serve files in the browser, or with
-`#syncthing` on the page's address. Inside it:
-
-1. **Connect your computer**: on Windows, an installer to download and
-   open (`/join.exe`, handed out as *Connect to BOX.exe* with the box's
-   details added to it, when `yggstore-join.exe` is beside the hub's
-   binary; otherwise a PowerShell command). On Mac and Linux, one command to
-   paste. Either sets everything up (see
-   [connecting with one command](#connecting-with-one-command)). Phones
-   (Syncthing-Fork on Android, Möbius Sync on iPhone) and anyone the
-   command fails for follow **Connecting by hand**, folded below it: the
-   box's Syncthing ID and address (`tcp://IP:22000`), each with a Copy
-   button, and where to paste them in Syncthing.
-2. **Use the folder**: how to store, restore and delete files.
-3. **Work from anywhere** (below).
-
-Below that, **This box** shows whether its node is up, how many of the
-group's machines answer, and whether it is taking new devices. A folded
-section at the bottom lets members with a computer of their own install a
-full node, with an invite.
-
-Unlike the [dashboard](remote-dashboard.md), the page holds nothing private,
-so it needs no list of devices: anyone on the LAN can open it, and nobody
-from outside the LAN can.
-
-## Setting up a box in the factory
-
-The admin sets up a Raspberry Pi on their own machine, the one whose
-dashboard is the group's admin, with the Pi on the same network. Nothing is
-typed on the Pi. Its settings are in one file, `factory/pi.conf`:
-
-| Setting | What it is |
-|---|---|
-| `NAME` | The box's one name: on the network (`NAME.local`), as a node in the group, and as the hub users see. Set it for each Pi. |
-| `OWNER` | Whose space and uploads the box counts towards in the group. |
-| `PI_SSH` | How to reach the Pi on the bench (`root@NAME.local`). |
-| `WIFI_SSID`, `WIFI_PASSWORD`, `WIFI_COUNTRY` | The Wi-Fi network it joins, for a Pi without a cable, such as a Pi Zero 2 W. Empty for a cable. |
-| `STORAGE` | Where the node keeps its shards: `sd`, on the drive it boots from, or `usb`, on a USB stick plugged into the Pi. |
-| `GROUP`, `ADMIN_DASHBOARD` | The group, and the admin dashboard that makes the box's invite. There is one group. |
-| `QUOTA_GB`, `CUSTOMERS` | What the node gives the group, and whether it holds customers' files. |
-| `PAIR_LIMIT`, `SITES`, `SITE_MAX_MB` | The hub's settings: devices paired a day, the websites it keeps, their largest size. |
-
-Then, for each Pi:
-
-1. **Write its drive.** Plug a USB drive or SD card into the admin's
-   machine:
-
-   ```sh
-   scripts/flash-pi.sh              # lists the USB drives and SD cards
-   scripts/flash-pi.sh /dev/sdX     # writes one (asks for sudo, and to type its name)
-   ```
-
-   It downloads Raspberry Pi OS Lite (64-bit), checks it and writes it.
-   Then it sets up the first boot, through cloud-init on the boot
-   partition. The Pi takes `NAME`, turns SSH on and lets this machine's key
-   (`~/.ssh/id_ed25519.pub`, or `SSH_KEY`) in as root, with no passwords.
-   A Pi 3 B+ or newer boots from USB as it comes; a Pi Zero 2 W boots
-   from an SD card. With `WIFI_SSID` set, it also joins that Wi-Fi network.
-   The password goes on the drive as the WPA key worked out from it, not as
-   typed.
-
-2. **Boot it** with a network cable that reaches the internet, or in
-   reach of its Wi-Fi network. After a minute or two it answers at
-   `NAME.local`. With `STORAGE=usb`, plug in the stick for the shards; on a
-   Pi Zero it goes in the USB port, not PWR, through an OTG adapter.
-
-3. **Set it up:**
-
-   ```sh
-   scripts/provision-pi.sh -n       # optional: show the steps, change nothing
-   scripts/provision-pi.sh
-   ```
-
-   It names the Pi and installs this machine's yggstore build and
-   Syncthing. With `STORAGE=usb`, it formats the stick (after you type
-   `erase`; a stick it formatted before is kept as it is) and mounts it at
-   every boot. If the stick is missing, the node waits for it rather than
-   filling the SD card. It installs the Yggdrasil daemon (Debian's
-   package), which links to the group's peers from the invite and to
-   machines on the local network. The daemon reaches every member over TCP,
-   where the node's built-in Yggdrasil talks UDP, which members' firewalls
-   often drop. A box set up earlier with the built-in one is moved onto the
-   daemon with the same key, so it keeps its address. It joins the Pi to the group, with an invite from the admin
-   dashboard, and starts its node, hub and Syncthing at every boot. Last,
-   it checks that the node is up, the group answers and Syncthing is ready.
-   It ends with the address of the box's page.
-
-Each step is skipped if it is done already, so after fixing whatever
-stopped it, run it again. Another config file can be given:
-`scripts/provision-pi.sh factory/other.conf`.
-
-A box set up with Raspberry Pi Imager instead works too: set `PI_SSH` to
-the user and name chosen there (the script uses `sudo` when that user isn't
-root).
-
-### A Pi Zero 2 W
-
-A Pi Zero 2 W makes a small hub on Wi-Fi. It has no network socket, starts
-from a microSD card, and keeps the shards on a USB stick in its USB port
-(the middle one, not PWR), through a micro-USB OTG adapter. Its settings
-are in `factory/zero.conf`: set `NAME`, the Wi-Fi where it will live
-(`WIFI_SSID`, `WIFI_PASSWORD`, `WIFI_COUNTRY`; 2.4 GHz only) and, if that
-isn't this network, the factory's (`BENCH_WIFI_SSID`, `BENCH_WIFI_PASSWORD`).
-Then, with the card in a reader on the admin's machine:
-
-```sh
-scripts/setup-zero.sh              # lists the cards it could write
-scripts/setup-zero.sh /dev/sdX     # writes it, waits for the Zero, sets it up
+```
+files/       your files: each is stored in the group and becomes a stub
+restore/     copy a stub here to get its file back
+restored/    where it comes back, in the same folders as in files/
+delete/      put a stub here to delete its file from the group
+whole/       a folder put here is stored as one item
+received/    files someone sent you
 ```
 
-It writes the card as `flash-pi.sh` does, then asks you to put the card and
-stick in the Zero and power it. It waits for the Zero to come up on Wi-Fi
-(the first start takes a few minutes) and checks it is a Zero 2 W: the
-first Pi Zero W is 32-bit and too slow. Then it runs `provision-pi.sh`,
-which formats the stick after you type `erase`. If something stopped it
-after the card was written, `scripts/setup-zero.sh -s` carries on from the
-running Zero.
+Putting a changed file back keeps the older version too
+([history](history.md)). A stub deleted by mistake is kept on the box in
+`.stversions`.
 
-### The hub's group
+## Sync a device
 
-The hub uses the group of the node running on the same machine. It finds
-that node (`yggstore serve`) and reads its member list, preferring the one
-the admin last pushed, so the hub needs no settings of its own. Without a
-node it uses `~/.yggstore/peers.json`, or `-peers`. A box that isn't in a
-group yet says so on its page, and files wait on it until it joins one.
-
-## Start it by hand
-
-This is what `scripts/provision-pi.sh` does. On Raspberry Pi OS (or Debian,
-Ubuntu), as root, which suits a box that does only this:
-
-```sh
-apt-get install -y syncthing
-systemctl enable --now syncthing@root   # Syncthing for root, at every boot
-yggstore hub -service                   # the hub, at every boot
-```
-
-Run as root, `-service` sets up services in `/etc/systemd/system`, started
-at boot with nobody logged in (`yggstore join -service` does the same). The
-hub's service starts Syncthing's first. Check them with
-`systemctl status yggstore-hub` and `journalctl -u yggstore-hub -f`.
-
-The hub and Syncthing then run as root, and they take devices from the LAN.
-If you'd rather limit what a fault in either could do, run both as a user of
-their own instead:
-
-```sh
-sudo apt-get install -y syncthing
-systemctl --user enable --now syncthing
-sudo loginctl enable-linger $USER     # keep both running when you log out
-yggstore hub -service                 # runs it now and at every start
-```
-
-Nothing here depends on which network the box is plugged into: the hub
-works out its local network as it goes, so it can move to another LAN.
-
-If you turn on a firewall (Raspberry Pi OS has none by default), let in
-every private range, so it keeps working on whatever LAN the box ends up on:
-
-```sh
-for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fd00::/8 fe80::/10; do
-  sudo ufw allow from $net to any port 7490 proto tcp    # the page
-  sudo ufw allow from $net to any port 22000             # Syncthing
-  sudo ufw allow from $net to any port 21027 proto udp   # finding it on the LAN
-done
-```
-
-Over Yggdrasil, `provision-pi.sh` lets in only the node (7400), its
-dashboard (7480), the hub (7490), the box's own website (8480) and
-Syncthing (22000), and SSH only from the admin's machine. The rules are in
-`/etc/yggstore/yggdrasil-in.nft`, loaded at boot by
-`yggstore-yggdrasil-in.service`. If nftables' own service is restarted, its `flush ruleset`
-drops them; `systemctl restart yggstore-yggdrasil-in` brings them back.
-
-The hub finds Syncthing's address and API key in its `config.xml` (under
-`~/.local/state/syncthing/`, which for root is in `/root`). The devices'
-folders go in `~/yggstore-hub/users/NAME` and websites in
-`~/yggstore-hub/websites/DOMAIN` (`-dir` to change it).
-
-## Syncing a device
-
-### Connecting with one command
-
-On a computer, the box's page gives a command to paste:
+On a computer, the box's page (under **Advanced**) gives one command:
 
 ```sh
 irm http://pi.local:7490/connect.ps1 | iex          # Windows, in PowerShell
@@ -217,176 +48,66 @@ curl -fsSL http://pi.local:7490/connect.sh | sh     # Mac
 wget -qO- http://pi.local:7490/connect.sh | sh      # Linux
 ```
 
-The script has this box's Syncthing ID, name and LAN addresses in it. It:
+On Windows the page also offers an installer, **Connect to BOX.exe**. Either
+way, it installs Syncthing if needed (checked against the release's
+checksums), starts it at login, pairs with the box, and adds your folder in
+`~/yggstore`, the websites in `~/yggstore-websites` and teams in
+`~/yggstore-teams/NAME`. Running it again skips what's done.
 
-1. uses the Syncthing already on the computer, or downloads the latest
-   release from GitHub and checks it against the release's checksums (into
-   `~/.local/bin`, or `%LOCALAPPDATA%\Programs\Syncthing` on Windows);
-2. starts it when the person logs in (a systemd user unit on Linux, a
-   LaunchAgent on macOS, a Startup shortcut on Windows) and now;
-3. adds the box with its addresses;
-4. waits for the box to take the computer, then asks the hub which folders
-   it shares with it (`GET /api/connect/folders?device=ID`: a line each of
-   ID, label and folder) and adds them: the person's own in `~/yggstore`
-   (or `~/yggstore-BOX` if that is already in use), the websites in
-   `~/yggstore-websites` and teams in `~/yggstore-teams/NAME`;
-5. prints the computer's Syncthing ID, for Work from anywhere.
+On a phone (Syncthing-Fork on Android, Möbius Sync on iPhone), follow
+**Connecting by hand** on the page: add the box's ID and address, and
+accept the folder it shares.
 
-Running it again skips what is done. Syncthing's own web page is never
-needed. `scripts/hub-connect.sh [SYNCTHING]` tests it end to end with a
-real box Syncthing and a hub on loopback.
-
-A computer becomes a new person on the box, named after it, except the
-box owner's first device: if the group's list names the box's owner and
-they are on the box with no device yet, it syncs their folder straight
-away (with their address and sites).
-
-**The group's admin hears how it goes,** as messages from the box
-(type `box-note`) on their dashboard's Messages page: when someone on the
-LAN fetches the script, when their computer pairs (and as whom), when a
-device is turned away (not on the LAN, or over the day's limit), and when a
-script was fetched but no computer paired within 15 minutes. The box keeps
-the last week's fetches in `hub.json`.
-
-We use Syncthing as it is released rather than a fork of it: everything
-the script needs is in Syncthing's command line (`syncthing cli`), so
-Syncthing's own updates and security fixes keep coming.
-
-### By hand
-
-The page's **Connecting by hand** steps, for phones; in short:
-
-1. Install Syncthing on the device: on Windows, macOS, Linux, Android
-   (Syncthing-Fork) or iPhone (Möbius Sync).
-2. In Syncthing, choose **Add Remote Device** and paste the box's ID from
-   its page. Under **Advanced**, paste the box's address too
-   (`tcp://IP:22000, dynamic`): the box may show up among nearby devices by
-   itself, but not on every network.
-3. Within a few seconds the hub accepts it and shares a folder called
-   **yggstore (NAME)**. Syncthing asks whether to add it: accept, and
-   choose where to keep it on the device. (Tick **Auto Accept** when adding
-   the box, and Syncthing doesn't ask.)
-
-Then, in that folder:
-
-```
-yggstore/
-├── files/       your files and folders: each file becomes a stub
-├── restore/     copy a stub here to get the file back
-├── restored/    where it comes back, in the same folders as in files/
-├── delete/      put a stub here to delete the file from the group
-├── whole/       put a folder here to store it as one item
-└── received/    files someone sent you
-```
-
-- **Put a file or folder into `files/`** and it is stored in the group.
-  Each file is replaced by a small stub (`photo.jpg.ystub`) on the box and
-  on the device, which is what you keep to get it back. Folders stay as
-  they are, holding stubs. Anything put at the top of the folder is moved
-  into `files/`.
-- **Copy a stub into `restore/`** and the file comes back in `restored/`,
-  in the same folders: `files/Photos/2024/beach.jpg.ystub` comes back as
-  `restored/Photos/2024/beach.jpg`. The stub stays in `files/`.
-- **Put a stub (or a copy) into `delete/`** and the file is deleted from
-  the group, and its stub in `files/` goes too.
-- Put a file in again after changing it, and the older version is kept too
-  (see [history](history.md)).
-
-A stub deleted on the device is kept on the box, in the folder's
-`.stversions`, so deleting one by mistake doesn't lose the file.
-
-The box looks after what it stores, as a member's dashboard does: every
-30 minutes (and two minutes after it starts) it rebuilds the shards held
-by nodes down for more than a day, or gone from the group, onto nodes
-that are up, and once a day it renews their leases. That covers each
-person's files and their older versions, team folders, and the recovery
-copies. While someone's files are being worked on at another place, that
-place repairs them and the box only renews their leases. Its state is in
-`repair.json` in the hub's folder, and what it does is in its log.
+New devices pair only from the box's local network, at most 5 a day. Once
+paired, a device keeps syncing from anywhere, through Syncthing's discovery
+and relays; what it syncs is encrypted end to end. The group's admin gets a
+message on their dashboard when a device pairs or is turned away.
 
 ### People with several devices
 
-The box keeps track of people, not just devices: each person has one
-folder, and every device of theirs syncs it. A device that pairs is a new
-person, named after the device, until it is linked to someone:
+Each person has one folder, synced by all their devices. A new device is a
+new person, named after it, until you link it:
 
 ```sh
 yggstore hub people                       # who uses the box, and their devices
 yggstore hub link anna-phone anna-laptop  # the phone now syncs anna-laptop's folder
 ```
 
-The folder the device synced before stays on the box. Removing a device
-(`yggstore hub remove NAME`) leaves its person's folder with their other
-devices; when the last one goes, the folder stays on the box, unshared.
-Boxes set up before people existed make a person of each device, keeping
-its folder.
-
 ### Work from anywhere
 
-People who use a box have no dashboard of their own, so they turn this on
-from the box's page (step 4 under Advanced). They paste their device's Syncthing
-ID, which tells the box who they are, and an email address they can read
-anywhere. The box then makes them a sharing key if they have none, starts
-keeping recovery copies of their folder, keeps their record on the group's
-web nodes, and has a web node send them their link from `yggstore@` the
-group's domain.
+On the box's page (**Advanced**, step 4), a person pastes their device's
+Syncthing ID and an email address. The box keeps recovery copies of their
+folder and emails them a link that opens their files in any browser, and
+can pair another device from wherever it is. Only one device has the folder
+at a time; **Move them here** takes it ([recovery](recovery.md)).
 
-The link opens their files in any browser: they can download, upload,
-rename, move and delete there, and the box makes the changes in their
-folder within 20 seconds (see
-[your files in the browser](recovery.md#your-files-in-the-browser)). The
-same page can also pair another device with their folder from wherever it
-is, at a client's office, say. Only one device has the folder at a time:
-the page says which one has it, and **Move them here** takes it from that
-one.
+## A website and email address for someone on the box
 
-### Your files in the browser
+Anyone on the box can have a name in the group, such as `anna.example.org`:
+a website, a contact form and the address `anna@example.org`, with no node
+of their own.
 
-Each person on the box can also open their files in a browser, from their
-laptop or phone, without Syncthing. It's the dashboard's
-[files page](remote-dashboard.md#your-files): browse, download, upload
-files and folders of any size, new folders, rename, move and delete. It
-works on their folder on the box directly. One box serves everyone, and
-each person sees only their own folder.
+1. Ask for it: the box's admin, **People**, the person, **W** (or
+   **Give them a website and email address** on the box's dashboard).
+2. The group's admin gives it if it's free, and gets a report.
+3. The box starts the site with a first page in the person's
+   `websites/anna.example.org` folder. Changes there are published by
+   themselves ([websites](sites.md)).
 
-It goes over Yggdrasil, at the box's Yggdrasil address on the hub's port,
-such as `http://[200:1f12::cfd6]:7490/files`. The box's page shows the
-address, first, under **Your files**. A Yggdrasil address can only be used by the device
-holding its private key, so the address says which device is asking, and
-the box opens the folder of the person it belongs to. Opened over the LAN,
-the page sends the browser on to that address and serves nothing itself.
+On their files page, under **Your website and messages**, the person turns
+the contact form on, reads and answers messages, and can have them
+forwarded to an address they already read (a code is sent there first,
+then the box's admin presses **Allow**).
 
-While a person's files are being worked on at another place (see
-[work from anywhere](#work-from-anywhere)), the page only shows them.
+Their mail and messages are sealed for their own key. The key is kept on
+the box, so the box's owner could read them, and their page says so.
+**Suspend** takes the site down until they're let back in; **Remove** gives
+the name back.
 
-### Looking after the people on the box
+## Look after the people on the box
 
-The box's admin adds people, and looks after them, from **People on this
-box** on the box's own dashboard (port 7480). That dashboard opens only on
-the admin's own devices, from anywhere (see
-[your devices](remote-dashboard.md)), so nobody else on the LAN or on
-Yggdrasil can change who uses the box.
-
-- **Add someone:** type their name. The box makes them an empty folder and
-  an **invite link**, such as
-  `http://[200:1f12::cfd6]:7490/files/join?t=…`, for you to send them. It
-  works once, for a week, on a device with Yggdrasil. Opening it asks them
-  to name the device and press **Let this device in**. After that first
-  device, they let in their others themselves, under **Your devices** on
-  their files page. **New invite link** replaces a lost or expired one.
-- **Keep tabs:** for each person, how much they store and in how many
-  files, their devices and when each was last on, and any Syncthing
-  devices they also have.
-- **Limits:** how much they may store (GB) and how many devices they may
-  let in. An upload that doesn't fit is refused, and they're told why.
-- **Suspend** shuts them out for now: their page says it's closed, their
-  devices can't get in, and their folder stops syncing and storing. Their
-  files stay. **Let back in** undoes it.
-- **Remove** shuts them out for good: their browser and Syncthing devices
-  and their invite go. Their files stay on the box, and adding them again
-  under the same name brings them back.
-
-The same from the box's command line:
+On the box's screen (**A**, then **2**), on the box's dashboard (**People
+on this box**, opened only on the owner's devices), or on its command line:
 
 ```sh
 yggstore hub person add anna              # prints her invite link
@@ -394,204 +115,134 @@ yggstore hub person invite anna           # a new one
 yggstore hub person limit anna 20 3       # 20 GB, 3 devices (0: no limit)
 yggstore hub person suspend anna          # or resume, or remove
 yggstore hub people                       # what each stores, and their limits
-yggstore hub devices                      # whose devices open which files, and who is asking
+yggstore hub devices                      # whose devices open which files
 yggstore hub devices remove "anna's phone"
 ```
 
-### A website and email address for someone on the box
+- **Add** makes an empty folder and an invite link, valid for a week on a
+  device with Yggdrasil. The person names the device and lets their others
+  in themselves.
+- **Limit** caps their storage and devices; an upload that doesn't fit is
+  refused, and they're told why.
+- **Suspend** shuts them out and stops syncing; **Remove** does it for
+  good. Either way their files stay, and adding them again brings them
+  back.
 
-Someone on the box can have a name in the group of their own, such as
-`anna.example.org`. It gives them a web page, a contact form, and the
-address `anna@example.org`, all without a node of their own. Two people
-vet it: you vouch for them as the box's admin, and the group's admin
-approves the name.
+## Team folders
 
-1. Under **People on this box**, open **Give them a website and email
-   address** on their row, type the name and press **Ask the group**.
-2. The group's admin sees the request under **Names**, marked as being for
-   Anna on your box, and approves or declines it.
-3. Once it's approved, the box starts her site with a page of her own. Her
-   files page gets a link, **Your website and messages**, where she:
-   - sees her address, and that the site is online;
-   - turns the **contact form** on (a "Contact" link appears on her home
-     page);
-   - reads, replies to and deletes the messages that come in, from the
-     form or sent to her address;
-   - asks for her messages to be **forwarded** to an address she already
-     reads. A code goes to that address first, which she types in to show
-     it's hers. Then you press **Allow** on her row, and every new message
-     goes there too, from `anna@example.org` through the group's mail
-     relay.
-
-   She edits the site itself on her files page, under **Your websites**.
-   The easiest way is to make the whole site on her computer, in a folder
-   named after its address (`anna.example.org`) with an `index.html` in
-   it, and upload that folder on **Your websites**: its files go in at
-   the site's top, in place of those with the same names.
-
-Her mail and contact form are sealed for her own sharing key, not the
-box's, so nobody else in the group can read them. The key is kept on the
-box (`keys/` beside the hub's state file), so the box's owner could read
-them, and her page says so. Each person has one name. **Suspend** takes
-her site down until she's let back in. **Remove** takes it down and gives
-the name back to the group's admin.
-
-The box's node must be on this version or later, and so must the group's
-web nodes and the admin's. Older ones don't know these names.
-
-### Team folders
-
-A team folder is for files several people work on. It lives on the box,
-in `~/yggstore-hub/teams/NAME`, laid out like a person's folder (`files/`,
-`restore/`, `delete/` …), and every device of every member syncs it as
-**team NAME**. Unlike a person's folder it stays on the box: when one
-member works somewhere else, the others carry on, and the away member's
-devices keep syncing it from wherever they are.
-
-The box's admin manages teams:
+A team folder is shared by several people and stays on the box, so the
+others carry on when one is away. Each member's devices sync it as
+**team NAME**.
 
 ```sh
-yggstore hub team add Projects anna bob   # a team folder for Anna and Bob
+yggstore hub team add Projects anna bob
 yggstore hub team join Projects carol
 yggstore hub team leave Projects bob
-yggstore hub teams                         # the teams and their members
-yggstore hub team remove Projects          # stop syncing it (its files stay)
+yggstore hub teams
+yggstore hub team remove Projects          # stops syncing; its files stay
 ```
 
-If two people change the same file at once, Syncthing keeps both: the
-second is named `plan.sync-conflict-DATE-TIME-DEVICE.docx`. Both are
-stored in the group, so nothing is lost. `yggstore hub conflicts` lists
-them, and the box's page says how many are waiting: open both, keep one,
-and delete the other.
+When two people change a file at once, Syncthing keeps both
+(`plan.sync-conflict-…`); `yggstore hub conflicts` lists them, and the box's
+page says how many wait. A recovery copy of the team folders' stubs is kept
+in the group.
 
-The box keeps a recovery copy of its team folders' stubs in the group
-(see [recovery](recovery.md)), so a lost box loses no team's files.
+## Websites on the box
 
-## Websites
+The box keeps the sites it publishes in `~/yggstore-hub/websites/`, a
+folder per domain, offered to every paired device as **websites (NAME)**.
+A change there is published as described in
+[folders that publish themselves](sites.md#folders-that-publish-themselves).
+`yggstore hub sites` shows each site and why one isn't published;
+`yggstore hub site publish DOMAIN` publishes a held-back change anyway.
 
-A hub also keeps its websites, in one folder separate from the files:
-`~/yggstore-hub/websites/`, a folder per domain. Syncthing offers it to
-every paired device as **websites (NAME)**, next to the **yggstore**
-folder, and when someone changes a site there, the hub publishes it to the
-group (see [websites](sites.md)) about 15 seconds after the last change.
-It works the same as the `websites/` folder of a dashboard's outbox.
+Every paired device can edit every site in this folder, so keep it to people
+you'd let change them.
 
-```
-websites/
-├── shop.example.org/                    the live site: edit it, and it is published
-└── new.example.net/                     a new site
-    new.example.net - NOT PUBLISHED.txt  why not yet, and what to do
-```
+## Setting up a box in the factory
 
-- **Sites published from the box** are there by themselves, filled with the
-  version being served, so everyone starts from the live site. To bring a
-  site that is online elsewhere to the box, publish it once from the box
-  (`yggstore site publish ./shop -name shop.example.org`).
-- **A new site** is a new folder named after its domain. It is published
-  once the domain is on Cloudflare; until then, a note beside it says how
-  to add it there, and the box checks again every 5 minutes. With a
-  Cloudflare API token on the box, its route is added too; without one, the
-  note says what to add by hand, until the site answers.
-- **A domain another node publishes** is left alone, with a note.
+The group's admin sets each Raspberry Pi up from their own machine, with
+the Pi on the same network; nothing is typed on the Pi. Its settings are in
+`factory/pi.conf`, or a `factory/NAME.local` kept out of git:
 
-An edit that looks like a mistake is held back, and the live site stays as
-it was:
+| Setting | What it is |
+| --- | --- |
+| `NAME` | the box's name on the network and in the group |
+| `OWNER` | whose space the box counts towards |
+| `PI_SSH` | how to reach it on the bench (`root@NAME.local`) |
+| `WIFI_SSID`, `WIFI_PASSWORD`, `WIFI_COUNTRY` | Wi-Fi, for a Pi without a cable |
+| `STORAGE` | `sd` or `usb`: where the shards go |
+| `QUOTA_GB`, `CUSTOMERS` | what it gives the group, and whether it holds customers' files |
+| `PAIR_LIMIT`, `SITE_MAX_MB` | devices paired a day; the largest site |
+| `TIMEZONE`, `KEYBOARD` | default `Africa/Johannesburg` and `us` |
 
-- the folder has no `index.html`
-- it shrank to less than half of the version being served
-- it is bigger than `-site-max` (500 MB)
+1. **Write its card or drive:** `scripts/flash-pi.sh` lists them;
+   `scripts/flash-pi.sh /dev/sdX` writes Raspberry Pi OS Lite, with SSH for
+   this machine's key and the Pi's name.
+2. **Boot it** with a network cable (or within reach of its Wi-Fi). It
+   answers at `NAME.local` after a minute or two. With `STORAGE=usb`, plug
+   in the stick.
+3. **Set it up:** `scripts/provision-pi.sh` (or `-n` to see the steps). It
+   installs yggstore, Syncthing and Yggdrasil, formats the stick after you
+   type `erase`, joins the group with an invite from the admin dashboard,
+   starts everything at boot, and checks it works. It ends with the box's
+   page address. Run it again after fixing whatever stopped it.
 
-`yggstore hub sites` shows why, and `yggstore hub site publish DOMAIN`
-publishes it anyway. Every version is kept, so `yggstore site rollback
-DOMAIN` undoes an edit. A site is published at most once a minute. Hidden
-files, Syncthing's among them, are never published (`.well-known/` is).
+A Pi Zero 2 W (Wi-Fi only, shards on a USB stick through an OTG adapter)
+uses `factory/zero.conf` and `scripts/setup-zero.sh /dev/sdX`, which writes
+the card, waits for the Zero and sets it up.
 
-Deleting a site's folder doesn't take the site down: the folder comes back
-with the version being served. `yggstore site remove DOMAIN` takes it off
-the web.
+Over Yggdrasil the box lets in only its node (7400), dashboard (7480), hub
+(7490), website (8480) and Syncthing (22000), and SSH only from the admin's
+machine (`/etc/yggstore/yggdrasil-in.nft`).
+
+### Start it by hand
+
+On Raspberry Pi OS, Debian or Ubuntu, as root:
 
 ```sh
-yggstore hub sites                       # the sites, when each was last published, and why not
+apt-get install -y syncthing
+systemctl enable --now syncthing@root
+yggstore hub -service
 ```
 
-A hub that kept each site in a folder of its own (before `websites/`)
-moves them into `websites/` when it starts, and stops syncing the old
-folders; devices are offered the websites folder instead.
+To run both as a user instead, use `systemctl --user enable --now syncthing`,
+`sudo loginctl enable-linger $USER` and `yggstore hub -service`. A firewall
+must let in the page (7490), Syncthing (22000) and discovery (21027/udp)
+from every private range, so the box works on whatever network it ends up
+on. The hub uses the group of the node on the same machine.
 
-For now every paired device can edit every site on the hub. Keep the hub's
-LAN to people you'd let change them.
-
-## Turning it off
+## Commands
 
 ```sh
 yggstore hub off          # stop taking new devices; paired ones keep syncing
-yggstore hub on           # take new devices again
-yggstore hub pause        # stop syncing for every device
+yggstore hub on
+yggstore hub pause        # stop syncing for everyone
 yggstore hub resume
 yggstore hub users        # who is paired, and from where
-yggstore hub remove NAME  # unpair a device; its folder stays on the box
+yggstore hub remove NAME  # unpair a device; its folder stays
 ```
-
-The hub picks a change up within a few seconds, and it survives restarts.
-At most 5 devices pair in a day (`-pair-limit`); others wait until the next
-day, or until you raise it.
-
-## What the hub changes in Syncthing
-
-It keeps Syncthing to the LAN: global discovery, relays and NAT traversal
-are turned off, and only devices on the local network are paired. That is a
-private address (such as `192.168.…`, `10.…` or `fd…`), or one on the same
-network as the box (as with most home IPv6). Networks that only live on
-the box, such as Docker's, VPNs (Tailscale, WireGuard) and Yggdrasil, don't
-count as local. Others are turned away and logged.
-Each device's folder is shared with that device only.
-
-Everything on the box is stored as the box's owner, with its sharing key.
-That suits one household or people who trust whoever runs the box: they can
-read what arrives before it is stored.
 
 ## Putting a full node on another computer
 
-1. An admin makes an invite on their dashboard (**Invite someone**).
-2. On the new computer, open the box's page and paste the invite. The page
-   gives you a command:
+1. An admin makes an invite (**Invite someone** on their dashboard).
+2. Paste it on the box's page, which gives a command:
 
    ```sh
    curl -fsSL 'http://pi.local:7490/install.sh' | sh -s -- 'yggjoin1:…'
    ```
 
-3. Run the command in a terminal on that computer. It downloads yggstore for
-   that system into `~/.local/bin`, joins the group with the invite and, on
-   Linux, starts the node and dashboard as services (`yggstore join -service`).
+3. Run it on the new computer (Linux or macOS). It installs yggstore, joins
+   the group and starts the node. On Windows, follow the
+   [storage box guide](storage-box-guide.md).
 
-A web page can't install anything on the computer that opens it by itself,
-so you have to run the command. It stops without changing anything if the
-computer already has a node (`~/.yggstore/peers.json`).
+The box hands out its own build, and for other systems the latest release,
+checked against its checksums (`-bin DIR` for builds of your own).
 
-The installer is for Linux (x86-64, 64-bit ARM, 32-bit ARMv7) and macOS. On
-Windows, follow the [storage box guide](storage-box-guide.md).
+## What to know
 
-### Where the build comes from
-
-The hub hands out its own build, so a Pi gives other Pis yggstore without
-going to the internet. For other systems, put release builds in a folder
-under their release names, and pass it with `-bin`:
-
-```sh
-yggstore hub -bin ~/yggstore-builds      # holds yggstore-linux-amd64, yggstore-macos-apple-silicon, ...
-```
-
-For a system the hub has no build for, the installer downloads the latest
-[release](https://github.com/peterretief/yggstore/releases) and checks it
-against the release's checksums.
-
-## What the page lets people do
-
-- The invite is the only secret, and it never goes to the hub: the page
-  builds the command in your browser. Without an invite, someone on the LAN
-  can see the box's status and download yggstore, and that's all.
-- The page and installer come over plain HTTP on the LAN. Anyone who can
-  tamper with your LAN traffic could change the installer, so use the hub
-  on a network you trust.
-- It answers only the local network, in the same sense, in case its port
-  is opened to the internet by mistake.
+- Everything on the box is stored as the box's owner, with its key: whoever
+  runs the box can read what arrives before it's stored.
+- The page and installer come over plain HTTP on the local network, so use
+  the hub on a network you trust. The invite never goes to the hub; the page
+  builds the command in your browser.
