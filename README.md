@@ -4,12 +4,9 @@ yggstore runs email, websites and file storage for people and
 organisations on machines they own, linked with the machines of others
 who do the same.
 
-A shop, for example, gets its website and its email address at its own
-domain, a shared drive for its files, and a screen on the box to set it
-up and see that it works. Nothing is kept by a hosting company: each file
-and message is encrypted and spread over several members' machines, so
-any one of them can break or be switched off without anything being lost,
-and the website stays up.
+Each file and message is encrypted and spread over several members'
+machines, so any one of them can break or be switched off without
+anything being lost, and websites stay up.
 
 **Status: experimental.** The cryptography hasn't been reviewed by anyone
 independent. Don't make it the only copy of anything you can't lose.
