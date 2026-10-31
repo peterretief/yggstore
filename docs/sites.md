@@ -259,6 +259,19 @@ The site's data while you work (registrations and the like) is kept in
 `FOLDER/.yggstore-dev/`, which is never published, so it lasts between
 runs; delete it to start again. Nothing needs the group or a node.
 
+To work with the live site's data instead (its registrations, bookings
+and the rest), copy it in first, on the machine that publishes the site
+(the web nodes give a site's data only to it and to each other):
+
+```
+yggstore site data pull shop.example.org ./shop
+yggstore site dev ./shop -name shop.example.org
+```
+
+What the folder's local data was is kept beside it
+(`.yggstore-dev/data/SITE.before-pull-...`), not mixed in. What you do
+with the copy stays on your machine: nothing goes back to the live site.
+
 ## A preview before going live
 
 A new version can be seen on the site's own address before anyone else

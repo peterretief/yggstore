@@ -35,6 +35,9 @@ const siteUsage = `yggstore site: static websites hosted on the group
                                                 would once published (Markdown, /api/ code and
                                                 its data, 404 page), rebuilt and reloaded as
                                                 you save; the data stays in FOLDER/.yggstore-dev
+  yggstore site data pull DOMAIN FOLDER         copy DOMAIN's data (registrations and the like)
+                                                from the web nodes into FOLDER's site dev, in place
+                                                of what it had; run it where DOMAIN is published
   yggstore site preview FOLDER [-name DOMAIN]   store a new version as a preview: the live site
                                                 stays, and the link it prints shows the new one
   yggstore site live DOMAIN                     serve the preview to everyone
@@ -178,6 +181,28 @@ func cmdSite(ctx context.Context, args []string) error {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
+	case "data":
+		if arg(0) != "pull" || fs.NArg() != 3 {
+			return errors.New("usage: yggstore site data pull DOMAIN FOLDER")
+		}
+		domain, folder := site.Normalise(arg(1)), filepath.Clean(arg(2))
+		if err := site.ValidName(domain); err != nil {
+			return err
+		}
+		if fi, err := os.Stat(folder); err != nil || !fi.IsDir() {
+			return fmt.Errorf("%s is not a folder", folder)
+		}
+		nodes := webNodes(ctx, client.New(), *peersPath)
+		if len(nodes) == 0 {
+			return errors.New("no web node answered: is this machine's node running?")
+		}
+		n, from, err := site.PullData(ctx, &http.Client{Timeout: 30 * time.Second}, nodes, domain, folder)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s: %d entries from %d web node(s), into %s.\n", domain, n, from, filepath.Join(folder, site.DevDir))
+		fmt.Printf("Work on it with real data: yggstore site dev %s -name %s\n", folder, domain)
+		fmt.Println("What the site's own data was there before is kept beside it (.before-pull-...).")
 	case "preview":
 		if fs.NArg() != 1 {
 			return errors.New("usage: yggstore site preview FOLDER [-name DOMAIN]")
