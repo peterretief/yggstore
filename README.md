@@ -17,32 +17,17 @@ network, share your changes.
 
 ## What it does
 
-- **Email** at your own domain. Messages are encrypted for you as they
-  arrive and stored like files. Read them on the dashboard or in a mail
-  program ([mail](docs/mail.md)).
-- **Websites.** Put the pages in a folder, in HTML or Markdown, and
-  several machines serve them. See the next version on its real address
-  before it goes live; turn on a contact form, or post notices from the
-  box ([sites](docs/sites.md)).
-- **Files.** A network drive on the office network, a folder that syncs
-  with laptops and phones, and every version kept. Losing a computer loses
-  nothing ([hub](docs/hub.md), [recovery](docs/recovery.md)).
-- **The box.** Plugged into a screen and keyboard, it shows what works and
-  what doesn't, sets itself up from three questions (a name, a password, a
-  name for the website and email) and has an admin for people, devices,
-  Wi-Fi and websites ([box setup](docs/box-setup.md)).
-- **For developers.** Build a site on your own machine with whatever tools
-  you like, try it there exactly as it will run (`yggstore site dev`),
-  including code in Go compiled to WebAssembly and data with your own
-  SQL rules, then publish the result ([site code](docs/site-code.md)).
-- **Messages between machines**, such as orders, alarms or notices, which
-  reach a machine that was off once it's back ([messaging](docs/messaging.md)).
+- **Email** at your own domain ([mail](docs/mail.md))
+- **Websites** from a folder of HTML or Markdown, previewed before they go live ([sites](docs/sites.md))
+- **Files** on a network drive or synced to laptops and phones, every version kept ([hub](docs/hub.md))
+- **A box** that sets itself up on its own screen ([box setup](docs/box-setup.md))
+- **Site code and data** for developers, built and tried on their own machine ([site code](docs/site-code.md))
+- **Messages** between machines, such as orders and alarms ([messaging](docs/messaging.md))
 
-The machines reach each other over [Yggdrasil](https://yggdrasil-network.github.io/),
-an encrypted network that works from any internet connection without
-changes to the router. Incoming mail passes through Cloudflare Email
-Routing and outgoing mail through an SMTP relay; neither keeps it.
-Websites reach the internet through a Cloudflare tunnel.
+Machines connect over [Yggdrasil](https://yggdrasil-network.github.io/)
+from any internet connection. Mail passes through Cloudflare and an SMTP
+relay, and websites through a Cloudflare tunnel; none of them keeps
+anything.
 
 New to this? [Set up a storage box](docs/storage-box-guide.md) walks
 through it step by step. Licence: [LICENSE](LICENSE). Contributions:
