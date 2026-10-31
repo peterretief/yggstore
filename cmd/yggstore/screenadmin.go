@@ -148,7 +148,7 @@ func adminDraw(box, title string, lines []string, msg, keys string) {
 		b.WriteString("  " + l + "\n")
 	}
 	b.WriteString("\n  " + dim + keys + off + "\n")
-	fmt.Print(b.String())
+	screenPrint(b.String())
 }
 
 // dash is the dashboard on this machine.

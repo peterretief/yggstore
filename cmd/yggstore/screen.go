@@ -59,7 +59,7 @@ func cmdScreen(ctx context.Context, args []string) error {
 	d := dash{strings.TrimSuffix(*base, "/")}
 
 	if *once {
-		fmt.Print(renderScreen(checkScreen(ctx, *peersPath, *name, d), ""))
+		screenPrint(renderScreen(checkScreen(ctx, *peersPath, *name, d), ""))
 		return nil
 	}
 	restore, err := rawTerminal(os.Stdin)
@@ -104,10 +104,10 @@ func cmdScreen(ctx context.Context, args []string) error {
 				if asking == "shut down" {
 					verb, doing = "poweroff", "Shutting down. Wait for the screen to go blank before unplugging it."
 				}
-				fmt.Print(renderScreen(st, "") + "\n  " + doing + "\n")
+				screenPrint(renderScreen(st, "") + "\n  " + doing + "\n")
 				if err := exec.Command("systemctl", verb).Run(); err != nil {
 					asking = ""
-					fmt.Print("\n  It didn't work: " + err.Error() + "\n")
+					screenPrint("\n  It didn't work: " + err.Error() + "\n")
 					time.Sleep(3 * time.Second)
 				}
 				continue
@@ -135,7 +135,7 @@ func cmdScreen(ctx context.Context, args []string) error {
 				asking = "shut down"
 			}
 		}
-		fmt.Print(renderScreen(st, asking))
+		screenPrint(renderScreen(st, asking))
 	}
 }
 
@@ -344,6 +344,13 @@ func checkServices() screenLine {
 	}
 	l.Text, l.OK = fmt.Sprintf("all %d running", running), true
 	return l
+}
+
+// screenPrint writes to the screen with every line starting at the left
+// edge, whatever the terminal's settings: a program the admin runs can
+// leave them changed.
+func screenPrint(s string) {
+	fmt.Print(strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\n", "\r\n"))
 }
 
 // renderScreen draws the whole screen. It fits 64 columns, the narrowest
