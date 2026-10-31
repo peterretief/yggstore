@@ -272,6 +272,35 @@ What the folder's local data was is kept beside it
 (`.yggstore-dev/data/SITE.before-pull-...`), not mixed in. What you do
 with the copy stays on your machine: nothing goes back to the live site.
 
+## Publishing with git push
+
+A project on a developer's machine, built there, publishes to the box
+that holds the site. Set it up once in the project's folder:
+
+```
+yggstore site init -name shop.example.org -box http://[200:...]:7480 -build "npm run build" -output dist
+```
+
+`-box` is the box's dashboard, as your browser opens it; this machine
+must be one of its owner's devices (the box's admin, Devices). Leave out
+`-build` and `-output` for a folder of plain HTML or Markdown. It writes
+`yggstore.json`, adds `.yggstore-dev/` to `.gitignore`, and installs a
+git hook, so that:
+
+| `git push` of | does |
+| --- | --- |
+| `main` (or `master`) | builds here and publishes the result |
+| a branch called `preview` | builds here and publishes it as the site's preview |
+| any other branch | nothing |
+
+Only the built folder goes to the box, never hidden files (`.env`),
+`node_modules` or the local data. If the build fails, the push stops and
+nothing is sent (`git push --no-verify` skips publishing once).
+`yggstore site push` (`-preview`) does the same without git. For a site
+of someone on a box, the push goes into their website folder (or its
+`(preview)` folder), which the box publishes from; what was there is kept
+beside it, hidden.
+
 ## A preview before going live
 
 A new version can be seen on the site's own address before anyone else

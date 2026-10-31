@@ -101,13 +101,26 @@ func TestPublishWebsite(t *testing.T) {
 		t.Fatalf("announced %+v %d files", a, a.Stub.FileCount)
 	}
 
+	// A Markdown-only upload is a site too; and one can be a preview.
+	w = upload("anna.example.org&preview=1", map[string]string{"index.md": "# Anna, next"})
+	var pv struct {
+		PreviewLink string `json:"preview_link"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &pv)
+	if w.Code != http.StatusOK || !strings.HasPrefix(pv.PreviewLink, "https://anna.example.org/_yggstore/preview?key=") {
+		t.Fatalf("preview: %d %s", w.Code, w.Body)
+	}
+
 	r := httptest.NewRequest(http.MethodGet, "/api/sites", nil)
 	r.Host = "127.0.0.1:7480"
 	rec := httptest.NewRecorder()
 	d.Handler().ServeHTTP(rec, r)
 	var st websiteState
 	json.Unmarshal(rec.Body.Bytes(), &st)
-	if len(st.Sites) != 1 || !st.Sites[0].Name || st.Sites[0].Current == nil || st.Sites[0].Versions != 1 {
+	if len(st.Sites) == 1 && st.Sites[0].Preview != pv.PreviewLink {
+		t.Fatalf("the site's card lacks the preview link: %+v", st.Sites[0])
+	}
+	if len(st.Sites) != 1 || !st.Sites[0].Name || st.Sites[0].Current == nil || st.Sites[0].Versions != 2 { // the live one and the preview
 		t.Fatalf("sites %s", rec.Body)
 	}
 
@@ -201,8 +214,8 @@ func TestPublishWebsite(t *testing.T) {
 	if rec.Body.String() != "<h1>Edited</h1>" {
 		t.Fatalf("index.html is %q", rec.Body)
 	}
-	if vs, _ := own.Pub.Versions("anna.example.org"); len(vs) != 4 {
-		t.Fatalf("%d versions, want 4", len(vs))
+	if vs, _ := own.Pub.Versions("anna.example.org"); len(vs) != 5 { // 4, and the preview
+		t.Fatalf("%d versions, want 5", len(vs))
 	}
 
 	// Turning the contact form on puts a link to it on the home page, and
@@ -232,5 +245,61 @@ func TestPublishWebsite(t *testing.T) {
 	contact(false)
 	if got := index(); got != "<h1>Edited</h1>" {
 		t.Fatalf("with the form off, index.html is %q", got)
+	}
+}
+
+// A push for the site of someone on this box goes into their websites
+// folder (or its preview folder), which the box publishes from.
+func TestPushToPersonSite(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "users", "anna")
+	state := filepath.Join(dir, "hub.json")
+	os.MkdirAll(filepath.Join(home, "websites", "anna.example.org"), 0o755)
+	os.WriteFile(filepath.Join(home, "websites", "anna.example.org", "index.md"), []byte("# old"), 0o644)
+	st, _ := json.Marshal(map[string]any{"people": []map[string]any{{"name": "anna", "path": home}}})
+	os.WriteFile(state, st, 0o600)
+	list := []peers.Peer{
+		{Name: "admin", Addr: "[200::9]:7400", Admin: true, Domain: "example.org"},
+		{Name: "box", Addr: "[200::5]:7400", PeopleNames: []peers.PersonName{{Name: "anna.example.org", Person: "anna", Code: "ys1anna"}}},
+	}
+	peersPath := filepath.Join(dir, "peers.json")
+	peers.Write(peersPath, list)
+	d := New(Config{PeersPath: peersPath, StubDir: dir, SelfID: "200::5", Listen: "127.0.0.1:7480", HubState: state,
+		HubPeople: filepath.Join(dir, "users"), SitesDir: filepath.Join(dir, "sites"), Client: client.New()})
+	push := func(query string, files map[string]string) *httptest.ResponseRecorder {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		zw, _ := mw.CreateFormFile("zip", "site.zip")
+		z := zip.NewWriter(zw)
+		for p, body := range files {
+			f, _ := z.Create(p)
+			f.Write([]byte(body))
+		}
+		z.Close()
+		mw.Close()
+		r := post("/api/sites/publish?site=anna.example.org"+query, &b)
+		r.Header.Set("Content-Type", mw.FormDataContentType())
+		w := httptest.NewRecorder()
+		d.Handler().ServeHTTP(w, r)
+		return w
+	}
+	if w := push("", map[string]string{"index.html": "<h1>built</h1>"}); w.Code != http.StatusOK {
+		t.Fatalf("push: %d %s", w.Code, w.Body)
+	}
+	read := func(rel string) string { b, _ := os.ReadFile(filepath.Join(home, "websites", rel)); return string(b) }
+	if read("anna.example.org/index.html") != "<h1>built</h1>" || read("anna.example.org/index.md") != "" {
+		t.Fatal("the folder doesn't hold the push")
+	}
+	if read(".before-push-anna.example.org/index.md") != "# old" {
+		t.Fatal("what was there wasn't kept")
+	}
+	if w := push("&preview=1", map[string]string{"index.html": "<h1>next</h1>"}); w.Code != http.StatusOK {
+		t.Fatalf("preview push: %d %s", w.Code, w.Body)
+	}
+	if read("anna.example.org (preview)/index.html") != "<h1>next</h1>" || read("anna.example.org/index.html") != "<h1>built</h1>" {
+		t.Fatal("the preview push went to the wrong folder")
+	}
+	if w := push("", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("an empty push: %d", w.Code)
 	}
 }

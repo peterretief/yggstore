@@ -35,6 +35,11 @@ const siteUsage = `yggstore site: static websites hosted on the group
                                                 would once published (Markdown, /api/ code and
                                                 its data, 404 page), rebuilt and reloaded as
                                                 you save; the data stays in FOLDER/.yggstore-dev
+  yggstore site init [FOLDER] -name DOMAIN -box BOX [-build CMD] [-output DIR]
+                                                set a project up to publish from this machine:
+                                                yggstore.json, and a git hook so git push
+                                                publishes (main live, a preview branch as preview)
+  yggstore site push [FOLDER] [-preview]        build here and send the built folder to the box
   yggstore site data pull DOMAIN FOLDER         copy DOMAIN's data (registrations and the like)
                                                 from the web nodes into FOLDER's site dev, in place
                                                 of what it had; run it where DOMAIN is published
@@ -93,6 +98,10 @@ func cmdSite(ctx context.Context, args []string) error {
 	noWait := fs.Bool("no-wait", false, "don't wait for the web nodes and the public address")
 	keyPath := fs.String("sharing-key", filepath.Join(yggstoreHome(), "sharing.key"), "your sharing key (contact)")
 	devPort := fs.Int("port", 8484, "site dev: the port to serve on, on this machine only")
+	box := fs.String("box", "", "site init: the dashboard of the box that publishes the site")
+	build := fs.String("build", "", "site init: the command that builds the site, run before each push")
+	output := fs.String("output", "", "site init: the folder the build writes (default: the project itself)")
+	asPreview := fs.Bool("preview", false, "site push: publish it as the site's preview")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, siteUsage) }
 	fs.Parse(reorder(args[1:]))
 
@@ -181,6 +190,18 @@ func cmdSite(ctx context.Context, args []string) error {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
+	case "init":
+		dir := "."
+		if fs.NArg() > 0 {
+			dir = arg(0)
+		}
+		return cmdSiteInit(dir, *name, *box, *build, *output)
+	case "push":
+		dir := "."
+		if fs.NArg() > 0 {
+			dir = arg(0)
+		}
+		return cmdSitePush(ctx, dir, *asPreview)
 	case "data":
 		if arg(0) != "pull" || fs.NArg() != 3 {
 			return errors.New("usage: yggstore site data pull DOMAIN FOLDER")

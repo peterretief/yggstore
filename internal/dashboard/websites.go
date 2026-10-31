@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peterretief/yggstore/internal/hub"
 	"github.com/peterretief/yggstore/internal/outbox"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/site"
@@ -193,9 +194,15 @@ func (d *Dashboard) handleSitePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := site.Normalise(r.URL.Query().Get("site"))
+	preview := r.URL.Query().Get("preview") == "1"
+	personFolder := ""
 	if err := d.mayPublish(pub, name); err != nil {
-		http.Error(w, err.Error(), http.StatusForbidden)
-		return
+		// A site of someone on this box goes into their websites folder,
+		// which the box publishes from (yggstore site push).
+		if personFolder = d.personSiteFolder(name); personFolder == "" {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 	if !d.siteMu.TryLock() {
 		http.Error(w, "another website is being published; try again when it is done", http.StatusConflict)
@@ -241,7 +248,26 @@ func (d *Dashboard) handleSitePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := os.Stat(filepath.Join(root, "index.html")); err != nil {
-		http.Error(w, "there is no index.html at the top of the site, so it would have no home page", http.StatusBadRequest)
+		if _, err := os.Stat(filepath.Join(root, "index.md")); err != nil {
+			http.Error(w, "there is no index.html (or index.md) at the top of the site, so it would have no home page", http.StatusBadRequest)
+			return
+		}
+	}
+	if personFolder != "" {
+		dest := personFolder
+		if preview {
+			dest += websites.PreviewSuffix
+		}
+		if err := replaceFolder(root, dest); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		what := "is published from it within a minute"
+		if preview {
+			what = "is its preview within a minute; the link is in the file beside it"
+		}
+		d.event("ok", fmt.Sprintf("website %s: a pushed version went into %s, and %s", name, filepath.Base(dest), what))
+		writeJSONResp(w, map[string]any{"folder": dest, "preview": preview})
 		return
 	}
 	if err := d.keepYggButton(root, name); err != nil {
@@ -255,6 +281,16 @@ func (d *Dashboard) handleSitePublish(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Minute)
 	defer cancel()
+	if preview {
+		link, err := pub.PublishPreview(ctx, name, root, online)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		d.event("ok", fmt.Sprintf("website %s: a preview was published", name))
+		writeJSONResp(w, map[string]any{"preview_link": link})
+		return
+	}
 	v, reused, err := pub.Publish(ctx, name, root, online)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -265,6 +301,55 @@ func (d *Dashboard) handleSitePublish(w http.ResponseWriter, r *http.Request) {
 	}
 	d.event("ok", fmt.Sprintf("website %s: version %s published (%d files)", name, v.ID[:8], v.Files))
 	writeJSONResp(w, map[string]any{"version": v, "reused": reused})
+}
+
+// personSiteFolder is the folder of a site that belongs to someone on this
+// box (their websites/NAME), or "" if it isn't one.
+func (d *Dashboard) personSiteFolder(name string) string {
+	if !d.onBox() {
+		return ""
+	}
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		return ""
+	}
+	p, pn, ok := peers.NameHolder(list, name)
+	if !ok || pn.Person == "" || p.IP() != d.cfg.SelfID {
+		return ""
+	}
+	st, err := hub.Load(d.cfg.HubState)
+	if err != nil {
+		return ""
+	}
+	person, ok := st.PersonNamed(pn.Person)
+	if !ok || !person.Active() || person.Path == "" {
+		return ""
+	}
+	return filepath.Join(person.Path, outbox.WebsitesDir, name)
+}
+
+// replaceFolder puts src in place of dest, keeping what was there beside
+// it as a hidden folder (which isn't published), the last one only.
+func replaceFolder(src, dest string) error {
+	parent, base := filepath.Dir(dest), filepath.Base(dest)
+	kept := filepath.Join(parent, ".before-push-"+base)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	staged := filepath.Join(parent, ".pushing-"+base)
+	os.RemoveAll(staged)
+	if err := copyTree(src, staged); err != nil {
+		os.RemoveAll(staged)
+		return err
+	}
+	if _, err := os.Stat(dest); err == nil {
+		os.RemoveAll(kept)
+		if err := os.Rename(dest, kept); err != nil {
+			os.RemoveAll(staged)
+			return err
+		}
+	}
+	return os.Rename(staged, dest)
 }
 
 // siteRoot is where a site's index.html is: the top of the upload, or the
