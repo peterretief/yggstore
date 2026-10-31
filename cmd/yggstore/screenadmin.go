@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/hub"
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/site"
 )
 
 // yggstore admin is the box's admin on its own screen (docs/box-setup.md,
@@ -98,6 +100,15 @@ func (k keyReader) key(ctx context.Context) (byte, error) {
 
 // line reads typed text until Enter. Escape gives ok false.
 func (k keyReader) line(ctx context.Context, show func(typed string), secret bool) (string, bool, error) {
+	return k.readLine(ctx, show, secret, 80)
+}
+
+// longLine is line for a paragraph, such as a notice.
+func (k keyReader) longLine(ctx context.Context, show func(typed string)) (string, bool, error) {
+	return k.readLine(ctx, show, false, 1000)
+}
+
+func (k keyReader) readLine(ctx context.Context, show func(typed string), secret bool, limit int) (string, bool, error) {
 	var buf []byte
 	for {
 		typed := string(buf)
@@ -117,7 +128,7 @@ func (k keyReader) line(ctx context.Context, show func(typed string), secret boo
 			if len(buf) > 0 {
 				buf = buf[:len(buf)-1]
 			}
-		case b >= 32 && b < 127 && len(buf) < 80:
+		case b >= 32 && b < 127 && len(buf) < limit:
 			buf = append(buf, b)
 		}
 	}
@@ -545,6 +556,89 @@ func personPath(d dash, name string) string {
 	return ""
 }
 
+// adminNotices lists a website's notices, newest first, and adds or
+// removes them. The site's folder is published by itself when it changes.
+func adminNotices(ctx context.Context, k keyReader, box, dir, siteName string) (string, error) {
+	title := "Notices on " + siteName
+	msg := ""
+	for {
+		list, err := site.Notices(dir)
+		var lines []string
+		if err != nil {
+			lines = []string{"Can't read them: " + err.Error()}
+		}
+		for i, n := range list {
+			if i == 9 {
+				lines = append(lines, fmt.Sprintf("   and %d older", len(list)-9))
+				break
+			}
+			head := n.Title
+			if head == "" {
+				head = n.Body
+			}
+			lines = append(lines, fmt.Sprintf("%d  %s  %s", i+1, n.At.Local().Format("2 Jan"), cut(strings.ReplaceAll(head, "\n", " "), 60)))
+		}
+		if err == nil && len(list) == 0 {
+			lines = append(lines, "None yet. Notices show on the home page, newest first, for visitors to read.")
+		}
+		adminDraw(box, title, lines, msg, "A to add one    Number to take one off    Esc to go back")
+		msg = ""
+		b, err := k.key(ctx)
+		if err != nil {
+			return "", err
+		}
+		switch {
+		case b == 27:
+			return "", nil
+		case b == 'a' || b == 'A':
+			head, ok, err := k.line(ctx, func(t string) {
+				adminDraw(box, title, []string{"A heading, such as \"Open on Sunday\" (Enter for none): " + t}, "", "Enter when done    Esc to cancel")
+			}, false)
+			if err != nil {
+				return "", err
+			}
+			if !ok {
+				continue
+			}
+			text, ok, err := k.longLine(ctx, func(t string) {
+				adminDraw(box, title, []string{head, "", "The notice: " + t}, "", "Enter when done    Esc to cancel")
+			})
+			if err != nil {
+				return "", err
+			}
+			if !ok {
+				continue
+			}
+			if e := site.AddNotice(dir, head, text, time.Now()); e != nil {
+				msg = "Not added: " + e.Error()
+			} else {
+				msg = "Added: it's on the website within a minute."
+			}
+		default:
+			i, ok := pick(b, len(list))
+			if !ok {
+				continue
+			}
+			n := list[i]
+			head := n.Title
+			if head == "" {
+				head = cut(n.Body, 50)
+			}
+			yes, err := confirm(ctx, k, box, title, "Take \""+head+"\" off the website?")
+			if err != nil {
+				return "", err
+			}
+			if yes {
+				if e := site.RemoveNotice(dir, n.ID); e != nil {
+					msg = "Not taken off: " + e.Error()
+				} else {
+					msg = "Taken off."
+				}
+			}
+		}
+	}
+}
+
 // choosePassword lets the person at the box type their own password,
 // twice. chosen is false if they pressed Esc.
 // The box's owner (its first person) also gets a login at the box with
@@ -618,6 +712,7 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 	adminDraw(box, title, []string{
 		fmt.Sprintf("Uses %s, limit %s, %d devices syncing", size(p.Bytes), limit, p.Syncthing),
 		web, signIn, "",
+		"N  notices on their website, for visitors to read",
 		"L  change their limit",
 		"C  choose their password now (they're here)",
 		"P  a new temporary password, to give them",
@@ -646,6 +741,11 @@ func adminPerson(ctx context.Context, k keyReader, box string, d dash, p boxPers
 			return "Not changed: " + e.Error(), nil
 		}
 		return "Changed " + p.Name + "'s limit.", nil
+	case 'n', 'N':
+		if p.Site == "" {
+			return "They need a website first: W.", nil
+		}
+		return adminNotices(ctx, k, box, filepath.Join(p.Path, "websites", p.Site), p.Site)
 	case 'w', 'W':
 		if p.Site != "" || p.Asked != "" {
 			return "", nil

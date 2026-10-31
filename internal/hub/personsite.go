@@ -206,6 +206,12 @@ func (ps *PeopleSites) Step(ctx context.Context) {
 		switch {
 		case len(names) > 0 && p.Active():
 			ps.ensure(ctx, p, names)
+			// Notices stay on the home page when the owner replaces it.
+			for _, name := range names {
+				if err := site.KeepNotices(filepath.Join(p.Path, outbox.WebsitesDir, name)); err != nil {
+					ps.logOnce(p.Name, "notices on %s: %v", name, err)
+				}
+			}
 			if p.SiteAsk != "" {
 				if err := ps.siteAsk(ctx, p, p.SiteAsk); err != nil {
 					ps.cfg.Logf("%s: their site (%s): %v", p.Name, p.SiteAsk, err)
