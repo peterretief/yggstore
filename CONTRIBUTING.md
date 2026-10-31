@@ -21,8 +21,8 @@ GOOS=linux GOARCH=arm GOARM=7  go build -o bin/yggstore-linux-armv7 ./cmd/yggsto
 ```
 
 `scripts/testnet.sh up` starts five Docker test nodes, each with its own
-Yggdrasil, so you can try uploads and node failures on one machine (see the
-README).
+Yggdrasil, so you can try uploads and node failures on one machine (see
+[using yggstore](docs/using-yggstore.md#docker-test-cluster)).
 
 ## Releases
 

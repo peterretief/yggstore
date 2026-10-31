@@ -73,7 +73,7 @@ it's done:
 
 - **The folder** is the person's folder on the box, as for anyone on
   it: what they put in is kept in the group, so a broken box loses
-  nothing (the outbox, [README](../README.md#outbox-folder)).
+  nothing (the outbox, [using yggstore](using-yggstore.md#outbox-folder)).
 - **The name** is asked of the group as a name for someone on a box is
   today ([hub.md](hub.md)), and the website and email start when it's
   given.

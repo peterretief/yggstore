@@ -11,7 +11,7 @@ item is stored once, however many people can see it.
 - **Every file is stored once**, encrypted and in pieces across the
   members' machines. Its key is in its stub.
 - **Sharing one item** with one person: a `.ysend` file seals the item's
-  stub for their sharing code ([README](../README.md#sharing)).
+  stub for their sharing code ([using yggstore](using-yggstore.md#sharing)).
 - **Team folders** on a box: several people on that box sync one folder
   ([hub.md](hub.md#team-folders)). They only work for people on the same
   box.
