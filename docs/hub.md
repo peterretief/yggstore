@@ -48,8 +48,7 @@ curl -fsSL http://pi.local:7490/connect.sh | sh     # Mac
 wget -qO- http://pi.local:7490/connect.sh | sh      # Linux
 ```
 
-On Windows the page also offers an installer, **Connect to BOX.exe**. Either
-way, it installs Syncthing if needed (checked against the release's
+It installs Syncthing if needed (checked against the release's
 checksums), starts it at login, pairs with the box, and adds your folder in
 `~/yggstore`, the websites in `~/yggstore-websites` and teams in
 `~/yggstore-teams/NAME`. Running it again skips what's done.

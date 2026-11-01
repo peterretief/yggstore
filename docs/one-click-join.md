@@ -1,6 +1,13 @@
 # Joining with one click
 
-Status: proposed 2026-10-25. Step 1 (the Windows installer) built the same day, for computers on the box's network; not yet tried on a real Windows PC.
+Status: dropped on 2026-11-01. Windows blocks unsigned installers, and
+people on Windows need nothing installed now: their folder is a network
+drive on the box's network ([network drives](box-setup.md#network-drives)),
+and their files, website and mail are on the web
+([signing in on the web](web-access.md)). Developers on Linux and macOS
+join with [one line](using-yggstore.md#joining-a-group) or a [box in Docker](docker-box.md).
+The Windows installer (`cmd/yggstore-join`) was removed; it is in git
+history. What follows is the plan as it was.
 
 The aim: a person clicks one link, and their computer has a folder kept in
 step with the group, with their files, their websites and their mail in it.

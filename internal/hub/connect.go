@@ -4,14 +4,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
-
-	"github.com/peterretief/yggstore/internal/join"
 )
 
 // A computer on the LAN connects to the box with one command from the page,
@@ -88,40 +84,6 @@ func (h *Hub) handleConnect(script, contentType string) http.HandlerFunc {
 		fmt.Fprint(w, ConnectScript(script, "http://"+r.Host, name, id, boxAddrs()))
 		h.cfg.Users.Fetched(r.RemoteAddr, strings.TrimPrefix(r.URL.Path, "/"))
 	}
-}
-
-// handleJoinExe hands out the Windows installer (cmd/yggstore-join) with
-// this box's details at its end, so a double-click connects to this box.
-func (h *Hub) handleJoinExe(w http.ResponseWriter, r *http.Request) {
-	if h.cfg.JoinExe == "" {
-		http.NotFound(w, r)
-		return
-	}
-	name, id, ok := h.connectBox(w, r)
-	if !ok {
-		return
-	}
-	f, err := os.Open(h.cfg.JoinExe)
-	if err != nil {
-		http.Error(w, "this box has no installer to hand out", http.StatusNotFound)
-		return
-	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	trailer := join.Trailer(join.Box{Hub: "http://" + r.Host, Name: name, ID: id, Addrs: boxAddrs()})
-	w.Header().Set("Content-Type", "application/vnd.microsoft.portable-executable")
-	w.Header().Set("Content-Disposition", `attachment; filename="Connect to `+name+`.exe"`)
-	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size()+int64(len(trailer)), 10))
-	w.Header().Set("Cache-Control", "no-store")
-	if _, err := io.Copy(w, f); err != nil {
-		return
-	}
-	w.Write(trailer)
-	h.cfg.Users.Fetched(r.RemoteAddr, "join.exe")
 }
 
 // handleConnectFolders lists the folders the box shares with a device, a

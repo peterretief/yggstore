@@ -70,15 +70,21 @@ machine share a `"host"`, so the per-machine limits apply to the machine.
 ### Joining a group
 
 On an admin dashboard, **Invite someone** makes a one-time invite
-(`yggjoin1:…`, valid 7 days, rate-limited). The newcomer, with Yggdrasil
-running, runs:
+(`yggjoin1:…`, valid 7 days) and the message to send, with **Copy** and
+**Copy for WhatsApp**. On Linux or macOS, the newcomer pastes its one line
+into a terminal:
 
 ```sh
-yggstore join -service yggjoin1:…   # -name NODE -me NAME -quota GB to change the defaults
+curl -fsSL https://get.withcare.co.za/install.sh | sh -s -- 'yggjoin1:…'
 ```
 
-It adds the machine to the group, saves the member list, and with
-`-service` starts the node and dashboard. A machine is in one group; for a
+It downloads yggstore into `~/.local/bin` and checks it, joins (with
+yggstore's own Yggdrasil if the machine has none), starts the node and
+dashboard at every login (systemd or launchd), and opens the dashboard.
+No admin password is needed. With yggstore already installed, the same is
+`yggstore join -service yggjoin1:…` (`-name NODE -me NAME -quota GB` to
+change the defaults). On Windows, people use a box's network drive and the
+web instead; on a server, [a box in Docker](docker-box.md). A machine is in one group; for a
 second, run another node with its own folder and port
 (`-dir ~/.yggstore-2 -port 7401 -name laptop-b`).
 

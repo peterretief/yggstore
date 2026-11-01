@@ -44,7 +44,7 @@ Plans and the reasons behind them. Each page says what's built and what isn't.
 | [Members of a site](site-members.md) | proposed |
 | [More than one website for someone on a box](more-sites.md) | proposed |
 | [Messages for signs](signs.md) | proposed |
-| [Joining with one click](one-click-join.md) | first step built |
+| [Joining with one click](one-click-join.md) | dropped |
 | [Signing in by email](email-login.md) | parked |
 | [Moving a person to another box](move-person.md) | parked |
 | [Admin handover](admin-handover.md) | on hold |
