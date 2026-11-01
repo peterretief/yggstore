@@ -142,7 +142,12 @@ func (n *Node) Start() error {
 // Run handles mail notices until ctx ends, retrying what failed every
 // minute.
 func (n *Node) Run(ctx context.Context) {
+	// Notices are taken alongside; Run returns once that has stopped too,
+	// so nothing is written after it.
+	notices := make(chan struct{})
+	defer func() { <-notices }()
 	go func() {
+		defer close(notices)
 		for ctx.Err() == nil {
 			n.mu.Lock()
 			after := n.st.After
