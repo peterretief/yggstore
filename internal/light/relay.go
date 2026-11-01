@@ -43,12 +43,15 @@ type Relay struct {
 	// BoxURL is where the box at ip answers (tests change it).
 	BoxURL func(ip string) string
 	Log    func(format string, args ...any)
+	// Email sends the group's own emails: sign-up links (see trial.go).
+	Email func(ctx context.Context, to, subject, text string) error
 
-	proxy *httputil.ReverseProxy
-	mu    sync.Mutex
-	down  map[string]bool        // boxes that didn't answer, by address, until they do
-	heard map[string]time.Time   // when each box last answered
-	tries map[string][]time.Time // password sign-ins per address (see password.go)
+	proxy   *httputil.ReverseProxy
+	mu      sync.Mutex
+	down    map[string]bool        // boxes that didn't answer, by address, until they do
+	heard   map[string]time.Time   // when each box last answered
+	tries   map[string][]time.Time // password sign-ins per address (see password.go)
+	signups map[string][]time.Time // sign-ups per address (see trial.go)
 }
 
 // QuietFor is how long a box may go unheard before the relay checks it's
@@ -279,7 +282,7 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
 	// Someone's own address: their box, and only them.
 	own, only, isOwn := personHost(rl.Peers(), host)
-	if !isOwn && rl.serveLogin(w, r, host) {
+	if !isOwn && (rl.serveLogin(w, r, host) || rl.serveTrial(w, r, host)) {
 		return
 	}
 	if !isOwn && (p == "/" || p == "") {

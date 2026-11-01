@@ -46,6 +46,8 @@ type Peer struct {
 	Owner   string `json:"owner,omitempty"`
 	Gateway bool   `json:"gateway,omitempty"`
 	Leaving bool   `json:"leaving,omitempty"`
+	// Trial marks the box that takes accounts people make themselves.
+	Trial bool `json:"trial,omitempty"`
 
 	YggListen []string `json:"ygg_listen,omitempty"`
 	YggPeers  []string `json:"ygg_peers,omitempty"`
@@ -55,6 +57,25 @@ type Peer struct {
 	Code        string       `json:"code,omitempty"`
 	PeopleNames []PersonName `json:"people_names,omitempty"`
 	Sites       []string     `json:"sites,omitempty"`
+}
+
+// Reserved are labels members can't ask for; an admin can still give
+// them.
+var Reserved = map[string]bool{
+	"www": true, "mail": true, "mail-in": true, "smtp": true, "imap": true, "admin": true, "administrator": true,
+	"root": true, "postmaster": true, "abuse": true, "hostmaster": true, "webmaster": true, "noreply": true,
+	"no-reply": true, "security": true, "ygg": true, "my": true, "get": true, "yggstore": true,
+}
+
+// TrialBox is the box that takes accounts people make themselves (see
+// docs/trial.md): the first marked "trial".
+func TrialBox(list []Peer) (Peer, bool) {
+	for _, p := range list {
+		if p.Trial {
+			return p, true
+		}
+	}
+	return Peer{}, false
 }
 
 // Operator is the person the peer's space and uploads count towards.

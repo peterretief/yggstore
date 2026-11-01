@@ -203,6 +203,19 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 	case light.Base + "/register":
 		f.register(w, r, rp, only, now)
 		return
+	case light.Base + "/signup", light.Base + "/confirm":
+		if only != "" {
+			http.NotFound(w, r)
+		} else if r.URL.Path == light.Base+"/signup" {
+			f.signup(w, r, now)
+		} else {
+			f.confirm(w, r, now)
+		}
+		return
+	}
+	if token, ok := strings.CutPrefix(r.URL.Path, SharedPath); ok {
+		f.shared(w, r, token)
+		return
 	}
 	st, err := Load(f.u.cfg.StatePath)
 	if err != nil {
@@ -218,6 +231,7 @@ func (f *filesPage) serveLight(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sign in first", http.StatusUnauthorized)
 		return
 	}
+	f.trialSeen(r.Context(), p, now)
 	switch r.URL.Path {
 	case light.SeenPath:
 		f.seenKey(w, r, p, now)
@@ -399,13 +413,11 @@ load();
 func (f *filesPage) serveAs(w http.ResponseWriter, r *http.Request, p Person) {
 	switch r.URL.Path {
 	case FilesPath:
-		name := p.Name
-		live := &workhere.Live{Outbox: p.Path, Client: f.client, Holding: func() bool { return f.u.Holding(name) },
-			Devices: FilesPath + "/devices", Room: func(size int64) error { return f.room(p, size) }}
-		if f.u.cfg.People != nil {
-			live.Site, live.Mail = SitePath, MailPath
-		}
-		live.ServeHTTP(w, r)
+		f.live(p).ServeHTTP(w, r)
+	case FilesPath + "/share":
+		f.share(w, r, p)
+	case FilesPath + "/leave":
+		f.leave(w, r, p, time.Now())
 	case SitePath, MailPath:
 		if f.u.cfg.People == nil {
 			http.NotFound(w, r)
@@ -415,6 +427,20 @@ func (f *filesPage) serveAs(w http.ResponseWriter, r *http.Request, p Person) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// live is p's files page.
+func (f *filesPage) live(p Person) *workhere.Live {
+	name := p.Name
+	l := &workhere.Live{Outbox: p.Path, Client: f.client, Holding: func() bool { return f.u.Holding(name) },
+		Devices: FilesPath + "/devices", Room: func(size int64) error { return f.room(p, size) }, Share: FilesPath + "/share"}
+	if f.u.cfg.People != nil {
+		l.Site, l.Mail = SitePath, MailPath
+	}
+	if p.trial() {
+		l.Leave = FilesPath + "/leave"
+	}
+	return l
 }
 
 // light is the key as the web nodes are told it.
@@ -431,6 +457,9 @@ func (s HubState) LightPeople() light.People {
 			continue
 		}
 		lp := light.Person{Name: p.Name, Web: p.WebAccess(), Recovery: p.RecoveryID, Password: p.Password}
+		if p.Trial != nil {
+			lp.Email = p.Trial.Email
+		}
 		for _, k := range p.Passkeys {
 			lp.Keys = append(lp.Keys, k.light())
 		}

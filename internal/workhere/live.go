@@ -46,6 +46,10 @@ type Live struct {
 	// Room, if set, says whether a file of this size (-1 if unknown) may be
 	// put in the folder (a box's people may have a quota).
 	Room func(size int64) error
+	// Share, if set, is where the page shares a file by link, and Leave
+	// where the person closes their account (a trial account on a box).
+	Share string
+	Leave string
 }
 
 var liveMark = []byte(`<html lang="en" data-live="1">`)
@@ -59,7 +63,8 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		mark := liveMark
 		if l.Devices != "" {
 			mark = []byte(`<html lang="en" data-live="1" data-devices="` + html.EscapeString(l.Devices) + `" data-site="` + html.EscapeString(l.Site) +
-				`" data-mail="` + html.EscapeString(l.Mail) + `">`)
+				`" data-mail="` + html.EscapeString(l.Mail) + `" data-share="` + html.EscapeString(l.Share) +
+				`" data-leave="` + html.EscapeString(l.Leave) + `">`)
 		}
 		w.Write(bytes.Replace(page, []byte(`<html lang="en">`), mark, 1))
 	case op == "get" && r.Method == http.MethodGet:
@@ -144,6 +149,15 @@ func (l *Live) exists(shown string) bool {
 	real, stub, ok := l.at(shown)
 	return ok && (exists(real) || exists(stub))
 }
+
+// IsFile is whether shown is a file in the folder, stored or not.
+func (l *Live) IsFile(shown string) bool {
+	shown = cleanShown(shown)
+	return shown != "" && l.exists(shown) && !l.isFolder(shown)
+}
+
+// Download sends the file at shown as a download.
+func (l *Live) Download(w http.ResponseWriter, r *http.Request, shown string) { l.get(w, r, shown) }
 
 func (l *Live) isFolder(shown string) bool {
 	if shown == "" {

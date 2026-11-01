@@ -380,20 +380,22 @@ func cmdServe(ctx context.Context, args []string) error {
 		work = &workhere.Store{Dir: filepath.Join(*dataDir, "work"), Client: &http.Client{Timeout: 5 * time.Minute}, Log: log.Printf,
 			Shards: client.New(), Online: func(ctx context.Context) ([]peers.Peer, error) { return onlinePeers(ctx, *peersPath) },
 			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }}
+		// Boxes have no address to send from: the group sends their
+		// people's links and sign-ups, from yggstore@ its domain.
+		var groupEmail func(ctx context.Context, to, subject, text string) error
 		if relay != nil {
-			// Boxes have no address to send from: the group sends their
-			// people's links, from yggstore@ its domain.
-			work.Email = func(ctx context.Context, to, subject, text string) error {
+			groupEmail = func(ctx context.Context, to, subject, text string) error {
 				domain := peers.GroupDomain(live.List())
 				if domain == "" {
 					return errors.New("the group has no domain to send from (\"domain\" on the admin's entry)")
 				}
 				return relay.SendOwn(ctx, mail.Draft{From: "yggstore@" + domain, Name: "yggstore", To: to, Subject: subject, Text: text})
 			}
+			work.Email = groupEmail
 		}
 		signin = &light.Store{Dir: filepath.Join(*dataDir, "light"), Peers: live.List, Client: &http.Client{Timeout: 30 * time.Second}, Log: log.Printf,
-			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }}
-		login := &light.Relay{Peers: live.List, Signin: signin, Log: log.Printf}
+			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }, Email: groupEmail}
+		login := &light.Relay{Peers: live.List, Signin: signin, Log: log.Printf, Email: groupEmail}
 		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work,
 			Light: login, Who: login.Who,
 			// Sites' data: entries shared with the other web nodes.

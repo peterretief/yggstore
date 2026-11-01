@@ -63,6 +63,9 @@ a { color: var(--accent); }
     <div id="list"><span class="sub">Loading…</span></div>
     <div class="err" id="listErr"></div>
   </div>
+  <div class="card" id="leaveBox" hidden><h2>Close your account</h2>
+    <div class="sub">Deletes your files, your website and your account. It can't be undone.</div>
+    <button class="plain" id="leave">Close my account</button> <span class="err" id="leaveMsg"></span></div>
   <form id="dl" method="post" action="?op=get" hidden><input name="id"><input name="link"><input name="path"></form>
 
   <div class="card" id="bad" hidden><h2>This link isn't complete</h2>
@@ -194,12 +197,16 @@ function actions(row, p, folder) {
   const name = base(p), parent = p.slice(0, p.length - name.length).replace(/\/$/, "");
   const opts = folders.filter(f => f !== parent && f !== p && !f.startsWith(p + "/"))
     .map(f => `<option value="${esc(f)}">${f ? "📁 " + esc(f) : "Your files (top)"}</option>`).join("");
-  a.innerHTML = `<button class="plain" data-act="rename">Rename</button>` +
+  const sharing = document.documentElement.dataset.share;
+  a.innerHTML = (sharing && !folder ? `<button class="plain" data-act="share">Share link</button>` : "") +
+    `<button class="plain" data-act="rename">Rename</button>` +
     (opts ? `<select>${opts}</select><button class="plain" data-act="move">Move there</button>` : "") +
     `<button class="danger" data-act="delete">Delete</button><button class="plain" data-act="close">Cancel</button>`;
   a.onclick = ev => {
     const act = ev.target.dataset.act;
     if (act === "close") a.remove();
+    if (act === "share" || act === "unshare") share(a, p, act === "unshare");
+    if (act === "copylink") { const i = a.querySelector("input"); i.select(); navigator.clipboard?.writeText(i.value); }
     if (act === "rename") {
       const n = prompt("New name for " + name, name);
       if (n && n !== name) change("move", p, join(parent, n));
@@ -209,6 +216,29 @@ function actions(row, p, folder) {
       change("delete", p);
   };
   row.after(a);
+}
+// A link anyone can download the file with, for 30 days.
+async function share(a, p, stop) {
+  try {
+    const r = await fetch(document.documentElement.dataset.share, {method: "POST", headers: {...H, "Content-Type": "application/json"},
+      body: JSON.stringify({path: p, stop})});
+    const text = await r.text();
+    if (!r.ok) throw new Error(text.trim() || "That didn't work (" + r.status + ")");
+    if (stop) { a.innerHTML = `<span class="sub">The link doesn't work any more.</span><button class="plain" data-act="close">Close</button>`; return; }
+    const out = JSON.parse(text);
+    a.innerHTML = `<input readonly value="${esc(out.url)}"><button class="plain" data-act="copylink">Copy</button>` +
+      `<button class="danger" data-act="unshare">Stop sharing</button><button class="plain" data-act="close">Close</button>` +
+      `<span class="sub" style="flex-basis:100%">Anyone with the link can download it until ${new Date(out.until * 1000).toLocaleDateString()}.</span>`;
+  } catch (e) { $("upMsg").textContent = e.message; }
+}
+if (document.documentElement.dataset.leave) {
+  $("leaveBox").hidden = false;
+  $("leave").onclick = async () => {
+    if (prompt("This deletes your files, your website and your account, for good. Type leave to go ahead.") !== "leave") return;
+    const r = await fetch(document.documentElement.dataset.leave, {method: "POST", headers: H});
+    if (!r.ok) { $("leaveMsg").textContent = (await r.text()).trim() || "That didn't work."; return; }
+    document.querySelector("main").innerHTML = "<h1>Your account is closed</h1><p class=\"sub\">Your files and website are being deleted. Thank you for trying it.</p>";
+  };
 }
 document.addEventListener("click", ev => {
   const m = ev.target.closest("[data-more]");

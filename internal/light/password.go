@@ -62,7 +62,7 @@ func (s *Store) byLogin(list []peers.Peer, login string) (found, bool) {
 			if p.Password == nil {
 				continue
 			}
-			if strings.EqualFold(login, p.Name+"@"+box) {
+			if strings.EqualFold(login, p.Name+"@"+box) || (p.Email != "" && strings.EqualFold(login, p.Email)) {
 				return found{Box: box, Person: p}, true
 			}
 			if pn, ok := peers.PersonNameOf(list, node, p.Name); ok && strings.EqualFold(login, peers.MailAddress(pn.Name)) {

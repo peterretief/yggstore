@@ -55,6 +55,9 @@ type Person struct {
 	Keys []Key  `json:"keys"`
 	// Password is their password's hash, if they have one.
 	Password *password.Password `json:"password,omitempty"`
+	// Email is the address they made their account with (a trial
+	// account), which they may sign in with too.
+	Email string `json:"email,omitempty"`
 	// Recovery is their recovery ID: the web nodes' record of their
 	// latest recovery copy, for their files while the box is off.
 	Recovery string `json:"recovery,omitempty"`
@@ -95,6 +98,8 @@ type Store struct {
 	// Client reaches them over Yggdrasil.
 	Client *http.Client
 	Log    func(format string, args ...any)
+	// Email sends the group's own emails (see trial.go); nil: none.
+	Email func(ctx context.Context, to, subject, text string) error
 
 	challenges passkey.Challenges
 
@@ -526,6 +531,10 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 			return true
 		}
 		jsonOK(w, sg.jwk)
+		return true
+	}
+	if path == "trial-email" {
+		s.trialEmail(w, r, caller)
 		return true
 	}
 	if !s.isWebNode(r.Context(), caller) {

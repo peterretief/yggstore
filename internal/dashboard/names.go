@@ -37,11 +37,7 @@ const (
 )
 
 // reserved are labels members can't ask for; an admin can still give them.
-var reserved = map[string]bool{
-	"www": true, "mail": true, "mail-in": true, "smtp": true, "imap": true, "admin": true, "administrator": true,
-	"root": true, "postmaster": true, "abuse": true, "hostmaster": true, "webmaster": true, "noreply": true,
-	"no-reply": true, "security": true, "ygg": true,
-}
+var reserved = peers.Reserved
 
 type nameClaim struct {
 	Name     string `json:"name"` // anna.example.org

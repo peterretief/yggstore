@@ -773,6 +773,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 		d.syncLists(ctx, mainList, st.Peers, st.AdminEntry != "")
 		d.syncNames(ctx, mainList)
 		d.approveNames(ctx, mainList)
+		d.askTrialNames(ctx)
 		d.sendUsage(ctx, mainList)
 		d.syncWallet(ctx, mainList)
 		if st.AdminEntry != "" && time.Since(d.yggDNSAt) > 30*time.Minute {

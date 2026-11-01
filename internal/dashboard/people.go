@@ -383,3 +383,36 @@ func (d *Dashboard) claimForPerson(ctx context.Context, person, label string) (s
 	}
 	return fmt.Sprintf("asked the group's admin for %s for %s", peers.MailAddress(name), p.Name), nil
 }
+
+// askTrialNames asks the group for the name of each account people made
+// on the box themselves (hub/trial.go), once.
+func (d *Dashboard) askTrialNames(ctx context.Context) {
+	if !d.onBox() {
+		return
+	}
+	st, err := hub.Load(d.cfg.HubState)
+	if err != nil {
+		return
+	}
+	for _, p := range st.People {
+		if p.Trial == nil || p.Trial.Asked || p.Trial.Leaving != 0 || !p.Active() {
+			continue
+		}
+		msg, err := d.claimForPerson(ctx, p.Name, p.Trial.Label)
+		if err != nil && strings.Contains(err.Error(), "could not send") {
+			continue // the admin isn't answering: next time
+		}
+		if err != nil {
+			msg = "couldn't ask the group for " + p.Name + "'s name: " + err.Error()
+		}
+		d.event("info", "box: "+msg)
+		hub.Update(ctx, d.cfg.HubState, func(s *hub.HubState) error {
+			for i := range s.People {
+				if strings.EqualFold(s.People[i].Name, p.Name) && s.People[i].Trial != nil {
+					s.People[i].Trial.Asked = true
+				}
+			}
+			return nil
+		})
+	}
+}

@@ -82,6 +82,8 @@ type Person struct {
 	// Preview is the link that shows their site's preview, if it has one,
 	// for the box's admin page and screen (see websites.PreviewSuffix).
 	Preview string `json:"preview,omitempty"`
+	// Trial is an account the person made themselves (see trial.go).
+	Trial *Trial `json:"trial,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.
@@ -105,6 +107,10 @@ type HubState struct {
 	Invites []Invite `json:"invites,omitempty"`
 	// Fetches are the connect scripts fetched lately (see notify.go).
 	Fetches []Fetch `json:"fetches,omitempty"`
+	// Signups wait for their email to be confirmed (see trial.go).
+	Signups []Signup `json:"signups,omitempty"`
+	// Shares are people's files shared by link (see share.go).
+	Shares []Share `json:"shares,omitempty"`
 }
 
 // Team is a folder several people work in, on this box: every device of
@@ -331,12 +337,17 @@ func (u *Users) Run(ctx context.Context) {
 			}
 		}
 	}
+	var trialAt time.Time
 	for {
 		if !setup {
 			setup = u.setup(ctx) == nil
 		}
 		if setup {
 			u.setErr(u.step(ctx))
+		}
+		if time.Since(trialAt) > time.Minute {
+			trialAt = time.Now()
+			u.trialStep(ctx, trialAt)
 		}
 		select {
 		case <-ctx.Done():
@@ -577,7 +588,8 @@ func (u *Users) sharePeople(ctx context.Context, st HubState, have map[string]bo
 			delete(u.shared, p.Folder)
 			// Someone who only opens their files in the browser, over
 			// Yggdrasil or through the web, still has them stored.
-			if (len(p.FilesDevices) > 0 || p.CanSignIn()) && p.Active() {
+			// So does someone leaving, until their files are deleted.
+			if (len(p.FilesDevices) > 0 || p.CanSignIn() || p.leaving()) && p.Active() {
 				u.startWatch(ctx, p)
 			} else {
 				u.stopWatch(p.Folder)
@@ -751,16 +763,22 @@ func (u *Users) ownerName() string {
 	if err != nil {
 		return ""
 	}
-	host, _, err := net.SplitHostPort(u.cfg.SelfAddr)
-	if err != nil {
-		host = u.cfg.SelfAddr
-	}
+	host := u.selfIP()
 	for _, p := range list {
 		if p.IP() == host {
 			return p.Owner
 		}
 	}
 	return ""
+}
+
+// selfIP is the box's node's address, without the port.
+func (u *Users) selfIP() string {
+	host, _, err := net.SplitHostPort(u.cfg.SelfAddr)
+	if err != nil {
+		return u.cfg.SelfAddr
+	}
+	return host
 }
 
 // ignore keeps the outbox's own files on the hub: its settings and history,

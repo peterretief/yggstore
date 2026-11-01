@@ -35,6 +35,7 @@ Plans and the reasons behind them. Each page says what's built and what isn't.
 
 | Page | Status |
 | --- | --- |
+| [Accounts anyone can make](trial.md) | built, not yet deployed |
 | [Site code and data](site-code.md) | mostly built |
 | [One login for the group](login.md) | first step built |
 | [Boxes claimed by new owners](claim.md) | proposed |

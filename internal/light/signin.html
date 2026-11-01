@@ -45,12 +45,14 @@ button.plain { background: none; color: var(--info); border: 1px solid var(--lin
     <button id="go" class="plain">Sign in with a passkey instead</button>
     <div id="groupBox" hidden><button class="plain" id="group">Made your passkey at <span id="groupHost">the group's login</span>? Sign in there</button></div>
   </div>
+  <p class="sub" id="signupBox" style="margin-top:16px" hidden>No account yet? <a href="/signup">Make one to try it</a></p>
   <p class="sub" style="margin-top:16px">First time? Use the temporary password the group's admin gave you. Forgotten your password? Ask them for a new one.</p>
 </main>
 <script>
 const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const unb64 = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
 const base = "/files/light";
+if (location.hostname.startsWith("my.")) document.getElementById("signupBox").hidden = false;
 // Signed in: on to my. as well (next), back to the app that asked (the
 // group's login page), or the files.
 const done = d => { location.href = d.next || (location.pathname.startsWith("/login/") ? location.href : d.home || "/files"); };

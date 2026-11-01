@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Make an account</title>
+<style>
+:root { --bg: #f6f7f9; --panel: #fff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea; --info: #3b6fd8; --bad: #d64545; --ok: #2e8b57; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111418; --panel: #1a1e24; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038; --info: #79a2f2; --bad: #f07070; --ok: #5cc28a; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 440px; margin: 0 auto; padding: 56px 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+p { margin: 8px 0; }
+.sub { color: var(--muted); font-size: 14px; }
+button { font: inherit; font-weight: 600; width: 100%; padding: 12px; margin-top: 16px; border-radius: 8px; border: 0; background: var(--info); color: #fff; cursor: pointer; }
+button:disabled { opacity: .6; }
+label { display: block; font-size: 14px; color: var(--muted); margin-top: 16px; }
+input { display: block; width: 100%; font: inherit; padding: 10px 12px; margin-top: 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.name { display: flex; align-items: center; gap: 6px; }
+.name input { flex: 1; }
+.name span { color: var(--muted); white-space: nowrap; }
+.trap { position: absolute; left: -9999px; }
+#msg { min-height: 1.5em; margin-top: 12px; color: var(--bad); font-size: 14px; }
+#msg.ok { color: var(--ok); }
+a { color: var(--info); }
+</style>
+</head>
+<body>
+<main>
+  <div class="card" id="form">
+    <h1>Try it</h1>
+    <p class="sub">A small website and 500 MB for your files. Nothing to install.</p>
+    <form id="f">
+      <label for="label">Your name, for your website and address</label>
+      <div class="name"><input id="label" autocomplete="nickname" required pattern="[A-Za-z0-9][A-Za-z0-9-]*" maxlength="40"><span id="dom"></span></div>
+      <label for="email">Your email address</label>
+      <input id="email" type="email" autocomplete="email" required>
+      <label for="pw">A password: at least 10 characters</label>
+      <input id="pw" type="password" autocomplete="new-password" required minlength="10">
+      <input class="trap" id="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button id="go" type="submit">Make my account</button>
+    </form>
+    <div id="msg" role="status"></div>
+    <p class="sub">We email you a link to finish. An account nobody uses for 60 days is removed, and you can close yours whenever you like.</p>
+  </div>
+  <div class="card" id="confirming" hidden>
+    <h1>Opening your account…</h1>
+    <div id="msg2" role="status" class="sub"></div>
+  </div>
+  <p class="sub" style="margin-top:16px">Have an account? <a href="/">Sign in</a></p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const host = location.hostname.replace(/^my\./, "");
+$("dom").textContent = "." + host;
+const post = async (path, body) => {
+  const r = await fetch("/files/light/" + path, {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const text = await r.text();
+  if (!r.ok) throw new Error(text.trim() || "Something went wrong (" + r.status + ")");
+  return text ? JSON.parse(text) : {};
+};
+// The emailed link: #TOKEN. Opening it makes the account and signs in.
+const token = location.hash.slice(1);
+if (token) {
+  $("form").hidden = true; $("confirming").hidden = false;
+  history.replaceState(null, "", location.pathname);
+  post("confirm", {t: token}).then(() => { location.href = "/files"; })
+    .catch(e => { $("msg2").textContent = e.message; $("confirming").querySelector("h1").textContent = "That link didn't work"; });
+}
+$("f").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  $("go").disabled = true; $("msg").className = ""; $("msg").textContent = "";
+  try {
+    const out = await post("signup", {label: $("label").value.trim(), email: $("email").value.trim(), password: $("pw").value, website: $("website").value});
+    $("msg").className = "ok";
+    $("msg").textContent = "We've emailed a link to " + out.email + ". Open it to finish. It can take a few minutes: look in spam or junk too.";
+    $("pw").value = "";
+  } catch (e) { $("msg").textContent = e.message; }
+  $("go").disabled = false;
+});
+</script>
+</body>
+</html>
