@@ -8,6 +8,9 @@
 #                            container's hostname, GB to 20
 #   box status               the status screen, printed once
 #
+# With INVITE (and BOX_NAME, BOX_GB) set, as in the compose file
+# scripts/docker-invite.sh writes, run joins by itself the first time.
+#
 # Everything is kept in /data: Yggdrasil's key, the node's files, people's
 # folders and Syncthing's settings, so the box survives a new image.
 set -e
@@ -32,6 +35,10 @@ run)
 	mkdir -p "$data/files"
 	start_yggdrasil
 	echo "This box's Yggdrasil address: $(ip -6 addr | grep -oE '2[0-9a-f]{2}:[0-9a-f:]+' | head -1)"
+	if [ ! -f "$home/peers.json" ] && [ -n "${INVITE:-}" ]; then
+		"$0" join "$INVITE" "${BOX_NAME:-$(hostname)}" "${BOX_GB:-20}" ||
+			echo "Joining didn't work (above). Ask for a new invite, or join by hand with box join."
+	fi
 	if [ ! -f "$home/peers.json" ]; then
 		echo "Not in a group yet. Join with the invite you were sent:"
 		echo "  docker compose exec box box join 'yggjoin1:...'"

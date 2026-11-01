@@ -5,10 +5,37 @@ group with an invite. It's the same box as a Raspberry Pi: its own
 Yggdrasil, node, dashboard, hub and Syncthing, set up from its status
 screen.
 
-## Set it up
+## With a ready-made file
+
+The group's admin makes a file for you, with your invite in it
+(`scripts/docker-invite.sh NAME` on the admin's machine). With Docker
+installed (below), that file is all you need:
+
+```sh
+docker compose -f NAME.compose.yml up -d
+docker compose -f NAME.compose.yml exec -it box yggstore screen
+```
+
+The first builds the box from GitHub and joins the group by itself, which
+takes a few minutes. The second opens its screen: press **Enter** to set it
+up ([setting up a new box](box-setup.md#set-up-a-new-box)). Keep the file
+to yourself: its invite works once, for 7 days.
+
+## Set it up by hand
 
 You need Docker with Compose, this repository, and an invite
 (`yggjoin1:…`) from the group's admin.
+
+- **Docker on Ubuntu or Debian:**
+
+  ```sh
+  sudo apt install -y docker.io docker-compose-v2
+  sudo usermod -aG docker $USER    # docker without sudo, from your next login
+  ```
+
+  On other systems, see [Docker's install guide](https://docs.docker.com/engine/install/).
+  Docker Desktop on a Mac or Windows should work too, but hasn't been tried.
+- **The repository:** `git clone https://github.com/peterretief/yggstore && cd yggstore`
 
 1. Start the box, named as the group will see it:
 
