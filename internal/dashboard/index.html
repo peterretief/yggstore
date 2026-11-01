@@ -773,19 +773,12 @@ function renderInvites(s) {
 }
 
 function inviteMessage(who, r) {
+  const get = r.domain ? `https://get.${r.domain}` : "https://get.withcare.co.za";
   return `Hi ${who || "there"},
 
-I'd like you to join ${r.group}: we each give some disk space, back each other's files up, and can send each other files.
+Join ${r.group}: paste this line into a terminal on Linux or macOS. It installs yggstore, joins, and opens your dashboard. It's your own invite, and works once, for 7 days.
 
-1. Install Yggdrasil: https://yggdrasil-network.github.io/installation.html
-   and put these peers in its config file (Peers: [...] in /etc/yggdrasil.conf):
-${r.ygg_peers.map(p => "     " + p).join("\n")}
-2. Get the yggstore program from me.
-3. Run this (it's your personal invite, it works once, for 7 days):
-
-yggstore join -service ${r.invite}
-
-Then open http://127.0.0.1:7480 on your machine.`;
+curl -fsSL ${get}/install.sh | sh -s -- '${r.invite}'`;
 }
 
 function renderAccounts(s) {

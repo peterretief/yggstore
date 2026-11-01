@@ -964,7 +964,11 @@ func (d *Dashboard) handleInvite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSONResp(w, map[string]any{"invite": inv.Encode(), "expires": inv.Expires, "group": inv.Group, "ygg_peers": inv.YggPeers})
+	domain := ""
+	if list, err := peers.Load(d.cfg.PeersPath); err == nil {
+		domain = peers.GroupDomain(list)
+	}
+	writeJSONResp(w, map[string]any{"invite": inv.Encode(), "expires": inv.Expires, "group": inv.Group, "ygg_peers": inv.YggPeers, "domain": domain})
 }
 
 var errNotAdmin = errors.New("only an admin dashboard can invite people")

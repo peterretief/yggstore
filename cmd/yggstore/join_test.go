@@ -69,3 +69,12 @@ func TestSecondNodeGetsItsOwnServices(t *testing.T) {
 		t.Fatalf("the second node's units clash with the first's: %v", err)
 	}
 }
+
+func TestLaunchAgent(t *testing.T) {
+	plist := agent(agentLabel("yggstore-node.service"), []string{"/Users/anna/.local/bin/yggstore", "serve", "-name", "anna's mac"})
+	for _, want := range []string{"<string>org.yggstore.yggstore-node</string>", "<string>serve</string>", "<string>anna&#39;s mac</string>", "<key>KeepAlive</key>"} {
+		if !strings.Contains(plist, want) {
+			t.Errorf("missing %q in:\n%s", want, plist)
+		}
+	}
+}

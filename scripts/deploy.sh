@@ -161,6 +161,10 @@ for n in "${ordered[@]}"; do
 	on "$n" "set -e; ${r}cp -p $exe $exe.prev; ${r}install -o \$(stat -c %u $exe) -g \$(stat -c %g $exe) -m 644 $tmp.exe \$(dirname $exe)/yggstore-join.exe; ${r}install -o \$(stat -c %u $exe) -g \$(stat -c %g $exe) -m 755 $tmp $exe; rm -f $tmp $tmp.exe; $(restart "$n") sleep 3; $(running "$n") $exe version" ||
 		die "$n didn't come back up: scripts/deploy.sh --back $n puts its old binary back. Stopping here."
 done
+# The install script and programs at get.DOMAIN, from the desktop.
+if ! $dry && [[ " ${ordered[*]} " == *" desktop "* ]] && [[ " ${skipped[*]} " != *" desktop "* ]]; then
+	scripts/publish-get.sh || echo "  (get.withcare.co.za wasn't published; run scripts/publish-get.sh)"
+fi
 if [ ${#skipped[@]} -gt 0 ]; then
 	echo "Done, except ${skipped[*]}, which didn't answer. Once it's back: scripts/deploy.sh ${skipped[*]}"
 else

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -46,7 +47,11 @@ func cmdJoin(ctx context.Context, args []string) error {
 	if err := alreadyJoined(*dir); err != nil {
 		return err
 	}
-	if *service {
+	if *service && runtime.GOOS == "darwin" {
+		if err := agentsFree(nodeUnit, dashUnit); err != nil {
+			return err
+		}
+	} else if *service {
 		if err := unitsFree(nodeUnit, dashUnit); err != nil {
 			return err
 		}
@@ -145,10 +150,16 @@ func cmdJoin(ctx context.Context, args []string) error {
 	fmt.Printf("\nYou're in: this node is %q (%s), giving %g GB.\n", resp.Node, addr, *quotaGB)
 	fmt.Printf("The group has %d nodes; %s is in your contacts.\n", len(resp.Peers), inv.From)
 	if *service {
-		if err := installUnits(map[string]string{
-			nodeUnit: unit("yggstore node ("+inv.Group+")", node),
-			dashUnit: unit("yggstore dashboard on http://"+dashListen, dash),
-		}); err != nil {
+		install := func() error {
+			return installUnits(map[string]string{
+				nodeUnit: unit("yggstore node ("+inv.Group+")", node),
+				dashUnit: unit("yggstore dashboard on http://"+dashListen, dash),
+			})
+		}
+		if runtime.GOOS == "darwin" {
+			install = func() error { return installAgents(map[string][]string{nodeUnit: node, dashUnit: dash}) }
+		}
+		if err := install(); err != nil {
 			return fmt.Errorf("joined, but the services could not be set up: %w\nStart them by hand:\n  %s\n  %s",
 				err, shellJoin(node), shellJoin(dash))
 		}
