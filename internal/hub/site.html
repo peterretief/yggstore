@@ -65,23 +65,12 @@ function siteCard() {
     <p class="sub">To change your page, open <a href="/files">your files</a>, then <b>Your websites</b> and <b>${esc(st.name)}</b>.
       Each change goes online within a minute.</p>
     <p><label><input type="checkbox" id="contact" style="width:auto" ${s && s.contact ? "checked" : ""} ${s ? "" : "disabled"}>
-      A contact form on your page</label><br><span class="sub">Visitors write to you without seeing your address; their messages come in to your mail.</span></p>
-    ${s ? upCard(s.uploaders || []) : ""}`;
-}
-function upCard(list) {
-  const rows = list.map(a => `<div class="row"><span class="name">${esc(a)}</span>
-    <button class="plain" data-unlist="${esc(a)}">Take off</button></div>`).join("");
-  return `<h2>Who may add photos</h2>
-    <p class="sub">These people can sign in on your site with the group's login and add photos and files to it, if your site has a page for
-      that. Anyone visiting can see what's added; you can delete it under <b>Your websites</b>, in its <b>uploads</b> folder.</p>
-    ${rows || `<p class="sub">Nobody yet, so nobody can add anything.</p>`}
-    <p><input id="upAdd" type="email" placeholder="their address in the group, such as tim@${esc(st.domain || "the-group.org")}">
-      <button id="upGo">Add</button></p>`;
+      A contact form on your page</label><br><span class="sub">Visitors write to you without seeing your address; their messages come in to your mail.</span></p>`;
 }
 async function load() {
   try { st = await (await fetch("?op=status", {cache: "no-store"})).json(); }
   catch (e) { $("err").textContent = "The box isn't answering."; return; }
-  if (!document.activeElement || document.activeElement.id !== "upAdd") $("siteCard").innerHTML = siteCard();
+  $("siteCard").innerHTML = siteCard();
   if (!st.site) return;
   const r = await fetch("?op=versions", {cache: "no-store"}).catch(() => null);
   const vs = r && r.ok ? await r.json() : [];
@@ -94,9 +83,6 @@ async function load() {
 }
 document.addEventListener("click", async ev => {
   const t = ev.target;
-  const list = (st.site && st.site.uploaders) || [];
-  if (t.id === "upGo" && $("upAdd").value.trim()) act("uploaders", {list: [...list, $("upAdd").value.trim()]});
-  if (t.dataset.unlist) act("uploaders", {list: list.filter(a => a !== t.dataset.unlist)});
   if (t.dataset.back !== undefined && confirm("Put this earlier version online, and in your site's folder?")) act("back", {id: t.dataset.back});
   if (t.id === "keep") act("keep");
   if (t.id === "anyway" && confirm("Publish the change as it is? It replaces the site online.")) act("anyway");
