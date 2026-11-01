@@ -400,6 +400,8 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("GET /api/devices", d.handleDevices)
 	mux.HandleFunc("POST /api/devices/{action}", d.handleDeviceAction)
 	mux.HandleFunc("GET /network", d.handleNetworkPage)
+	mux.HandleFunc("GET /api/applications", d.handleApplications)
+	mux.HandleFunc("POST /api/applications/decide", d.handleApplicationDecide)
 	mux.HandleFunc("GET /usage", d.handleUsagePage)
 	mux.HandleFunc("GET /api/usage", d.handleUsage)
 	mux.HandleFunc("GET /sites", d.handleSitesPage)

@@ -424,3 +424,20 @@ func TestFollowersSavedForRestart(t *testing.T) {
 		t.Fatalf("after a restart the follower was last heard %v before", time.Duration(at.Unix()-got)*time.Second)
 	}
 }
+
+func TestNoteToSelf(t *testing.T) {
+	g := newGroup(t, 2)
+	if err := g.nodes[0].Note("200::1", "note", "for me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := bodies(g.nodes[0].Messages(0, "", 0)); len(got) != 1 || got[0] != "for me" {
+		t.Fatalf("own inbox: %v", got)
+	}
+	if err := g.nodes[0].Note("200::2", "note", "for node2"); err != nil {
+		t.Fatal(err)
+	}
+	g.eventually("delivery", func() bool { return len(g.nodes[1].Messages(0, "", 0)) == 1 })
+	if err := g.nodes[0].Note("200::9", "note", "x"); err == nil {
+		t.Fatal("noted to a non-member")
+	}
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apply to join</title>
+<style>
+:root { --bg: #fff; --ink: #1b1f24; --muted: #5d6670; --line: #d9dde2; --link: #2f5fbf; --btn: #2f5fbf; }
+@media (prefers-color-scheme: dark) { :root { --bg: #111418; --ink: #e6e9ed; --muted: #8f99a5; --line: #2a3038; --link: #79a2f2; --btn: #3b6fd8; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, sans-serif; }
+main { max-width: 34em; margin: 3em auto; padding: 0 1em; }
+label { display: block; margin: 1em 0 .3em; font-weight: 600; }
+input, textarea { width: 100%; box-sizing: border-box; font: inherit; padding: .5em .6em; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+button { margin-top: 1.2em; font: inherit; padding: .55em 1.2em; border: 0; border-radius: 6px; background: var(--btn); color: #fff; cursor: pointer; }
+.sub { color: var(--muted); font-size: .9em; }
+.hp { position: absolute; left: -10000px; }
+a { color: var(--link); }
+</style>
+</head>
+<body>
+<main>
+<h1>Apply to join</h1>
+<p>Members of the group keep their email, websites and files on their own machines, linked with each other's. Tell us who you are; if you're welcome, you'll get an email with the one line that joins, for Linux or macOS.</p>
+<form method="post" action="/_yggstore/apply">
+  <input type="hidden" name="_next" value="/apply/thanks/">
+  <label for="name">Your name</label>
+  <input id="name" name="name" autocomplete="name" required maxlength="60">
+  <label for="email">Your email</label>
+  <input id="email" name="email" type="email" autocomplete="email" required maxlength="200">
+  <label for="note">Who you are, or what you'd use it for <span class="sub">(optional)</span></label>
+  <textarea id="note" name="note" rows="4" maxlength="500"></textarea>
+  <input class="hp" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+  <button>Apply</button>
+</form>
+<p class="sub">Your name, email and note go to the group's admin, and nowhere else.</p>
+</main>
+</body>
+</html>

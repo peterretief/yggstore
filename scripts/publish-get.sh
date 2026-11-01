@@ -16,7 +16,7 @@ for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
 	env CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$version" \
 		-o "$out/yggstore-$name-$arch" ./cmd/yggstore
 done
-cp get/install.sh get/index.html "$out/"
+cp -r get/install.sh get/index.html get/apply "$out/"
 (cd "$out" && sha256sum yggstore-* > SHA256SUMS)
 echo "== publishing $site ($version)"
 bin/yggstore site publish "$out" -name "$site" -no-wait

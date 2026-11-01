@@ -404,6 +404,22 @@ func cmdServe(ctx context.Context, args []string) error {
 			web.Mail = mailNode
 		}
 		web.Deliver = mailNode.Take
+		// Applications to join go to the group's admins (site.ApplyPath).
+		web.Apply = func(ctx context.Context, body string) error {
+			sent := 0
+			var last error
+			for _, p := range live.List() {
+				if p.Admin {
+					if last = engine.Note(p.IP(), site.TypeApplication, body); last == nil {
+						sent++
+					}
+				}
+			}
+			if sent == 0 {
+				return fmt.Errorf("no admin took it: %v", last)
+			}
+			return nil
+		}
 		go func() {
 			if err := web.Run(ctx); err != nil {
 				log.Printf("web: %v", err)

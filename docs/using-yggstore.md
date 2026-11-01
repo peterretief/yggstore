@@ -88,6 +88,12 @@ web instead; on a server, [a box in Docker](docker-box.md). A machine is in one 
 second, run another node with its own folder and port
 (`-dir ~/.yggstore-2 -port 7401 -name laptop-b`).
 
+People without an invite apply at `get.DOMAIN/apply/` with their name,
+email and a note. The web node passes it to the admin, who sees it under
+**Applications** on their dashboard and in their mailbox. **Approve** makes
+an invite and emails them the line above; **Decline** emails a short no.
+Nobody joins without the admin's yes.
+
 ### Adding nodes
 
 The admin node keeps everyone's `peers.json` in step: a change on its

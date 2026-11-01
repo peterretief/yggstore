@@ -293,6 +293,11 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <summary>Invite someone</summary>
     <div id="addBody"></div>
   </details>
+  <details class="add" id="appsBox" hidden open>
+    <summary>Applications <span class="sub" id="appsCount"></span></summary>
+    <p class="sub" style="margin:8px 0">People who applied on get.withcare.co.za/apply/. Approve emails them their invite; Decline emails a short no.</p>
+    <div id="appsBody"></div>
+  </details>
 
   <h2>Give and use</h2>
   <div class="tablewrap">
@@ -764,6 +769,27 @@ function renderAdd(s) {
     </details>`;
 }
 
+let appsAt = 0;
+async function renderApplications(s) {
+  const box = $("appsBox");
+  if (!s.admin_entry) { box.hidden = true; return; }
+  if (Date.now() - appsAt < 10000) return;
+  appsAt = Date.now();
+  const r = await fetch("api/applications", {cache: "no-store"});
+  if (!r.ok) { box.hidden = true; return; }
+  const apps = await r.json();
+  box.hidden = false;
+  const waiting = apps.filter(a => a.status === "waiting");
+  $("appsCount").textContent = waiting.length ? `(${waiting.length} waiting)` : "";
+  const row = a => `<tr><td>${esc(a.name)}<br><span class="sub">${esc(a.email)}</span></td>
+    <td class="sub" style="max-width:28em">${esc(a.note || "")}</td><td class="sub">${ago(Math.floor(a.at / 1000))}</td>
+    <td>${a.status === "waiting"
+      ? `<button data-app="${esc(a.id)}" data-approve="1">Approve</button> <button data-app="${esc(a.id)}" data-approve="0">Decline</button>`
+      : `<span class="pill ${a.status === "approved" ? "ok" : "info"}">${esc(a.status)}</span>${a.error ? ` <span class="err">${esc(a.error)}</span>` : ""}`}</td></tr>`;
+  const shown = waiting.concat(apps.filter(a => a.status !== "waiting").slice(0, 5));
+  $("appsBody").innerHTML = shown.length ? `<table>${shown.map(row).join("")}</table>` : `<p class="sub">None yet.</p>`;
+}
+
 function renderInvites(s) {
   const el = $("invList");
   if (!el) return;
@@ -1023,6 +1049,7 @@ async function refresh() {
     renderNodes(s, s.peers.filter(p => !p.test), "nodes");
     renderAdd(s);
     renderInvites(s);
+    renderApplications(s);
     renderRestore(s.restore);
     renderRecovery(s.recovery);
     renderWorkCopy(s.workcopy);
@@ -1048,6 +1075,18 @@ async function refresh() {
 }
 
 document.addEventListener("click", async ev => {
+  const ab = ev.target.closest("button[data-app]");
+  if (ab) {
+    const yes = ab.dataset.approve === "1";
+    const who = ab.closest("tr").querySelector("td").firstChild.textContent;
+    if (!confirm(yes ? `Approve ${who}? They get an email with their invite.` : `Decline ${who}? They get a short email saying no.`)) return;
+    ab.disabled = true;
+    const r = await post("api/applications/decide", {headers: {"Content-Type": "application/json"}, body: JSON.stringify({id: ab.dataset.app, approve: yes})});
+    const out = r.ok ? await r.json() : {warning: await r.text()};
+    if (out.warning) alert(out.warning);
+    appsAt = 0; refresh();
+    return;
+  }
   const cp = ev.target.closest("button[data-copy]");
   if (cp) {
     const label = cp.textContent, el = $(cp.dataset.copy);

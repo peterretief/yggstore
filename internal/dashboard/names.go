@@ -16,6 +16,7 @@ import (
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/site"
 )
 
 // Names under the group's domain (see peers/names.go). A member asks for one
@@ -112,6 +113,8 @@ func (d *Dashboard) syncNames(ctx context.Context, list []peers.Peer) {
 					d.takeReturn(list, m.From, m.FromName, m.Body)
 				case typeBoxUsage:
 					d.takeUsage(list, m.From, m.FromName, m.Body)
+				case site.TypeApplication:
+					d.takeApplication(ctx, list, m.Body)
 				}
 			}
 		}

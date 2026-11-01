@@ -47,6 +47,9 @@ type Web struct {
 	// Deliver, if set, takes sites' contact forms: it stores a sealed
 	// message for a member's node to collect (mail.Node.Take).
 	Deliver func(ctx context.Context, node string, sealed []byte) (string, error)
+	// Apply, if set, passes an application to join (ApplyPath; an
+	// Application as JSON) to the group's admins.
+	Apply func(ctx context.Context, body string) error
 	// Who, if set, says whose an access token from the group's login is
 	// (its claims), for uploads to sites (see UploadPath).
 	Who func(ctx context.Context, token string) (map[string]any, bool)
@@ -538,6 +541,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == ContactPath {
 		w.contact(rw, r, name, owner, contact)
+		return
+	}
+	if r.URL.Path == ApplyPath {
+		w.apply(rw, r, name)
 		return
 	}
 	if r.URL.Path == UploadPath {

@@ -360,6 +360,30 @@ func (e *Engine) Send(to, typ, body string) (Message, error) {
 	return m, nil
 }
 
+// Note sends a direct message to a member, as Send does, or keeps it in
+// this node's own inbox when the member is this node: a web node that is
+// also the group's admin hands its dashboard a message that way.
+func (e *Engine) Note(to, typ, body string) error {
+	p, ok := e.member(to)
+	if !ok {
+		return fmt.Errorf("%q is not a member of the group", to)
+	}
+	if p.IP() != e.self {
+		_, err := e.Send(to, typ, body)
+		return err
+	}
+	m := Message{ID: newID(), From: e.self, To: e.self, Time: e.now().UnixMilli(), Type: typ, Body: body}
+	if err := validate(m); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.store(m, e.self) {
+		return errors.New("couldn't keep the message")
+	}
+	return nil
+}
+
 // Publish sends a message to a topic's subscribers. It is kept in the
 // topic's history too, for subscribers that miss it. If this node is
 // subscribed, it gets the message in its own inbox as well.
