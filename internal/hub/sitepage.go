@@ -40,6 +40,7 @@ type sitePageState struct {
 	Site     *PersonSiteStatus `json:"site,omitempty"`
 	Messages []mail.Summary    `json:"messages"`
 	Forward  *forwardState     `json:"forward,omitempty"`
+	Trial    bool              `json:"trial,omitempty"` // tighter limits on sending
 }
 
 type forwardState struct {
@@ -84,7 +85,7 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 	if r.Method == http.MethodGet {
 		switch op {
 		case "status":
-			out := sitePageState{Person: p.Name, Messages: []mail.Summary{}, Domain: peers.GroupDomain(list)}
+			out := sitePageState{Person: p.Name, Messages: []mail.Summary{}, Domain: peers.GroupDomain(list), Trial: p.trial()}
 			if named {
 				out.Name = from
 				if hasAddress {
@@ -141,6 +142,25 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 		default:
 			http.NotFound(w, r)
 		}
+		return
+	}
+	if op == "send" {
+		var req SendRequest
+		if err := json.NewDecoder(io.LimitReader(r.Body, maxSendText+16<<10)).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if !hasAddress {
+			fail(errors.New("You can send mail once you have an address in the group."))
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
+		defer cancel()
+		if err := f.send(ctx, p, peers.MailAddress(pn.Name), box, req); err != nil {
+			fail(err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var req struct {

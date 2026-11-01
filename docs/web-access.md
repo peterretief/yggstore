@@ -18,7 +18,9 @@ Syncthing, no node of their own.
    temporary password must be changed at once, to one of at least 10
    characters.
 3. **Their page opens:** their files (browse, upload, download, rename,
-   delete), their mail, and **Your website** if they have a name.
+   delete), their mail (read, write and reply, from their own address
+   only, to at most 20 people a message and 200 a day), and **Your
+   website** if they have a name.
 
 A session lasts 30 days unused. They see their signed-in browsers under
 **Your devices** and can sign any out.

@@ -23,6 +23,8 @@ h1 { font-size: 26px; margin: 0 0 6px; }
 .row .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .row .when { color: var(--sub); font-size: 14px; white-space: nowrap; }
 .ok { color: var(--ok); font-weight: 600; }
+textarea { width: 100%; min-height: 12em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+#compose input { max-width: none; margin-bottom: 8px; }
 input { width: 100%; max-width: 22em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
 button { padding: 6px 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 button:disabled { opacity: .5; cursor: default; }
@@ -37,6 +39,13 @@ a { color: var(--accent); }
 <main>
   <h1>Your mail</h1>
   <div class="sub"><span id="addr"></span><a href="/files">Your files</a> · <a href="/files/site">Your website</a></div>
+  <p id="writeBox" hidden><button id="write">Write</button> <span class="ok" id="sent"></span></p>
+  <div class="card" id="compose" hidden><h2 id="cTitle">New message</h2>
+    <input id="wTo" type="text" placeholder="To: their email address (more, separated by commas)" autocomplete="email">
+    <input id="wSub" type="text" placeholder="Subject" maxlength="200">
+    <textarea id="wText"></textarea>
+    <p><button id="send">Send</button> <button class="plain" id="cancel">Cancel</button></p>
+    <div class="sub" id="limits"></div><div class="err" id="wErr"></div></div>
   <div id="open"></div>
   <div class="card" id="inbox"><span class="sub">Loading…</span></div>
   <div class="card" id="fwdCard" hidden><h2>Forward to your email</h2><div id="fwd"></div></div>
@@ -90,15 +99,30 @@ async function show(id) {
   const r = await fetch("?op=message&id=" + encodeURIComponent(id), {cache: "no-store"});
   if (!r.ok) { $("open").innerHTML = `<p class="err">${esc((await r.text()).trim())}</p>`; return; }
   const m = await r.json();
-  const to = m.reply_to || m.from;
   const files = (m.attachments || []).map((a, n) =>
     `<a href="?op=attachment&id=${encodeURIComponent(m.id)}&n=${n}">${esc(a.name)}</a> <span class="sub">${size(a.size)}</span>`).join(" ");
   $("open").innerHTML = `<div class="card"><h2>${esc(m.subject || "(no subject)")}</h2>
     <div class="sub">From ${esc(m.from)}${m.reply_to ? ` (replies go to ${esc(m.reply_to)})` : ""}<br>To ${esc(m.to)}${m.cc ? `, cc ${esc(m.cc)}` : ""} · ${when(m.received)}</div>
     <pre>${esc(m.text)}</pre>
     ${files ? `<div class="files">${files}</div>` : ""}
-    <a href="mailto:${encodeURIComponent(to).replace(/%40/g, "@")}?subject=${encodeURIComponent("Re: " + (m.subject || ""))}"><button>Reply</button></a>
+    <button id="reply">Reply</button>
     <button class="plain" id="del" data-id="${esc(m.id)}">Delete</button> <button class="plain" id="close">Close</button></div>`;
+  shown = m;
+  window.scrollTo(0, 0);
+}
+// Writing: from their own address only, within the box's limits.
+let shown = null, replyTo = "";
+function compose(m) {
+  replyTo = m ? m.id : "";
+  $("cTitle").textContent = m ? "Reply" : "New message";
+  $("wTo").value = m ? (m.reply_to || m.from) : "";
+  $("wSub").value = m ? (/^re:/i.test(m.subject || "") ? m.subject : "Re: " + (m.subject || "")) : "";
+  $("wText").value = m ? "\n\n" + `On ${when(m.received)}, ${m.from} wrote:\n` + (m.text || "").split("\n").map(l => "> " + l).join("\n") : "";
+  $("wErr").textContent = "";
+  $("limits").textContent = "From " + st.address + (st.trial ? ". A message goes to at most 5 people, and 20 people a day in all." : ".");
+  $("compose").hidden = false;
+  (m ? $("wText") : $("wTo")).focus();
+  if (m) $("wText").setSelectionRange(0, 0);
   window.scrollTo(0, 0);
 }
 async function load() {
@@ -107,6 +131,7 @@ async function load() {
   $("addr").innerHTML = st.address ? `<b>${esc(st.address)}</b> · ` : "";
   $("inbox").innerHTML = inbox();
   $("fwdCard").hidden = $("note").hidden = !st.address;
+  $("writeBox").hidden = !st.address;
   if (!document.activeElement || !["to", "code"].includes(document.activeElement.id)) $("fwd").innerHTML = fwdCard();
 }
 document.addEventListener("click", async ev => {
@@ -114,6 +139,19 @@ document.addEventListener("click", async ev => {
   const row = t.closest(".row[data-id]");
   if (row) return show(row.dataset.id);
   if (t.id === "close") return show("");
+  if (t.id === "write") return compose(null);
+  if (t.id === "reply" && shown) return compose(shown);
+  if (t.id === "cancel") { $("compose").hidden = true; return; }
+  if (t.id === "send") {
+    t.disabled = true; $("wErr").textContent = "";
+    const r = await fetch("?op=send", {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"},
+      body: JSON.stringify({to: $("wTo").value, subject: $("wSub").value, text: $("wText").value, reply_to: replyTo})});
+    t.disabled = false;
+    if (!r.ok) { $("wErr").textContent = (await r.text()).trim(); return; }
+    $("compose").hidden = true;
+    $("sent").textContent = "Sent.";
+    setTimeout(() => { $("sent").textContent = ""; }, 5000);
+  }
   if (t.id === "del" && confirm("Delete this message?")) { if (await act("delete", {id: t.dataset.id})) show(""); }
   if (t.id === "fwdGo") act("forward", {to: $("to").value});
   if (t.id === "resend") act("forward", {to: t.dataset.to});

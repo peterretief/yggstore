@@ -17,7 +17,9 @@ the group's nodes run behind it, as for everyone else.
    first page at `https://NAME.DOMAIN`.
 4. **Sign in again** at `my.DOMAIN` with the email address they signed
    up with, or `NAME@DOMAIN`, and their password.
-5. **Leave** at the bottom of the page deletes their files, their website
+5. **Mail** to `NAME@DOMAIN` comes to their mail page, where they can
+   **Write** and **Reply** from that address.
+6. **Leave** at the bottom of the page deletes their files, their website
    and their account.
 
 They get 500 MB. An account nobody signs in to for 60 days is removed, with
@@ -47,6 +49,9 @@ an email a week before.
 
 - At most 50 trial accounts on the box, and 20 new ones a day.
 - 3 sign-ups a day from one internet address.
+- Mail they send goes to at most 5 people a message and 20 people a day
+  (others on a box: 20 and 200). It is always from their own address,
+  and the box logs each one, so the admin can see who sent what.
 - One email per address at a time: asking again sends the same link, at
   most every 10 minutes. A link works for 2 days.
 - Trial sites are ordinary group sites under the domain. The admin can

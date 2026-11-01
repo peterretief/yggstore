@@ -84,6 +84,9 @@ type Person struct {
 	Preview string `json:"preview,omitempty"`
 	// Trial is an account the person made themselves (see trial.go).
 	Trial *Trial `json:"trial,omitempty"`
+	// Sent is when each person they wrote to in the last day was sent
+	// to, from the mail page (see send.go).
+	Sent []int64 `json:"sent,omitempty"`
 }
 
 // Switches are what the hub's owner turns on and off.
