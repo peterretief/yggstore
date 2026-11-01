@@ -10,6 +10,7 @@
 
 - [Publish and preview websites](sites.md), from a folder, a dashboard or `git push`
 - [Set up and run a box from its own screen](box-setup.md)
+- [Run a box in Docker](docker-box.md)
 - [Use email at your own domain](mail.md)
 - [Sync laptops and phones with a box](hub.md)
 - [Open your files from other devices](remote-dashboard.md)

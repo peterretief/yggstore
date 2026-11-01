@@ -129,9 +129,9 @@ func cmdScreen(ctx context.Context, args []string) error {
 					return err
 				}
 				st = checkScreen(ctx, *peersPath, *name, d)
-			case k == "r":
+			case k == "r" && hasSystemd():
 				asking = "restart"
-			case k == "s":
+			case k == "s" && hasSystemd():
 				asking = "shut down"
 			}
 		}
@@ -154,7 +154,9 @@ func checkScreen(ctx context.Context, peersPath, name string, d dash) screenStat
 		st.Owner = owner
 		st.Lines = append(st.Lines, group, storage)
 	}
-	st.Lines = append(st.Lines, checkServices())
+	if hasSystemd() {
+		st.Lines = append(st.Lines, checkServices())
+	}
 	if on, people, err := boxPeople(d); err == nil && on {
 		if len(people) == 0 {
 			st.Setup = true
@@ -314,6 +316,14 @@ func checkGroup(ctx context.Context, list []peers.Peer, name string) (group, sto
 	return group, storage, owner
 }
 
+// hasSystemd is whether the box runs its services through systemd. A box
+// in a container doesn't: its container is restarted instead, so the
+// screen shows no services line and offers no restart or shutdown.
+func hasSystemd() bool {
+	_, err := os.Stat("/run/systemd/system")
+	return err == nil
+}
+
 // checkServices lists the box's own services that should be running.
 // Timer-started ones that have finished are left out.
 func checkServices() screenLine {
@@ -386,10 +396,14 @@ func renderScreen(st screenStatus, asking string) string {
 	b.WriteString("\n")
 	switch asking {
 	case "":
-		b.WriteString("  " + bold + "R" + off + " Restart    " + bold + "S" + off + " Shut down")
-		if !st.Setup {
-			b.WriteString("    " + bold + "A" + off + " Admin")
+		keys := []string{}
+		if hasSystemd() {
+			keys = append(keys, bold+"R"+off+" Restart", bold+"S"+off+" Shut down")
 		}
+		if !st.Setup {
+			keys = append(keys, bold+"A"+off+" Admin")
+		}
+		b.WriteString("  " + strings.Join(keys, "    "))
 		b.WriteString("\n")
 	default:
 		b.WriteString("  " + bold + strings.ToUpper(asking[:1]) + asking[1:] + " the box?" + off +

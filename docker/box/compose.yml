@@ -1,0 +1,22 @@
+# A yggstore box in a container. See docs/docker-box.md.
+#   docker compose -f docker/box/compose.yml up -d --build
+name: yggstore-box
+
+services:
+  box:
+    build:
+      context: ../..
+      dockerfile: docker/box/Dockerfile
+    image: yggstore-box
+    hostname: ${BOX_NAME:-my-box}
+    restart: unless-stopped
+    # Its own Yggdrasil needs a TUN device.
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 0
+    volumes:
+      - box-data:/data
+
+volumes:
+  box-data:
