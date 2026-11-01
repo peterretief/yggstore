@@ -772,13 +772,16 @@ function renderInvites(s) {
   el.innerHTML = rows ? `<table style="margin-top:10px">${rows}</table>` : "";
 }
 
-function inviteMessage(who, r) {
+// inviteMessage is the message to send with an invite. For WhatsApp the
+// line goes between ``` so its underscores aren't taken for italics.
+function inviteMessage(who, r, whatsapp) {
   const get = r.domain ? `https://get.${r.domain}` : "https://get.withcare.co.za";
+  const line = `curl -fsSL ${get}/install.sh | sh -s -- '${r.invite}'`;
   return `Hi ${who || "there"},
 
 Join ${r.group}: paste this line into a terminal on Linux or macOS. It installs yggstore, joins, and opens your dashboard. It's your own invite, and works once, for 7 days.
 
-curl -fsSL ${get}/install.sh | sh -s -- '${r.invite}'`;
+${whatsapp ? "```" + line + "```" : line}`;
 }
 
 function renderAccounts(s) {
@@ -1047,9 +1050,10 @@ async function refresh() {
 document.addEventListener("click", async ev => {
   const cp = ev.target.closest("button[data-copy]");
   if (cp) {
-    try { await copyText($(cp.dataset.copy).textContent); cp.textContent = "Copied"; }
-    catch { getSelection().selectAllChildren($(cp.dataset.copy)); cp.textContent = "Press Ctrl+C"; }
-    setTimeout(() => cp.textContent = "Copy", 1500);
+    const label = cp.textContent, el = $(cp.dataset.copy);
+    try { await copyText(el.textContent); cp.textContent = "Copied"; }
+    catch { el.hidden = false; getSelection().selectAllChildren(el); cp.textContent = "Press Ctrl+C"; }
+    setTimeout(() => cp.textContent = label, 1500);
     return;
   }
   if (ev.target.id === "cAdd") {
@@ -1106,8 +1110,10 @@ document.addEventListener("click", async ev => {
       if (!r.ok) throw new Error(await r.text());
       const inv = await r.json();
       $("invOut").innerHTML = `<p class="sub" style="margin:10px 0 4px">Send them this message (it contains the invite):</p>
-        <pre id="invText"></pre><button data-copy="invText">Copy</button>`;
+        <pre id="invText"></pre><button data-copy="invText">Copy</button>
+        <button data-copy="invWA">Copy for WhatsApp</button><pre id="invWA" hidden></pre>`;
       $("invText").textContent = inviteMessage(who, inv);
+      $("invWA").textContent = inviteMessage(who, inv, true);
       $("invMsg").textContent = "";
       refresh();
     } catch (e) { $("invMsg").textContent = "No invite: " + e.message; }
