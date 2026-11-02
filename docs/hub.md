@@ -187,6 +187,11 @@ the Pi on the same network; nothing is typed on the Pi. Its settings are in
    starts everything at boot, and checks it works. It ends with the box's
    page address. Run it again after fixing whatever stopped it.
 
+With the shards on a USB drive, the node stops if the drive drops off,
+rather than fill the card, and the drive is mounted and the node started
+again when it's back. For a drive set up by hand, run
+`scripts/drive-follows.sh MOUNTPOINT LABEL SERVICE` on the box as root.
+
 A Pi Zero 2 W (Wi-Fi only, shards on a USB stick through an OTG adapter)
 uses `factory/zero.conf` and `scripts/setup-zero.sh /dev/sdX`, which writes
 the card, waits for the Zero and sets it up.

@@ -170,14 +170,18 @@ if [ "${STORAGE:-sd}" = usb ]; then
 			ok "formatted $stick as yggdata"
 		fi
 		# nofail: the Pi still boots without it; the node then waits for it
-		# rather than filling the SD card.
+		# rather than filling the SD card, and starts again when it's back
+		# (drive-follows.sh).
 		on "mkdir -p $SHARDS
 			grep -q '^LABEL=yggdata ' /etc/fstab || echo 'LABEL=yggdata $SHARDS ext4 defaults,noatime,nofail 0 2' >> /etc/fstab
-			mkdir -p /etc/systemd/system/yggstore-node.service.d
-			printf '[Unit]\nRequiresMountsFor=$SHARDS\n' > /etc/systemd/system/yggstore-node.service.d/storage.conf
 			systemctl daemon-reload
 			mount $SHARDS && chmod 700 $SHARDS"
-		ok "the stick is mounted at $SHARDS, at every boot"
+		if [ -n "$DRY" ]; then
+			ok "[on the Pi] the node follows the stick: down without it, back when it's back"
+		else
+			ssh "${SSH_OPTS[@]}" "$TARGET" "$SUDO sh -s -- $SHARDS yggdata yggstore-node" <"$(dirname "$0")/drive-follows.sh" >/dev/null
+		fi
+		ok "the stick is mounted at $SHARDS, at every boot, and again if it drops off"
 	fi
 fi
 
