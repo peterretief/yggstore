@@ -183,9 +183,11 @@ For a form in your own design, post to the same address:
   the subject.
 - `_next` is the page shown afterwards. A script posting with
   `Accept: application/json` gets `{"ok":true}`.
-- `_gotcha` catches robots: a post with it filled is dropped.
-- Limits: 64 KiB a message, five from one address every ten minutes, 100 a
-  day per site on each web node.
+- `_gotcha` catches robots: a post with it filled is dropped. So is one
+  with a link or HTML in a name, subject or phone field, which no person
+  writes there.
+- Limits: 64 KiB a message, three from one address an hour, 100 a day per
+  site on each web node.
 
 To also get the messages at another address, use **Also send its messages
 to** on the dashboard and type in the code sent there.

@@ -181,7 +181,7 @@ A form that posts to `/_yggstore/contact` reaches you as an email in the dashboa
 - Fill the `<select>` from the database, as in step 3, and show the price beside it with `ygg.price`, as in step 4.
 - Any field names, up to 30; they arrive in order. `email` becomes the reply-to address.
 - `_subject` is the email's subject, `_next` the page shown afterwards, `_gotcha` a hidden trap: a post that fills it is dropped as a robot's.
-- Limits: 5 messages per sender in a short time, 100 per site a day.
+- Limits: 3 messages per sender an hour, 100 per site a day. A post with a link in a name or subject field is dropped as a robot's.
 - The Vite preview answers it with "page not found". `yggstore site dev` on the built folder takes it and prints what was sent.
 
 Turn the form on once the site is published (step 6): `bin/yggstore site contact courses.withcare.co.za on`, in `/media/peter/storage1/YGGSTORE`.

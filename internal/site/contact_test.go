@@ -195,3 +195,20 @@ func TestContactLink(t *testing.T) {
 		t.Fatal("a page that links to the form already got a second link")
 	}
 }
+
+func TestContactJunk(t *testing.T) {
+	for _, c := range []struct {
+		fields []field
+		junk   bool
+	}{
+		{[]field{{"name", "* * * $3,222 credit available! Confirm your transaction here: https://google.com * * *"}, {"message", "dmgqde"}}, true},
+		{[]field{{"first_name", `<a href="https://x.example">win</a>`}}, true},
+		{[]field{{"subject", "see www.cheap.example"}}, true},
+		{[]field{{"name", "Anna Smith"}, {"message", "Our site is https://anna.example, can you quote?"}}, false},
+		{[]field{{"name", "Bob"}, {"company", "www.bob.example"}, {"phone", "021 555 1234"}}, false},
+	} {
+		if got := junk(c.fields) != ""; got != c.junk {
+			t.Errorf("%v: junk %v, want %v", c.fields, got, c.junk)
+		}
+	}
+}

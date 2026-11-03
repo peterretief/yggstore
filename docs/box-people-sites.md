@@ -115,8 +115,9 @@ needs stage 1 keys, as explained above.
 
 ## Limits
 
-- The spam limits stay as they are: 5 messages per visitor every 10
-  minutes, 100 per site a day, and the hidden robot field.
+- The spam limits stay as they are: 3 messages per visitor an hour, 100
+  per site a day, the hidden robot field, and no links in a name or
+  subject.
 - The box admin's storage quota for the person counts their website too.
 - Web nodes serve the site, and those are the desktop for now. So the form
   works while a web node is up. That's no change from today.

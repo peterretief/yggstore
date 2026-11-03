@@ -42,8 +42,8 @@ const ContactPath = "/_yggstore/contact"
 const (
 	contactMaxBody   = 64 << 10
 	contactMaxFields = 30
-	contactPerIP     = 5 // messages per visitor address every contactIPWindow
-	contactIPWindow  = 10 * time.Minute
+	contactPerIP     = 3 // messages per visitor address every contactIPWindow
+	contactIPWindow  = time.Hour
 	contactPerSite   = 100 // messages per site a day, per web node
 )
 
@@ -101,6 +101,11 @@ func (w *Web) contact(rw http.ResponseWriter, r *http.Request, site, owner, code
 		contactDone(rw, r, next)
 		return
 	}
+	if why := junk(fields); why != "" {
+		w.logf("web: contact form on %s: dropped a post from %s: %s", site, ip, why)
+		contactDone(rw, r, next)
+		return
+	}
 	if !w.limit.allow("ip "+ip, contactPerIP, contactIPWindow) {
 		contactReply(rw, r, http.StatusTooManyRequests, "Too many messages from your address; please try again later.")
 		return
@@ -124,6 +129,27 @@ func (w *Web) contact(rw http.ResponseWriter, r *http.Request, site, owner, code
 	}
 	w.logf("web: contact form on %s: message %s for %s", site, id, owner)
 	contactDone(rw, r, next)
+}
+
+// junk says why a post is a robot's, from what no person writes: a link
+// or HTML in a name, subject or phone field ("$3,222 credit available!
+// https://…" as a name). It's "" for a post that may be a person's. A
+// message with a link in it is fine: only these short fields are looked at.
+func junk(fields []field) string {
+	for _, f := range fields {
+		n := strings.ToLower(strings.TrimPrefix(f.name, "_"))
+		short := strings.Contains(n, "name") || strings.Contains(n, "subject") || strings.Contains(n, "phone") || strings.Contains(n, "tel")
+		if !short || strings.Contains(n, "company") || strings.Contains(n, "business") {
+			continue
+		}
+		v := strings.ToLower(f.value)
+		for _, bad := range []string{"http://", "https://", "www.", "<a ", "href=", "</"} {
+			if strings.Contains(v, bad) {
+				return fmt.Sprintf("a link or HTML in its %s field", f.name)
+			}
+		}
+	}
+	return ""
 }
 
 // readFields reads a form, url-encoded or multipart, in its order. Files
