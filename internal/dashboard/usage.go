@@ -226,6 +226,30 @@ func (d *Dashboard) today(list []peers.Peer) []storageToday {
 	return out
 }
 
+// pending is each person's storage not yet in the ledger: what carried
+// over from earlier days (less than a whole ygg) and today's count so far,
+// plus for what their nodes held for others, minus for what others held
+// for them. The caller holds walletMu.
+func (d *Dashboard) pending(list []peers.Peer) map[string]float64 {
+	out := map[string]float64{}
+	if d.storage == nil {
+		return out
+	}
+	for key, c := range d.storage.Carry {
+		writer, holder, _ := strings.Cut(key, "\t")
+		out[holder] += c
+		out[writer] -= c
+	}
+	for _, t := range d.today(list) {
+		if t.Holder == "" || t.Holder == t.Writer {
+			continue // your own nodes are free
+		}
+		out[t.Holder] += t.Yggs
+		out[t.Writer] -= t.Yggs
+	}
+	return out
+}
+
 // usageNode and usagePerson are what is stored now, worked out by each
 // dashboard from the nodes it polls.
 type usageNode struct {

@@ -61,6 +61,8 @@ type walletView struct {
 	// Rate the storage rate, yggs per GB-month.
 	Today []storageToday `json:"today,omitempty"`
 	Rate  int64          `json:"rate,omitempty"`
+	// Pending is everyone's storage not yet in the ledger, in yggs.
+	Pending map[string]float64 `json:"pending,omitempty"`
 }
 
 // sentPayment is a payment sent to the keeper, until the ledger has it.
@@ -159,7 +161,7 @@ func (d *Dashboard) ledger() (*ygg.Ledger, error) {
 // view is account's part of the ledger, as the keeper has it.
 func (d *Dashboard) view(lg *ygg.Ledger, list []peers.Peer, account string) walletView {
 	v := walletView{Account: account, Balances: lg.Balances(), History: lg.History(account, walletHistory), At: time.Now().Unix(),
-		Today: d.today(list), Rate: d.storageRate()}
+		Today: d.today(list), Rate: d.storageRate(), Pending: d.pending(list)}
 	for _, a := range walletAccounts(list) {
 		v.Balances[a] += 0 // everyone, at 0 until they pay or are paid
 	}
@@ -305,9 +307,10 @@ func newPaymentID() string {
 }
 
 type walletBalance struct {
-	Account string `json:"account"`
-	Balance int64  `json:"balance"`
-	Me      bool   `json:"me,omitempty"`
+	Account string  `json:"account"`
+	Balance int64   `json:"balance"`
+	Pending float64 `json:"pending"` // storage not yet in the ledger
+	Me      bool    `json:"me,omitempty"`
 }
 
 type walletOut struct {
@@ -317,6 +320,7 @@ type walletOut struct {
 	Keeper   string          `json:"keeper,omitempty"` // the node keeping the ledger
 	Keeping  bool            `json:"keeping,omitempty"`
 	Balance  int64           `json:"balance"`
+	Pending  float64         `json:"pending"` // storage not yet in the ledger, in yggs
 	Balances []walletBalance `json:"balances"`
 	History  []ygg.Payment   `json:"history"`
 	Sent     []sentPayment   `json:"sent"`
@@ -400,7 +404,7 @@ func (d *Dashboard) handleWallet(w http.ResponseWriter, r *http.Request) {
 	out.Nodes, out.People = d.usageNow(list)
 	out.Today, out.Rate = []storageToday{}, d.storageRate()
 	if v != nil {
-		out.Balance, out.History, out.At = v.Balances[out.Account], v.History, v.At
+		out.Balance, out.History, out.At, out.Pending = v.Balances[out.Account], v.History, v.At, v.Pending[out.Account]
 		if v.Today != nil {
 			out.Today = v.Today
 		}
@@ -408,7 +412,7 @@ func (d *Dashboard) handleWallet(w http.ResponseWriter, r *http.Request) {
 			out.Rate = v.Rate
 		}
 		for a, b := range v.Balances {
-			out.Balances = append(out.Balances, walletBalance{Account: a, Balance: b, Me: a == out.Account})
+			out.Balances = append(out.Balances, walletBalance{Account: a, Balance: b, Pending: v.Pending[a], Me: a == out.Account})
 		}
 		sort.Slice(out.Balances, func(i, j int) bool { return out.Balances[i].Account < out.Balances[j].Account })
 	}

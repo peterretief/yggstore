@@ -231,6 +231,7 @@ dialog select, dialog input[type=text] { display: block; width: 100%; margin-top
     <div class="card">
       <div class="sub">Your balance<span id="walletWho"></span></div>
       <div class="bal" id="walletBal">…</div>
+      <div class="sub" id="walletPending"></div>
       <div class="sub" id="walletNote" style="margin-top:6px"></div>
       <div id="walletLimit"></div>
     </div>
@@ -1912,6 +1913,12 @@ async function refreshWallet() {
   $("walletWho").textContent = ` (${w.account})`;
   $("walletBal").className = "bal" + (w.balance < 0 ? " neg" : "");
   $("walletBal").innerHTML = known ? `${yggNum(w.balance)} yggs<span class="usd">${yggUsd(w.balance)}</span>` : "…";
+  // Storage builds up all the time but goes into the ledger a whole ygg
+  // at a time, at midnight (UTC): show what's on its way.
+  const pend = n => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toFixed(Math.abs(n) >= 10 ? 1 : 3);
+  $("walletPending").innerHTML = known && Math.abs(w.pending || 0) >= 0.0005
+    ? `<span class="num ${w.pending < 0 ? "minus" : "plus"}">${pend(w.pending)} yggs</span> of storage on its way: it goes in a whole ygg at a time, at midnight (UTC).`
+    : "";
   $("walletNote").textContent = w.keeping ? "This box keeps the group's ledger."
     : `The ledger is kept by ${w.keeper}. ` + (w.at ? `It last told this box at ${new Date(w.at * 1000).toLocaleString()}.` : "Asking it for your balance…");
   $("walletLimit").innerHTML = w.balance < -w.limit
@@ -1931,6 +1938,7 @@ async function refreshWallet() {
   }).join("") || `<tr><td colspan="4" class="sub">No payments yet.</td></tr>`;
   $("walletBalances").innerHTML = w.balances.map(b => `<tr><td>${esc(b.account)}${b.me ? ` <span class="pill info">you</span>` : ""}</td>
     <td class="num ${b.balance < 0 ? "minus" : b.balance > 0 ? "plus" : ""}" style="text-align:right">${yggNum(b.balance)} yggs</td>
+    <td class="num sub" style="text-align:right">${Math.abs(b.pending || 0) >= 0.0005 ? pend(b.pending) + " on its way" : ""}</td>
     <td class="num sub" style="text-align:right">${yggUsd(b.balance)}</td></tr>`).join("") || `<tr><td class="sub">Nobody has paid anyone yet.</td></tr>`;
   const fy = n => Math.abs(n) >= 10 ? yggNum(Math.round(n)) : n.toFixed(2);
   const r = `style="text-align:right"`, sz = n => !n ? "–" : n >= 1e9 ? (n / 1e9).toFixed(n >= 1e11 ? 0 : 1) + " GB" : (n / 1e6).toFixed(0) + " MB";
