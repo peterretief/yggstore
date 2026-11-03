@@ -267,6 +267,8 @@ func contactMessage(site, subject, ip, page string, fields []field, now time.Tim
 	if subject == "" {
 		subject = "A message"
 	}
+	score, why := suspicion(site, fields)
+	possible := score >= spamMark
 	idb := make([]byte, 12)
 	rand.Read(idb)
 	from := (&netmail.Address{Name: "Contact form on " + site, Address: "contact-form@" + site}).String()
@@ -278,7 +280,12 @@ func contactMessage(site, subject, ip, page string, fields []field, now time.Tim
 	if replyTo != "" {
 		hdr("Reply-To", replyTo)
 	}
-	hdr("Subject", mime.QEncoding.Encode("utf-8", "["+site+"] "+subject))
+	if possible {
+		hdr("Subject", mime.QEncoding.Encode("utf-8", "[Possible spam] ["+site+"] "+subject))
+		hdr("X-Yggstore-Spam", fmt.Sprintf("possible; score %d; %s", score, strings.Join(why, "; ")))
+	} else {
+		hdr("Subject", mime.QEncoding.Encode("utf-8", "["+site+"] "+subject))
+	}
 	hdr("Date", now.Format(time.RFC1123Z))
 	hdr("Message-ID", "<"+hex.EncodeToString(idb)+"@"+site+">")
 	hdr("X-Yggstore-Contact-Form", site+"; from "+ip)
@@ -301,6 +308,9 @@ func contactMessage(site, subject, ip, page string, fields []field, now time.Tim
 	}
 	where := "https://" + site + page
 	fmt.Fprintf(&text, "\n-- \nSent with the contact form on %s from %s, %s.\n", where, ip, now.Format("2 Jan 2006 15:04 MST"))
+	if possible {
+		fmt.Fprintf(&text, "Marked as possible spam: %s. It may still be a real enquiry.\n", strings.Join(why, ", "))
+	}
 	qp := quotedprintable.NewWriter(&b)
 	sc := bufio.NewScanner(strings.NewReader(text.String()))
 	sc.Buffer(nil, contactMaxBody)

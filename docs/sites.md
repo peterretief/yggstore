@@ -188,6 +188,11 @@ For a form in your own design, post to the same address:
   writes there.
 - Limits: 64 KiB a message, three from one address an hour, 100 a day per
   site on each web node.
+- A message that looks like spam but may be real (a throwaway email
+  address, random letters where words go, a field from a WordPress form,
+  sales words with a link elsewhere) still comes, with its subject
+  starting **[Possible spam]** and the reasons at the end, so a mail
+  filter can sort it.
 
 To also get the messages at another address, use **Also send its messages
 to** on the dashboard and type in the code sent there.
