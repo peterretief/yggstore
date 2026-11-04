@@ -1,19 +1,30 @@
-const PKGS = JSON.parse(document.getElementById("data").textContent);
-const REPO = "https://github.com/peterretief/yggstore/blob/" + document.getElementById("data").dataset.rev + "/";
+const DATA = JSON.parse(document.getElementById("data").textContent);
+const PKGS = DATA.pkgs;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const num = n => n.toLocaleString("en");
+$("module").textContent = DATA.module;
 
-// What each package is for, grouped by area.
-const AREAS = [
+// Areas colour the packages. yggstore's are named by what they're for;
+// any other module's are its top-level folders.
+const PALETTE = ["store", "net", "web", "mail", "people", "app", "util"];
+let AREAS = [
   ["store", "Storing pieces", ["erasure", "manifest", "files", "localstore", "lease", "challenge", "cryptofile", "repair", "server", "client"]],
   ["net", "Network and messages", ["yggnet", "mesh", "transport", "peers", "msg", "syncthing"]],
   ["web", "Websites and sign-in", ["site", "websites", "sitemove", "light", "passkey", "password", "gateway"]],
   ["mail", "Mail", ["mail", "mailbridge"]],
   ["people", "Boxes and people", ["hub", "workhere", "workcopy", "recovery", "devices", "contacts", "share", "invite", "outbox"]],
   ["app", "Dashboard and command", ["dashboard", "ygg", "cmd/yggstore"]],
-  ["util", "Small helpers", ["atomicfile", "filelock"]],
+  ["util", "Small helpers and tools", ["atomicfile", "filelock", "tools/codemap"]],
 ];
+if (DATA.module !== "github.com/peterretief/yggstore") {
+  const tops = {};
+  for (const p of PKGS) (tops[p.path.split("/")[0]] ||= []).push(p.path);
+  const groups = Object.entries(tops).sort((a, b) => b[1].length - a[1].length);
+  const rest = groups.slice(PALETTE.length - 1).flatMap(g => g[1]);
+  AREAS = groups.slice(0, PALETTE.length - (rest.length ? 1 : 0)).map(([top, list], i) => [PALETTE[i], top + (list.length > 1 ? "/…" : ""), list]);
+  if (rest.length) AREAS.push([PALETTE[PALETTE.length - 1], "other folders", rest]);
+}
 const areaOf = {};
 for (const [k, , list] of AREAS) for (const p of list) areaOf[p] = k;
 const color = p => `var(--a-${areaOf[p] || "util"})`;
@@ -76,7 +87,7 @@ for (const p of PKGS) {
     <text x="${q.cx + 2}" y="${q.y + 19}" text-anchor="middle">${esc(p.path.replace("cmd/", ""))}</text>
     <title>${esc(p.path)}: ${p.nfn} functions, ${num(p.lines)} lines${p.doc ? "\n" + p.doc : ""}</title></g>`;
 }
-const labels = rows.map((r, i) => `<text class="layer" x="8" y="${height - (i + 1) * ROWH + 8}">${i === 0 ? "foundations" : i === rows.length - 1 ? "the command" : "row " + (i + 1)}</text>`).join("");
+const labels = rows.map((r, i) => `<text class="layer" x="8" y="${height - (i + 1) * ROWH + 8}">${i === 0 ? "foundations" : i === rows.length - 1 ? "the top" : "row " + (i + 1)}</text>`).join("");
 svg.innerHTML = labels + `<g>${edges}</g><g>${nodes}</g>`;
 
 function highlight(p) {
@@ -98,12 +109,13 @@ svg.addEventListener("click", ev => { const n = ev.target.closest(".node"); if (
 svg.addEventListener("keydown", ev => { const n = ev.target.closest(".node"); if (n && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); select(n.dataset.p, true); } });
 
 // --- The browser.
-let curPkg = "cmd/yggstore", curFile = "", query = "", exportedOnly = false;
+// Open on the package at the top of the map: the module's main command.
+let curPkg = rows[rows.length - 1][0], curFile = "", query = "", exportedOnly = false;
 const sig = (f, p) => `<span class="r">${f.r ? "(" + esc(f.r) + ") " : ""}</span><span class="${f.e ? "x" : ""}">${esc(f.n)}</span>`;
 const maxLen = Math.max(...PKGS.flatMap(p => p.files.flatMap(f => f.funcs.map(x => x.s))));
 const fnRow = (f, p, file, showWhere) => `<div class="fn">
   <div class="sig">${sig(f, p)}${showWhere ? ` <span class="r">· ${esc(p)}/${esc(file)}</span>` : ""}</div>
-  <div class="meta">${f.s} lines · <a href="${REPO}${p === "cmd/yggstore" ? "cmd/yggstore" : "internal/" + p}/${esc(file)}#L${f.l}" target="_blank" rel="noopener">source</a></div>
+  <div class="meta">${f.s} lines${DATA.source ? ` · <a href="${esc(DATA.source + (byPath[p].dir ? byPath[p].dir + "/" : "") + file)}#L${f.l}" target="_blank" rel="noopener">source</a>` : ""}</div>
   ${f.d ? `<div class="doc">${esc(f.d)}</div>` : ""}
   <div class="bar" style="width:${Math.max(2, 100 * f.s / Math.min(maxLen, 200))}%;max-width:100%"></div></div>`;
 
@@ -154,5 +166,5 @@ $("files").addEventListener("click", ev => {
 });
 $("q").addEventListener("input", ev => { query = ev.target.value.trim().toLowerCase(); renderFns(); });
 $("exported").addEventListener("change", ev => { exportedOnly = ev.target.checked; renderFns(); });
-$("foot").textContent = `From the source at commit ${document.getElementById("data").dataset.rev}. Bold names are exported; “source” opens the line on GitHub.`;
+$("foot").textContent = `From ${DATA.module}${DATA.rev ? " at commit " + DATA.rev : ""}. Bold names are exported${DATA.source ? "; “source” opens the line on GitHub" : ""}. Made with codemap (github.com/peterretief/yggstore/tools/codemap).`;
 select(curPkg);

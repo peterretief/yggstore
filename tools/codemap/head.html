@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>yggstore code map</title>
+<title>{{NAME}} code map</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
@@ -93,8 +93,8 @@ input[type=search] { font: 14px var(--body); padding: 8px 12px; border: 1px soli
 <body>
 <main>
   <header>
-    <h1>yggstore code map</h1>
-    <p class="lede">Every Go package in the repository, what it builds on, and the functions in each of its files. Tests are left out.</p>
+    <h1>{{NAME}} code map</h1>
+    <p class="lede">Every Go package in <span id="module"></span>, what it builds on, and the functions in each of its files. Tests are left out.</p>
     <div class="stats" id="stats"></div>
   </header>
 
@@ -102,7 +102,7 @@ input[type=search] { font: 14px var(--body); padding: 8px 12px; border: 1px soli
     <h2>How the packages fit together</h2>
     <div class="legend" id="legend"></div>
     <div class="mapwrap"><svg id="map" role="img" aria-label="Package dependency map"></svg></div>
-    <p class="hint" id="hint">Each row builds only on the rows below it. Box width grows with the number of functions. Pick a package to see <em class="d">what it uses</em> and <em class="u">what uses it</em>.</p>
+    <p class="hint" id="hint">Each row builds only on the rows below it, within the module. Box width grows with the number of functions. Pick a package to see <em class="d">what it uses</em> and <em class="u">what uses it</em>.</p>
   </section>
 
   <section>

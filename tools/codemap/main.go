@@ -1,21 +1,28 @@
-// Command codemap writes docs/code-map.html: every package in the
-// repository, what it builds on, and the functions in each of its files.
+// Command codemap writes one HTML page that maps a Go module: every
+// package, what it builds on within the module, and the functions in each
+// of its files, searchable and, for a module on GitHub, linked to the
+// source. Tests are left out.
 //
-//	go run ./tools/codemap            # from the repository's root
+//	go run ./tools/codemap -o docs/code-map.html     # yggstore's own
+//	go run github.com/peterretief/yggstore/tools/codemap@latest -root ~/src/other -o other-map.html
 package main
 
 import (
+	"bufio"
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"html"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -28,47 +35,116 @@ type fn struct {
 	Exp  bool   `json:"e,omitempty"`
 	Doc  string `json:"d,omitempty"`
 }
+
 type file struct {
 	Name  string `json:"name"`
 	Lines int    `json:"lines"`
 	Funcs []fn   `json:"funcs"`
 }
+
 type pkg struct {
-	Path    string   `json:"path"`
+	Path    string   `json:"path"` // as shown: the directory, without internal/
+	Dir     string   `json:"dir"`  // the directory in the module ("" at its root)
 	Doc     string   `json:"doc,omitempty"`
-	Imports []string `json:"imports"`
+	Imports []string `json:"imports"` // other packages in the module, by Path
 	Files   []file   `json:"files"`
 }
 
+// page is what the page's script is given.
+type page struct {
+	Module string `json:"module"`
+	Name   string `json:"name"`             // the module's last element, for the title
+	Source string `json:"source,omitempty"` // https://github.com/OWNER/REPO/blob/REV/, for links
+	Rev    string `json:"rev,omitempty"`
+	Pkgs   []*pkg `json:"pkgs"`
+}
+
 //go:embed head.html
-var head []byte
+var head string
 
 //go:embed page.js
 var script []byte
 
 func main() {
-	root := flag.String("root", ".", "the repository")
-	out := flag.String("o", "docs/code-map.html", "the page to write")
+	root := flag.String("root", ".", "the module's folder (where its go.mod is)")
+	out := flag.String("o", "code-map.html", "the page to write")
 	flag.Parse()
-	pkgs := read(*root, "github.com/peterretief/yggstore")
-	rev, _ := exec.Command("git", "-C", *root, "rev-parse", "--short", "HEAD").Output()
-	data, _ := json.Marshal(pkgs)
+	if err := run(*root, *out); err != nil {
+		fmt.Fprintln(os.Stderr, "codemap:", err)
+		os.Exit(1)
+	}
+}
+
+func run(root, out string) error {
+	mod, err := modulePath(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return err
+	}
+	pg := page{Module: mod, Name: mod[strings.LastIndex(mod, "/")+1:], Pkgs: read(root, mod)}
+	if len(pg.Pkgs) == 0 {
+		return errors.New("no Go packages under " + root)
+	}
+	if b, err := exec.Command("git", "-C", root, "rev-parse", "--short", "HEAD").Output(); err == nil {
+		pg.Rev = strings.TrimSpace(string(b))
+	}
+	if parts := strings.Split(mod, "/"); len(parts) >= 3 && parts[0] == "github.com" && pg.Rev != "" {
+		// The module's folder in its repository, if it isn't the root.
+		sub := ""
+		if top, err := exec.Command("git", "-C", root, "rev-parse", "--show-prefix").Output(); err == nil {
+			sub = strings.TrimSpace(string(top))
+		}
+		pg.Source = "https://github.com/" + parts[1] + "/" + parts[2] + "/blob/" + pg.Rev + "/" + sub
+	}
+	data, _ := json.Marshal(pg)
 	var b bytes.Buffer
-	b.Write(head)
-	fmt.Fprintf(&b, "<script type=\"application/json\" id=\"data\" data-rev=\"%s\">", strings.TrimSpace(string(rev)))
-	b.Write(bytes.ReplaceAll(data, []byte("</"), []byte("<\\/")))
+	b.WriteString(strings.ReplaceAll(head, "{{NAME}}", html.EscapeString(pg.Name)))
+	b.WriteString(`<script type="application/json" id="data">`)
+	b.Write(bytes.ReplaceAll(data, []byte("</"), []byte(`<\/`)))
 	b.WriteString("</script>\n<script>\n")
 	b.Write(script)
 	b.WriteString("</script>\n</body>\n</html>\n")
-	if err := os.WriteFile(*out, b.Bytes(), 0o644); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	if err := os.WriteFile(out, b.Bytes(), 0o644); err != nil {
+		return err
 	}
-	fmt.Printf("wrote %s: %d packages\n", *out, len(pkgs))
+	fmt.Printf("wrote %s: %s, %d packages\n", out, mod, len(pg.Pkgs))
+	return nil
 }
 
-// read lists root's packages (tests left out), named without internal/.
+// modulePath is the module line of a go.mod.
+func modulePath(gomod string) (string, error) {
+	f, err := os.Open(gomod)
+	if err != nil {
+		return "", fmt.Errorf("%w (run it in a Go module's folder, or give -root)", err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		if m, ok := strings.CutPrefix(strings.TrimSpace(sc.Text()), "module "); ok {
+			return strings.Trim(strings.TrimSpace(m), `"`), nil
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", err
+	}
+	return "", errors.New(gomod + " has no module line")
+}
+
+// shown is how a package's directory is shown: without internal/, and
+// the module's own name at its root.
+func shown(dir, name string) string {
+	switch dir {
+	case "", ".":
+		return name
+	case "internal":
+		return "internal"
+	}
+	return strings.TrimPrefix(dir, "internal/")
+}
+
+// read lists the module's packages, tests left out. Folders with their
+// own go.mod are other modules, and left out too.
 func read(root, mod string) []*pkg {
+	name := mod[strings.LastIndex(mod, "/")+1:]
 	byDir := map[string]*pkg{}
 	fset := token.NewFileSet()
 	filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
@@ -77,8 +153,13 @@ func read(root, mod string) []*pkg {
 		}
 		if d.IsDir() {
 			n := d.Name()
-			if p != root && (strings.HasPrefix(n, ".") || n == "testdata" || n == "node_modules" || n == "docs" || n == "get" || n == "bin" || n == "tools") {
-				return filepath.SkipDir
+			if p != root {
+				if strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_") || n == "testdata" || n == "vendor" || n == "node_modules" {
+					return filepath.SkipDir
+				}
+				if _, err := os.Stat(filepath.Join(p, "go.mod")); err == nil {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}
@@ -90,9 +171,13 @@ func read(root, mod string) []*pkg {
 			return nil
 		}
 		dir, _ := filepath.Rel(root, filepath.Dir(p))
+		dir = filepath.ToSlash(dir)
+		if dir == "." {
+			dir = ""
+		}
 		pk := byDir[dir]
 		if pk == nil {
-			pk = &pkg{Path: filepath.ToSlash(dir)}
+			pk = &pkg{Path: shown(dir, name), Dir: dir, Imports: []string{}}
 			byDir[dir] = pk
 		}
 		if f.Doc != nil && pk.Doc == "" {
@@ -100,14 +185,15 @@ func read(root, mod string) []*pkg {
 		}
 		for _, im := range f.Imports {
 			v := strings.Trim(im.Path.Value, `"`)
-			if strings.HasPrefix(v, mod+"/") {
-				t := strings.TrimPrefix(v, mod+"/")
-				if !contains(pk.Imports, t) {
-					pk.Imports = append(pk.Imports, t)
-				}
+			t, ok := strings.CutPrefix(v, mod+"/")
+			if v == mod {
+				t, ok = "", true
+			}
+			if t = shown(t, name); ok && !slices.Contains(pk.Imports, t) {
+				pk.Imports = append(pk.Imports, t)
 			}
 		}
-		fl := file{Name: filepath.Base(p), Lines: fset.File(f.Pos()).LineCount()}
+		fl := file{Name: filepath.Base(p), Lines: fset.File(f.Pos()).LineCount(), Funcs: []fn{}}
 		for _, decl := range f.Decls {
 			fd, ok := decl.(*ast.FuncDecl)
 			if !ok {
@@ -120,7 +206,10 @@ func read(root, mod string) []*pkg {
 				if s, ok := t.(*ast.StarExpr); ok {
 					t = s.X
 				}
-				if ix, ok := t.(*ast.IndexExpr); ok {
+				switch ix := t.(type) {
+				case *ast.IndexExpr:
+					t = ix.X
+				case *ast.IndexListExpr:
 					t = ix.X
 				}
 				if id, ok := t.(*ast.Ident); ok {
@@ -139,28 +228,10 @@ func read(root, mod string) []*pkg {
 	for _, p := range byDir {
 		sort.Strings(p.Imports)
 		sort.Slice(p.Files, func(i, j int) bool { return p.Files[i].Name < p.Files[j].Name })
-		if p.Imports == nil {
-			p.Imports = []string{}
-		}
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	for _, p := range out {
-		p.Path = strings.TrimPrefix(p.Path, "internal/")
-		for i, im := range p.Imports {
-			p.Imports[i] = strings.TrimPrefix(im, "internal/")
-		}
-	}
 	return out
-}
-
-func contains(l []string, s string) bool {
-	for _, x := range l {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 func firstSentence(s string) string {
@@ -168,8 +239,8 @@ func firstSentence(s string) string {
 	if i := strings.Index(s, ". "); i > 0 {
 		s = s[:i+1]
 	}
-	if len(s) > 160 {
-		s = s[:157] + "…"
+	if r := []rune(s); len(r) > 160 {
+		s = string(r[:157]) + "…"
 	}
 	return s
 }

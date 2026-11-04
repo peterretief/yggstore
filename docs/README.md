@@ -22,7 +22,7 @@
 ## Reference
 
 - [Using yggstore](using-yggstore.md): how it works, commands, the outbox, the dashboard
-- [Code map](https://get.withcare.co.za/code-map/): every package, what it builds on, and the functions in each file (`docs/code-map.html`; rebuild it with `go run ./tools/codemap`)
+- [Code map](https://get.withcare.co.za/code-map/): every package, what it builds on, and the functions in each file (`docs/code-map.html`; rebuild it with `go run ./tools/codemap -o docs/code-map.html`)
 - [Command-line cheatsheet](cli-cheatsheet.md)
 - [Messaging](messaging.md)
 - [Repair](repair.md), [history](history.md), [leases](leases.md)
