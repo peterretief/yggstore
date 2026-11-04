@@ -4,7 +4,7 @@
 // source. Tests are left out.
 //
 //	go run ./tools/codemap -o docs/code-map.html     # yggstore's own
-//	go run github.com/peterretief/yggstore/tools/codemap@latest -root ~/src/other -o other-map.html
+//	go run github.com/peterretief/yggstore/tools/codemap@main -root ~/src/other -o other-map.html
 package main
 
 import (
