@@ -17,6 +17,7 @@ for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
 		-o "$out/yggstore-$name-$arch" ./cmd/yggstore
 done
 cp -r get/install.sh get/index.html get/apply "$out/"
+mkdir -p "$out/code-map" && cp docs/code-map.html "$out/code-map/index.html"
 (cd "$out" && sha256sum yggstore-* > SHA256SUMS)
 echo "== publishing $site ($version)"
 bin/yggstore site publish "$out" -name "$site" -no-wait

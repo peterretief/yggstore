@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>yggstore code map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a layered map of packages (foundations at the bottom, the command at the top), then a three-column browser: packages, files, functions. */
+:root {
+  --bg: #f5f7f4; --panel: #ffffff; --ink: #1c2420; --muted: #5f6b64; --line: #dde3de; --accent: #2f7a55; --hl: #e9f3ed;
+  --a-store: #3b6fb6; --a-net: #8a5cc2; --a-web: #c26a2f; --a-mail: #b8457a; --a-people: #2f8f7a; --a-app: #4a5560; --a-util: #8b8f6a;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121614; --panel: #1a201d; --ink: #e5ebe7; --muted: #94a29a; --line: #2b332f; --accent: #6cc597; --hl: #20302a;
+  --a-store: #78a6e8; --a-net: #b896ea; --a-web: #e8995f; --a-mail: #e07fae; --a-people: #5cc6ad; --a-app: #a7b2bc; --a-util: #bfc29a;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121614; --panel: #1a201d; --ink: #e5ebe7; --muted: #94a29a; --line: #2b332f; --accent: #6cc597; --hl: #20302a;
+  --a-store: #78a6e8; --a-net: #b896ea; --a-web: #e8995f; --a-mail: #e07fae; --a-people: #5cc6ad; --a-app: #a7b2bc; --a-util: #bfc29a;
+  color-scheme: dark }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+main { max-width: 1240px; margin: 0 auto; padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1 { font: 700 30px/1.15 var(--display); margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font: 600 19px/1.2 var(--display); margin: 0 0 4px; text-wrap: balance; }
+.lede { color: var(--muted); margin: 6px 0 0; max-width: 68ch; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 14px 0 0; font-variant-numeric: tabular-nums; }
+.stats b { font: 600 20px var(--display); }
+.stats span { color: var(--muted); font-size: 13px; }
+section { margin-top: 30px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); margin: 6px 0 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+#map { display: block; width: 100%; min-width: 900px; height: auto; }
+.mapwrap { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+svg text { font: 12px var(--mono); fill: var(--ink); }
+svg .layer { font: 11px var(--body); fill: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.node { cursor: pointer; }
+.node rect { fill: var(--panel); stroke-width: 1.5; }
+.node.dim { opacity: .25; }
+.node.on rect { stroke-width: 3; }
+.edge { fill: none; stroke: var(--muted); stroke-opacity: .16; stroke-width: 1; }
+.edge.up { stroke: var(--accent); stroke-opacity: .9; stroke-width: 1.6; }
+.edge.down { stroke: var(--a-web); stroke-opacity: .9; stroke-width: 1.6; }
+.hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.hint em { font-style: normal; font-weight: 600; }
+.hint .u { color: var(--accent); } .hint .d { color: var(--a-web); }
+.browser { display: grid; grid-template-columns: minmax(0, 230px) minmax(0, 220px) minmax(0, 1fr); gap: 0; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-height: 520px; }
+.col { border-right: 1px solid var(--line); overflow-y: auto; max-height: 640px; min-width: 0; }
+.col:last-child { border-right: 0; }
+.colhead { position: sticky; top: 0; background: var(--panel); padding: 10px 12px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--line); z-index: 1; }
+.item { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; padding: 7px 12px; border: 0; background: none; color: var(--ink);
+  font: 13px var(--mono); cursor: pointer; border-left: 3px solid transparent; }
+.item:hover { background: var(--hl); }
+.item.on { background: var(--hl); border-left-color: var(--accent); }
+.item:focus-visible, input:focus-visible, .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.item .n { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.item .c { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dot { width: 8px; height: 8px; border-radius: 2px; flex: none; transform: translateY(-1px); }
+.pdoc { padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.pdoc b { color: var(--ink); font: 600 16px var(--display); display: block; }
+.uses { font-size: 13px; margin-top: 6px; }
+.uses a { color: var(--accent); cursor: pointer; text-decoration: none; font-family: var(--mono); font-size: 12px; }
+.fn { padding: 8px 14px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; }
+.fn .sig { font: 13px var(--mono); overflow-wrap: anywhere; }
+.fn .sig .r { color: var(--muted); }
+.fn .sig .x { font-weight: 600; }
+.fn .meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.fn .meta a { color: var(--accent); }
+.fn .doc { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+.bar { height: 3px; border-radius: 2px; background: var(--accent); opacity: .5; grid-column: 1 / -1; }
+.tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0 10px; }
+input[type=search] { font: 14px var(--body); padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink);
+  width: min(100%, 360px); }
+.tools label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.empty { padding: 16px; color: var(--muted); font-size: 14px; }
+.foot { margin-top: 18px; font-size: 13px; color: var(--muted); }
+@media (max-width: 760px) {
+  .browser { grid-template-columns: minmax(0, 1fr); }
+  .col { border-right: 0; border-bottom: 1px solid var(--line); max-height: 320px; }
+  .col:last-child { max-height: none; }
+}
+@media (prefers-reduced-motion: no-preference) { .node, .edge { transition: opacity .15s, stroke-opacity .15s; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>yggstore code map</h1>
+    <p class="lede">Every Go package in the repository, what it builds on, and the functions in each of its files. Tests are left out.</p>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <section>
+    <h2>How the packages fit together</h2>
+    <div class="legend" id="legend"></div>
+    <div class="mapwrap"><svg id="map" role="img" aria-label="Package dependency map"></svg></div>
+    <p class="hint" id="hint">Each row builds only on the rows below it. Box width grows with the number of functions. Pick a package to see <em class="d">what it uses</em> and <em class="u">what uses it</em>.</p>
+  </section>
+
+  <section>
+    <h2>Files and functions</h2>
+    <div class="tools">
+      <input type="search" id="q" placeholder="Search functions, e.g. Send or invite" aria-label="Search functions">
+      <label><input type="checkbox" id="exported"> Exported only</label>
+    </div>
+    <div class="browser">
+      <div class="col" id="pkgs"></div>
+      <div class="col" id="files"></div>
+      <div class="col" id="fns"></div>
+    </div>
+    <p class="foot" id="foot"></p>
+  </section>
+</main>
