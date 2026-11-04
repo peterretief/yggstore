@@ -1,10 +1,10 @@
 # yggstore
 
 yggstore runs email, websites and file storage for people and
-organisations on machines they own, linked with the machines of others
-who do the same. Each file and message is encrypted and spread over
-several members' machines, so any one of them can break or be switched
-off without anything being lost, and websites stay up.
+organisations on locally hosted devices, linked with those of others who
+do the same. Each file and message is encrypted and spread over several
+members' devices, so any one of them can break or be switched off
+without anything being lost, and websites stay up.
 
 A box sets itself up from its own screen. Websites are folders of HTML
 or Markdown, previewed before they go live, and developers build sites
