@@ -26,6 +26,14 @@ var (
 	pitches = []string{"seo", "backlink", "search engine", "first page of google", "rank higher", "used your contact form",
 		"your contact form", "lead generation", "web design", "redesign your website", "guest post", "luxury", "replica",
 		"crypto", "bitcoin", "casino", "loan", "credit available", "unsubscribe", "opt out", "opt-out", "limited time"}
+	// Blog-comment spam, sent to sites that have no blog.
+	blogTalk = []string{"your blog", "my blog", "this blog", "this post", "keep up the writing", "keep up the good work",
+		"my homepage", "my web site", "my website:", "blogging", "your content"}
+	blogWord = regexp.MustCompile(`\bblog`)
+	adult    = regexp.MustCompile(`(?i)xnxx|xvideos|xhamster|pornhub|\bporn|\bsexcam|\bescort`)
+	// Spam that comes in one fixed form.
+	templates  = []string{"feedback regarding your services"}
+	htmlRe     = regexp.MustCompile(`(?i)<a\s+href|</a>|<img\s|\[url=`)
 	linkRe     = regexp.MustCompile(`(?i)\b(?:https?://|www\.)([a-z0-9.-]+\.[a-z]{2,})`)
 	gibberish  = regexp.MustCompile(`^[a-z0-9]{4,12}$`)
 	hasDigit   = regexp.MustCompile(`[0-9]`)
@@ -85,6 +93,30 @@ func suspicion(site string, fields []field) (int, []string) {
 			add(1, "a link to another site")
 			break
 		}
+	}
+	if htmlRe.MatchString(text) {
+		add(2, "HTML in the message")
+	}
+	if adult.MatchString(text) {
+		add(3, "adult words")
+	}
+	for _, t := range templates {
+		if strings.Contains(text, t) {
+			add(3, "a spam template ("+t+")")
+			break
+		}
+	}
+	blog := 0
+	if blogWord.MatchString(text) {
+		blog = 2 // the sites have no blog
+	}
+	for _, b := range blogTalk {
+		if strings.Contains(text, b) {
+			blog++
+		}
+	}
+	if blog > 0 {
+		add(min(blog, 3), "blog-comment talk")
 	}
 	matched := 0
 	for i, re := range pitchWords {

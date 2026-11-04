@@ -190,7 +190,8 @@ For a form in your own design, post to the same address:
   site on each web node.
 - A message that looks like spam but may be real (a throwaway email
   address, random letters where words go, a field from a WordPress form,
-  sales words with a link elsewhere) still comes, with its subject
+  HTML or adult words, blog-comment talk, a known spam template, sales
+  words with a link elsewhere) still comes, with its subject
   starting **[Possible spam]** and the reasons at the end, so a mail
   filter can sort it.
 
