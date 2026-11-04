@@ -248,7 +248,7 @@ type UsersConfig struct {
 	People *PeopleSites
 	// Tell sends the group's admins a note (see notify.go); nil: nobody
 	// is told.
-	Tell func(ctx context.Context, text string) error
+	Tell func(ctx context.Context, typ, text string) error
 }
 
 type Users struct {

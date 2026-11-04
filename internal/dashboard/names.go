@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
+	"github.com/peterretief/yggstore/internal/hub"
 	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/site"
@@ -111,6 +112,8 @@ func (d *Dashboard) syncNames(ctx context.Context, list []peers.Peer) {
 					d.takeUsage(list, m.From, m.FromName, m.Body)
 				case site.TypeApplication:
 					d.takeApplication(ctx, list, m.Body)
+				case hub.TypeTrialNote:
+					d.takeTrialNote(ctx, list, m.Body)
 				}
 			}
 		}

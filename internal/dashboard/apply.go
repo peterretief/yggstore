@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peterretief/yggstore/internal/hub"
 	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/site"
@@ -226,4 +227,20 @@ func (d *Dashboard) sendMail(ctx context.Context, to, subject, text string) erro
 	}
 	box.KeepSent(ctx, d.cfg.Client, list, raw)
 	return nil
+}
+
+// takeTrialNote tells the admin that someone made an account on a trial
+// box (hub/trial.go): an event, and a note in their mailbox.
+func (d *Dashboard) takeTrialNote(ctx context.Context, list []peers.Peer, body string) {
+	if !isAdmin(list, d.cfg.SelfID) {
+		return
+	}
+	var n hub.TrialNote
+	if json.Unmarshal([]byte(body), &n) != nil || n.Person == "" {
+		return
+	}
+	d.event("info", fmt.Sprintf("%s made an account on %s: %s, %s", n.Person, n.Box, n.Name, n.Email))
+	d.mailAdmin(ctx, "New account: "+n.Name,
+		fmt.Sprintf("%s made an account on %s, and confirmed their email address.\r\n\r\n  website  https://%s\r\n  email    %s\r\n\r\n"+
+			"They're under People on this box, on %s's dashboard, where you can suspend or remove them.\r\n", n.Person, n.Box, n.Name, n.Email, n.Box))
 }

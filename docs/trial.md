@@ -57,6 +57,14 @@ an email a week before.
 - Trial sites are ordinary group sites under the domain. The admin can
   suspend or remove any person from the box's admin, as now.
 
+## Seeing who signed up
+
+- **When someone confirms,** the group's admin gets an event on their
+  dashboard and a note in their mailbox: their name, address and email.
+- **On the trial box's dashboard,** People on this box marks them
+  **signed up**, with their email, when they last used it and when an
+  unused account closes. `yggstore hub people` on the box says so too.
+
 ## Settings
 
 | Where | What |

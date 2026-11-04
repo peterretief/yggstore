@@ -59,6 +59,18 @@ type Trial struct {
 	Gone    int64 `json:"gone,omitempty"`
 }
 
+// TypeTrialNote tells the group's admins that someone made an account
+// (body: a TrialNote).
+const TypeTrialNote = "trial-note"
+
+// TrialNote is what the admins are told.
+type TrialNote struct {
+	Person string `json:"person"`
+	Name   string `json:"name"` // the address asked for: label.DOMAIN
+	Email  string `json:"email"`
+	Box    string `json:"box"`
+}
+
 // Signup waits for the link to be opened.
 type Signup struct {
 	Label string `json:"label"`
@@ -401,6 +413,9 @@ func (f *filesPage) confirm(w http.ResponseWriter, r *http.Request, now time.Tim
 	}
 	f.u.lightChanged()
 	f.u.cfg.Logf("hub: %s confirmed their account (%s)", p.Name, p.Trial.Email)
+	list, _ := peers.Load(f.u.cfg.PeersPath)
+	note, _ := json.Marshal(TrialNote{Person: p.Name, Name: p.Trial.Label + "." + peers.GroupDomain(list), Email: p.Trial.Email, Box: f.boxName()})
+	f.u.tellAs(TypeTrialNote, string(note))
 	jsonOK(w, Confirmed{Person: p.Name, Password: *p.Password})
 }
 

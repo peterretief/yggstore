@@ -87,14 +87,17 @@ func (u *Users) checkFetches(ctx context.Context) {
 }
 
 // tell sends the group's admins a note, in the background.
-func (u *Users) tell(text string) {
+func (u *Users) tell(text string) { u.tellAs(TypeBoxNote, text) }
+
+// tellAs sends the group's admins a message of type typ, in the background.
+func (u *Users) tellAs(typ, text string) {
 	if u.cfg.Tell == nil {
 		return
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if err := u.cfg.Tell(ctx, text); err != nil {
+		if err := u.cfg.Tell(ctx, typ, text); err != nil {
 			u.cfg.Logf("hub: couldn't tell the group's admin %q: %v", text, err)
 		}
 	}()

@@ -264,7 +264,7 @@ func cmdHub(ctx context.Context, args []string) error {
 			MailNodes: func(ctx context.Context) []string { return mailNodes(ctx, wc, *peersPath) },
 			LinkHost:  func(ctx context.Context) string { return linkHost(ctx, wc, *peersPath) },
 			SelfAddr:  selfAddr(self),
-			Tell: func(ctx context.Context, text string) error {
+			Tell: func(ctx context.Context, typ, text string) error {
 				l, err := localMsgs()
 				if err != nil {
 					return err
@@ -277,7 +277,7 @@ func cmdHub(ctx context.Context, args []string) error {
 				for _, p := range list {
 					if p.Admin && !sent[p.IP()] {
 						sent[p.IP()] = true
-						if _, err := l.Send(ctx, p.IP(), hub.TypeBoxNote, text); err != nil {
+						if _, err := l.Send(ctx, p.IP(), typ, text); err != nil {
 							return err
 						}
 					}
@@ -464,7 +464,9 @@ func cmdHubControl(ctx context.Context, args []string) error {
 				devs = append(devs, d.Name)
 			}
 			list := strings.Join(devs, ", ")
-			if list == "" && len(p.Passkeys) > 0 {
+			if list == "" && p.Trial != nil {
+				list = "signed up themselves (" + p.Trial.Email + ")"
+			} else if list == "" && len(p.Passkeys) > 0 {
 				list = fmt.Sprintf("opens their files on the web (%d passkey%s)", len(p.Passkeys), map[bool]string{true: "", false: "s"}[len(p.Passkeys) == 1])
 			} else if list == "" && len(p.FilesDevices) > 0 {
 				list = "opens their files in the browser"

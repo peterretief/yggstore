@@ -67,3 +67,25 @@ func TestApplications(t *testing.T) {
 		t.Fatalf("a second application: %+v", apps)
 	}
 }
+
+func TestTrialNoteTellsTheAdmin(t *testing.T) {
+	ctx, admin, member, _, _, listOf := namePair(t, nil)
+	admin.cfg.Client = client.Client{HTTP: &http.Client{Timeout: time.Second}}
+	member.cfg.Client = admin.cfg.Client
+	body := `{"person":"anna","name":"anna.example.org","email":"anna@example.net","box":"pi"}`
+	admin.takeTrialNote(ctx, listOf(admin), body)
+	member.takeTrialNote(ctx, listOf(member), body)
+	has := func(d *Dashboard) bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		for _, e := range d.events {
+			if strings.Contains(e.Msg, "anna made an account on pi") {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(admin) || has(member) {
+		t.Fatalf("admin told %v, member told %v", has(admin), has(member))
+	}
+}

@@ -414,7 +414,7 @@ func TestTellsTheAdmin(t *testing.T) {
 	ctx := context.Background()
 	statePath := filepath.Join(dir, "hub.json")
 	told := make(chan string, 10)
-	u.cfg.Tell = func(_ context.Context, text string) error { told <- text; return nil }
+	u.cfg.Tell = func(_ context.Context, _, text string) error { told <- text; return nil }
 	next := func(want string) {
 		t.Helper()
 		select {

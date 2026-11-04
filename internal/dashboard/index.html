@@ -1589,7 +1589,12 @@ async function refreshPeople() {
     const webLine = p.removed ? "" : `<div class="sub">${p.web_off ? `web access off <button data-pact="web-on" data-name="${esc(p.name)}">Turn on</button>`
       : `${pwLine}${p.passkeys.length ? `<br>passkeys: ${p.passkeys.map(k => esc(k.name) + (k.used ? ", last used " + new Date(k.used * 1000).toLocaleDateString() : "")).join("; ")}` : ""}<br>
         <button class="del" data-pact="web-off" data-name="${esc(p.name)}">Turn web access off</button>`}</div>`;
-    return `<tr><td><b>${esc(p.name)}</b> ${state}${p.invite_until && !p.removed ? `<div class="sub">invite works until ${esc(new Date(p.invite_until * 1000).toLocaleDateString())}</div>` : ""}
+    // Someone who signed up themselves (my.DOMAIN/signup).
+    const t = p.trial;
+    const trialLine = !t || p.removed ? "" : `<div><span class="pill info">signed up</span> <span class="sub">${esc(t.email)} · ${t.leaving
+      ? "closing: their files are being deleted"
+      : `last used ${esc(new Date(t.seen * 1000).toLocaleDateString())} · closes ${esc(new Date(t.closes * 1000).toLocaleDateString())} if unused`}</span></div>`;
+    return `<tr><td><b>${esc(p.name)}</b> ${state}${trialLine}${p.invite_until && !p.removed ? `<div class="sub">invite works until ${esc(new Date(p.invite_until * 1000).toLocaleDateString())}</div>` : ""}
         ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${webLine}${site}${fwd}${link}${ygg}</td>
       <td class="num">${size(p.bytes)}${p.quota ? ` of ${size(p.quota)}` : ""}${over ? ` <span class="pill bad">over</span>` : ""}<div class="sub">${p.files} files</div></td>
       <td class="sub">${p.devices.length ? "last on " + esc(when(last)) : ""}</td>

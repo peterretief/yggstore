@@ -56,6 +56,16 @@ type boxPerson struct {
 	Password string `json:"password,omitempty"` // "temporary" or "own"
 	PwUntil  int64  `json:"pw_until,omitempty"`
 	PwSet    int64  `json:"pw_set,omitempty"`
+	// Trial is set for someone who made their account themselves
+	// (hub/trial.go).
+	Trial *boxTrial `json:"trial,omitempty"`
+}
+
+type boxTrial struct {
+	Email   string `json:"email"`
+	Seen    int64  `json:"seen"`              // last used, unix
+	Closes  int64  `json:"closes"`            // when it goes if unused, unix
+	Leaving bool   `json:"leaving,omitempty"` // closing: their files are being deleted
 }
 
 type boxKey struct {
@@ -151,6 +161,10 @@ func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {
 		}
 		bp.Passkeys, bp.WebOff, bp.Login = []boxKey{}, p.WebOff, hub.LoginOf(list, d.cfg.SelfID, p.Name)
 		bp.Preview = p.Preview
+		if t := p.Trial; t != nil {
+			last := max(p.Added, t.Seen)
+			bp.Trial = &boxTrial{Email: t.Email, Seen: last, Closes: time.Unix(last, 0).Add(hub.TrialIdle).Unix(), Leaving: t.Leaving != 0}
+		}
 		if pw := p.Password; pw != nil {
 			bp.Password, bp.PwSet = map[bool]string{true: "temporary", false: "own"}[pw.Temp], pw.Set
 			if pw.Temp {
