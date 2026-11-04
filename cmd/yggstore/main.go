@@ -396,6 +396,10 @@ func cmdServe(ctx context.Context, args []string) error {
 		signin = &light.Store{Dir: filepath.Join(*dataDir, "light"), Peers: live.List, Client: &http.Client{Timeout: 30 * time.Second}, Log: log.Printf,
 			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }, Email: groupEmail}
 		login := &light.Relay{Peers: live.List, Signin: signin, Log: log.Printf, Email: groupEmail}
+		if groupEmail == nil {
+			// This web node sends no mail: others send its sign-up links.
+			login.Mailers = func(ctx context.Context) []string { return mailNodes(ctx, client.New(), *peersPath) }
+		}
 		web := &site.Web{Dir: filepath.Join(*dataDir, "web"), Msgs: engine, Peers: live.List, Client: client.New(), Log: log.Printf, Work: work,
 			Light: login, Who: login.Who,
 			// Sites' data: entries shared with the other web nodes.

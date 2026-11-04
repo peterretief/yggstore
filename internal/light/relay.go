@@ -44,7 +44,10 @@ type Relay struct {
 	BoxURL func(ip string) string
 	Log    func(format string, args ...any)
 	// Email sends the group's own emails: sign-up links (see trial.go).
-	Email func(ctx context.Context, to, subject, text string) error
+	// Without it, Mailers are the web nodes (node API addresses) that send
+	// them for this one.
+	Email   func(ctx context.Context, to, subject, text string) error
+	Mailers func(ctx context.Context) []string
 
 	proxy   *httputil.ReverseProxy
 	mu      sync.Mutex

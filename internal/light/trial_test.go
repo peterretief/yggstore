@@ -71,3 +71,52 @@ func TestTrialEmailOnlyFromTheTrialBox(t *testing.T) {
 		t.Fatalf("the trial box asked: %d %q %q", c, to, text)
 	}
 }
+
+func TestSignupLinkThroughAnotherWebNode(t *testing.T) {
+	list := []peers.Peer{{Name: "desktop", Addr: "[201::1]:7400", Admin: true, Domain: "example.org"}, {Name: "box", Addr: "[200::2]:7400", Trial: true},
+		{Name: "web2", Addr: "[201::5]:7400"}, {Name: "other", Addr: "[200::3]:7400"}}
+	// The web node that sends mail.
+	var to, text string
+	sender := &Store{Dir: filepath.Join(t.TempDir(), "light"), Peers: func() []peers.Peer { return list }, Log: t.Logf,
+		Others: func(context.Context) []string { return []string{"[201::5]:7400"} },
+		Email:  func(_ context.Context, a, _, b string) error { to, text = a, b; return nil }}
+	ask := func(caller, body string) int {
+		w := httptest.NewRecorder()
+		sender.Serve(w, httptest.NewRequest(http.MethodPost, "/v1/light/trial-email", strings.NewReader(body)), caller)
+		return w.Code
+	}
+	link := "https://my.example.org/signup#" + strings.Repeat("ab", 24)
+	good := `{"to":"anna@example.net","kind":"confirm","login":"anna.example.org","link":"` + link + `"}`
+	if c := ask("200::3", good); c != http.StatusForbidden || to != "" {
+		t.Fatalf("a member that isn't a web node asked: %d", c)
+	}
+	for _, bad := range []string{
+		`{"to":"anna@example.net","kind":"confirm","login":"anna.example.org","link":"https://evil.example/signup#` + strings.Repeat("ab", 24) + `"}`,
+		`{"to":"anna@example.net","kind":"confirm","login":"anna.example.org","link":"https://my.example.org/files#x"}`,
+	} {
+		if c := ask("201::5", bad); c != http.StatusBadRequest || to != "" {
+			t.Fatalf("not a sign-up link: %d", c)
+		}
+	}
+	if c := ask("201::5", good); c != http.StatusNoContent || to != "anna@example.net" || !strings.Contains(text, link) {
+		t.Fatalf("a web node asked: %d %q", c, text)
+	}
+
+	// A web node without mail passes the link on.
+	mailer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { sender.Serve(w, r, "201::5") }))
+	t.Cleanup(mailer.Close)
+	box := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jsonOK(w, map[string]string{"label": "bob", "email": "bob@example.net", "token": strings.Repeat("cd", 24)})
+	}))
+	t.Cleanup(box.Close)
+	rl := &Relay{Peers: func() []peers.Peer { return list }, BoxURL: func(string) string { return box.URL }, Log: t.Logf,
+		Mailers: func(context.Context) []string { return []string{strings.TrimPrefix(mailer.URL, "http://")} }}
+	r := httptest.NewRequest(http.MethodPost, Base+"/signup", strings.NewReader(`{"label":"bob","email":"bob@example.net","password":"long enough pw"}`))
+	r.Host = "my.example.org"
+	r.Header.Set("X-Yggstore", "1")
+	w := httptest.NewRecorder()
+	rl.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || to != "bob@example.net" || !strings.Contains(text, "bob.example.org") {
+		t.Fatalf("sign-up through another web node: %d %s, sent to %q", w.Code, w.Body, to)
+	}
+}

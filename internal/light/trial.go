@@ -5,9 +5,11 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -31,15 +33,29 @@ const (
 //go:embed signup.html
 var signupHTML []byte
 
-// TrialEmail is what the trial box asks a web node to send one of its
-// people: Kind "warn" tells them their account closes at Until unless
-// they sign in (with Login).
+// TrialEmail is an email a web node that sends mail sends for another:
+// Kind "warn", from the trial box, tells someone their account closes at
+// Until unless they sign in (with Login); Kind "confirm", from a web node
+// that can't send mail itself, carries a sign-up's Link for the account
+// Login (label.DOMAIN).
 type TrialEmail struct {
 	To    string `json:"to"`
 	Kind  string `json:"kind"`
 	Login string `json:"login"`
-	Until int64  `json:"until"`
+	Until int64  `json:"until,omitempty"`
+	Link  string `json:"link,omitempty"`
 }
+
+var signupLink = regexp.MustCompile(`^https://[a-z0-9.-]+/signup#[0-9a-f]{32,64}$`)
+
+// confirmText is the email that carries a sign-up's link.
+func confirmText(account, link string) string {
+	return fmt.Sprintf("Hello,\n\nOpen this link to finish making your account, %s:\n\n%s\n\n"+
+		"It works for two days. If you didn't ask for an account, ignore this email: nothing is made without the link.\n",
+		account, link)
+}
+
+const confirmSubject = "Finish making your account"
 
 func (rl *Relay) myHost(host string) bool {
 	d := peers.GroupDomain(rl.Peers())
@@ -112,7 +128,7 @@ func (rl *Relay) signup(w http.ResponseWriter, r *http.Request, host string, box
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if rl.Email == nil {
+	if rl.Email == nil && rl.Mailers == nil {
 		http.Error(w, "This web node can't send email, so it can't take accounts. Try again in a minute.", http.StatusServiceUnavailable)
 		return
 	}
@@ -140,14 +156,11 @@ func (rl *Relay) signup(w http.ResponseWriter, r *http.Request, host string, box
 		w.Write(answer)
 		return
 	}
-	domain := peers.GroupDomain(rl.Peers())
+	account := su.Label + "." + peers.GroupDomain(rl.Peers())
 	link := "https://" + host + SignupPath + "#" + su.Token
-	text := fmt.Sprintf("Hello,\n\nOpen this link to finish making your account, %s.%s:\n\n%s\n\n"+
-		"It works for two days. If you didn't ask for an account, ignore this email: nothing is made without the link.\n",
-		su.Label, domain, link)
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
-	if err := rl.Email(ctx, su.Email, "Finish making your account", text); err != nil {
+	if err := rl.sendConfirm(ctx, su.Email, account, link); err != nil {
 		rl.logf("light: emailing %s their sign-up link: %v", su.Label, err)
 		http.Error(w, "The email couldn't be sent just now. Try again in 10 minutes.", http.StatusBadGateway)
 		return
@@ -155,6 +168,22 @@ func (rl *Relay) signup(w http.ResponseWriter, r *http.Request, host string, box
 	rl.signupsLeft(ip, time.Now(), true)
 	rl.logf("light: %s signed up from %s: link emailed", su.Label, ip)
 	jsonOK(w, map[string]string{"email": su.Email})
+}
+
+// sendConfirm emails a sign-up's link: itself, or through a web node that
+// sends the group's mail.
+func (rl *Relay) sendConfirm(ctx context.Context, to, account, link string) error {
+	if rl.Email != nil {
+		return rl.Email(ctx, to, confirmSubject, confirmText(account, link))
+	}
+	err := errors.New("no web node that sends mail is answering")
+	for _, n := range rl.Mailers(ctx) {
+		if err = SendTrialEmail(ctx, rl.client(), n, TrialEmail{To: to, Kind: "confirm", Login: account, Link: link}); err == nil {
+			return nil
+		}
+		rl.logf("light: asking %s to send a sign-up link: %v", n, err)
+	}
+	return err
 }
 
 func (rl *Relay) confirm(w http.ResponseWriter, r *http.Request, host string, box peers.Peer) {
@@ -279,24 +308,48 @@ func SendTrialEmail(ctx context.Context, c *http.Client, node string, e TrialEma
 	return nil
 }
 
-// trialEmail sends what the trial box asks (only that box may ask), from
-// the group's own text.
+// trialEmail sends what the trial box (a warning) or another web node (a
+// sign-up's link) asks, always in the group's own words.
 func (s *Store) trialEmail(w http.ResponseWriter, r *http.Request, caller string) {
 	list := s.Peers()
-	if tb, ok := peers.TrialBox(list); !ok || tb.IP() != caller || r.Method != http.MethodPost {
-		http.Error(w, "only the group's trial box", http.StatusForbidden)
-		return
-	}
 	if s.Email == nil {
 		http.Error(w, "this node sends no email", http.StatusNotFound)
 		return
 	}
 	var e TrialEmail
-	if json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&e) != nil || e.Kind != "warn" || e.To == "" {
+	if r.Method != http.MethodPost || json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&e) != nil || e.To == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	domain := peers.GroupDomain(list)
+	tb, hasTrial := peers.TrialBox(list)
+	switch {
+	case e.Kind == "confirm":
+		if !s.isWebNode(r.Context(), caller) {
+			http.Error(w, "only the group's web nodes send sign-up links", http.StatusForbidden)
+			return
+		}
+		if !signupLink.MatchString(e.Link) || !strings.HasPrefix(e.Link, "https://"+Host+"."+domain+SignupPath+"#") ||
+			!strings.HasSuffix(e.Login, "."+domain) || strings.ContainsAny(e.Login, " \r\n") {
+			http.Error(w, "that isn't a sign-up link", http.StatusBadRequest)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+		defer cancel()
+		if err := s.Email(ctx, e.To, confirmSubject, confirmText(e.Login, e.Link)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		s.logf("light: sent %s's sign-up link for another web node", e.Login)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case e.Kind != "warn":
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	case !hasTrial || tb.IP() != caller:
+		http.Error(w, "only the group's trial box", http.StatusForbidden)
+		return
+	}
 	text := fmt.Sprintf("Hello,\n\nYour account %s hasn't been used for a while, so it closes on %s, with your files and website.\n\n"+
 		"To keep it, sign in before then at https://%s.%s\n\nIf you don't need it any more, there's nothing to do.\n",
 		e.Login, time.Unix(e.Until, 0).Format("2 January 2006"), Host, domain)
