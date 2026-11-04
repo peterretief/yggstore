@@ -2,6 +2,7 @@
 
 ## Start here
 
+- [Host your first client](host-a-client.md): a client's site, domain and mail, step by step
 - [Set up your storage box](storage-box-guide.md): a box from scratch, step by step
 - [Make a website](howto-website.md): a site from a folder, step by step
 - [Build a site app](howto-site-app.md): a site with code and data, step by step
@@ -36,7 +37,8 @@ Plans and the reasons behind them. Each page says what's built and what isn't.
 
 | Page | Status |
 | --- | --- |
-| [Accounts anyone can make](trial.md) | built, not yet deployed |
+| [Developers and their clients](developer-areas.md) | proposed |
+| [Accounts anyone can make](trial.md) | built |
 | [Site code and data](site-code.md) | mostly built |
 | [One login for the group](login.md) | first step built |
 | [Boxes claimed by new owners](claim.md) | proposed |

@@ -1,6 +1,6 @@
 # Try it: accounts anyone can make
 
-Status: approved and built 2026-11-01; not yet deployed.
+Status: approved and built 2026-11-01; live.
 
 Anyone can make an account at `https://my.DOMAIN/signup` and try the
 group: a small website at `NAME.DOMAIN` and a few files they can share
