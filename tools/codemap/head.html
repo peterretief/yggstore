@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -29,6 +29,10 @@ main { max-width: 1240px; margin: 0 auto; padding-block: 28px 56px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 h1 { font: 700 30px/1.15 var(--display); margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
 h2 { font: 600 19px/1.2 var(--display); margin: 0 0 4px; text-wrap: balance; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#theme { font: 13px var(--body); padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); cursor: pointer; flex: none; }
+#theme:hover { color: var(--ink); }
+#theme:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .lede { color: var(--muted); margin: 6px 0 0; max-width: 68ch; }
 .stats { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 14px 0 0; font-variant-numeric: tabular-nums; }
 .stats b { font: 600 20px var(--display); }
@@ -60,7 +64,9 @@ svg text { font: 12px var(--mono); fill: var(--ink); }
   font: 13px var(--mono); cursor: pointer; border-left: 3px solid transparent; }
 .item:hover { background: var(--hl); }
 .item.on { background: var(--hl); border-left-color: var(--accent); }
-.item:focus-visible, input:focus-visible, .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.item:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.node { outline: none; }
+.node:focus-visible rect:first-of-type { stroke-width: 3; }
 .item .n { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .item .c { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .dot { width: 8px; height: 8px; border-radius: 2px; flex: none; transform: translateY(-1px); }
@@ -93,7 +99,7 @@ input[type=search] { font: 14px var(--body); padding: 8px 12px; border: 1px soli
 <body>
 <main>
   <header>
-    <h1>{{NAME}} code map</h1>
+    <div class="top"><h1>{{NAME}} code map</h1><button id="theme" type="button">Light</button></div>
     <p class="lede">Every Go package in <span id="module"></span>, what it builds on, and the functions in each of its files. Tests are left out.</p>
     <div class="stats" id="stats"></div>
   </header>
