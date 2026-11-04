@@ -29,7 +29,7 @@ func TestSpamScore(t *testing.T) {
 			{"message", "I love your blog.. very nice colors & theme. Did you design this website yourself? I'm looking to design my own blog."}}, true},
 		{"a price question in another language", []field{{"name", "Robertirobe"}, {"message", "Kaixo, zure prezioa jakin nahi nuen."}}, false},
 		{"a short quote request", []field{{"name", "Thabo"}, {"message", "Please quote me for 5,000 SMSes a month"}}, false},
-		{"a short real message", []field{{"name", "Thabo"}, {"email", "thabo@gmail.com"}, {"message", "Please call me"}}, false},
+		{"a short real message", []field{{"name", "Thabo"}, {"email", "thabo@mail.example"}, {"message", "Please call me"}}, false},
 		{"a link back to the site", []field{{"name", "Lee"}, {"message", "About https://messagemate.co.za/pricing: is VAT included?"}}, false},
 	} {
 		score, why := suspicion("messagemate.co.za", c.fields)
