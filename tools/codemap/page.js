@@ -19,10 +19,10 @@ let AREAS = [
 ];
 if (DATA.module !== "github.com/peterretief/yggstore") {
   const tops = {};
-  for (const p of PKGS) (tops[p.path.split("/")[0]] ||= []).push(p.path);
+  for (const p of PKGS) (tops[p.dir.split("/")[0] || "module root"] ||= []).push(p.path);
   const groups = Object.entries(tops).sort((a, b) => b[1].length - a[1].length);
   const rest = groups.slice(PALETTE.length - 1).flatMap(g => g[1]);
-  AREAS = groups.slice(0, PALETTE.length - (rest.length ? 1 : 0)).map(([top, list], i) => [PALETTE[i], top + (list.length > 1 ? "/…" : ""), list]);
+  AREAS = groups.slice(0, PALETTE.length - (rest.length ? 1 : 0)).map(([top, list], i) => [PALETTE[i], top, list]);
   if (rest.length) AREAS.push([PALETTE[PALETTE.length - 1], "other folders", rest]);
 }
 const areaOf = {};
@@ -52,7 +52,7 @@ PKGS.forEach(p => depth(p.path));
 const rows = [];
 for (const p of PKGS) (rows[layer[p.path]] ||= []).push(p.path);
 const W = p => Math.max(64, 16 + p.length * 7.4) + Math.min(60, byPath[p].nfn / 4);
-const ROWH = 74, PADX = 24, GAP = 10, TOP = 26;
+const ROWH = 62, PADX = 24, GAP = 10, TOP = 10;
 const pos = {};
 // Order each row by where the packages it uses sit, so lines cross less.
 rows.forEach((row, i) => {
@@ -72,12 +72,17 @@ rows.forEach((row, i) => {
 });
 const svg = $("map");
 svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+// A link already implied by others (A uses B, B uses C, so A reaches C) is
+// drawn only when A or C is picked, which keeps the map readable.
+const reachMemo = {};
+const reach = p => reachMemo[p] ||= new Set(byPath[p].imports.filter(i => byPath[i]).flatMap(i => [i, ...reach(i)]));
+const implied = (p, t) => byPath[p].imports.some(u => u !== t && byPath[u] && reach(u).has(t));
 let edges = "", nodes = "";
 for (const p of PKGS) for (const t of p.imports) {
   if (!pos[t]) continue;
   const a = pos[p.path], b = pos[t];
   const y1 = a.y + 30, y2 = b.y, my = (y1 + y2) / 2;
-  edges += `<path class="edge" data-from="${esc(p.path)}" data-to="${esc(t)}" d="M${a.cx},${y1} C${a.cx},${my} ${b.cx},${my} ${b.cx},${y2}"/>`;
+  edges += `<path class="edge${implied(p.path, t) ? " implied" : ""}" data-from="${esc(p.path)}" data-to="${esc(t)}" d="M${a.cx},${y1} C${a.cx},${my} ${b.cx},${my} ${b.cx},${y2}"/>`;
 }
 for (const p of PKGS) {
   const q = pos[p.path];
@@ -87,9 +92,9 @@ for (const p of PKGS) {
     <text x="${q.cx + 2}" y="${q.y + 19}" text-anchor="middle">${esc(p.path.replace("cmd/", ""))}</text>
     <title>${esc(p.path)}: ${p.nfn} functions, ${num(p.lines)} lines${p.doc ? "\n" + p.doc : ""}</title></g>`;
 }
-const labels = rows.map((r, i) => `<text class="layer" x="8" y="${height - (i + 1) * ROWH + 8}">${i === 0 ? "foundations" : i === rows.length - 1 ? "the top" : "row " + (i + 1)}</text>`).join("");
-svg.innerHTML = labels + `<g>${edges}</g><g>${nodes}</g>`;
+svg.innerHTML = `<g>${edges}</g><g>${nodes}</g>`;
 
+const HINT = $("hint").innerHTML;
 function highlight(p) {
   const near = new Set(p ? [p, ...byPath[p].imports, ...byPath[p].usedBy] : []);
   svg.querySelectorAll(".node").forEach(n => {
@@ -100,12 +105,16 @@ function highlight(p) {
     e.classList.toggle("down", e.dataset.from === p);
     e.classList.toggle("up", e.dataset.to === p);
   });
-  if (p) {
+  if (!p) $("hint").innerHTML = HINT;
+  else {
     const k = byPath[p];
     $("hint").innerHTML = `<b>${esc(p)}</b> <em class="d">uses ${k.imports.length}</em> and <em class="u">is used by ${k.usedBy.length}</em> other packages.`;
   }
 }
-svg.addEventListener("click", ev => { const n = ev.target.closest(".node"); if (n) select(n.dataset.p, true); });
+svg.addEventListener("click", ev => {
+  const n = ev.target.closest(".node");
+  if (n) select(n.dataset.p, true); else highlight("");
+});
 svg.addEventListener("keydown", ev => { const n = ev.target.closest(".node"); if (n && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); select(n.dataset.p, true); } });
 
 // --- The browser.
@@ -115,7 +124,7 @@ const sig = (f, p) => `<span class="r">${f.r ? "(" + esc(f.r) + ") " : ""}</span
 const maxLen = Math.max(...PKGS.flatMap(p => p.files.flatMap(f => f.funcs.map(x => x.s))));
 const fnRow = (f, p, file, showWhere) => `<div class="fn">
   <div class="sig">${sig(f, p)}${showWhere ? ` <span class="r">· ${esc(p)}/${esc(file)}</span>` : ""}</div>
-  <div class="meta">${f.s} lines${DATA.source ? ` · <a href="${esc(DATA.source + (byPath[p].dir ? byPath[p].dir + "/" : "") + file)}#L${f.l}" target="_blank" rel="noopener">source</a>` : ""}</div>
+  <div class="meta">${f.s} line${f.s === 1 ? "" : "s"}${DATA.source ? ` · <a href="${esc(DATA.source + (byPath[p].dir ? byPath[p].dir + "/" : "") + file)}#L${f.l}" target="_blank" rel="noopener">source</a>` : ""}</div>
   ${f.d ? `<div class="doc">${esc(f.d)}</div>` : ""}
   <div class="bar" style="width:${Math.max(2, 100 * f.s / Math.min(maxLen, 200))}%;max-width:100%"></div></div>`;
 
@@ -154,9 +163,10 @@ function renderFns() {
   }
   $("fns").innerHTML = (curFile ? `<div class="colhead">${esc(curFile)} · ${n} functions</div>` : "") + (out || `<div class="empty">No exported functions here.</div>`);
 }
-function select(p, scroll) {
+function select(p, scroll, quiet) {
   curPkg = p; curFile = "";
-  renderPkgs(); renderFiles(); renderFns(); highlight(p);
+  renderPkgs(); renderFiles(); renderFns();
+  if (!quiet) highlight(p);
   if (scroll) $("files").scrollTop = 0;
 }
 $("pkgs").addEventListener("click", ev => { const b = ev.target.closest("[data-pkg]"); if (b) select(b.dataset.pkg); });
@@ -167,4 +177,4 @@ $("files").addEventListener("click", ev => {
 $("q").addEventListener("input", ev => { query = ev.target.value.trim().toLowerCase(); renderFns(); });
 $("exported").addEventListener("change", ev => { exportedOnly = ev.target.checked; renderFns(); });
 $("foot").textContent = `From ${DATA.module}${DATA.rev ? " at commit " + DATA.rev : ""}. Bold names are exported${DATA.source ? "; “source” opens the line on GitHub" : ""}. Made with codemap (github.com/peterretief/yggstore/tools/codemap).`;
-select(curPkg);
+select(curPkg, false, true); // the map opens whole, with nothing picked

@@ -39,14 +39,14 @@ section { margin-top: 30px; }
 #map { display: block; width: 100%; min-width: 900px; height: auto; }
 .mapwrap { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
 svg text { font: 12px var(--mono); fill: var(--ink); }
-svg .layer { font: 11px var(--body); fill: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
 .node { cursor: pointer; }
 .node rect { fill: var(--panel); stroke-width: 1.5; }
-.node.dim { opacity: .25; }
+.node.dim { opacity: .4; }
 .node.on rect { stroke-width: 3; }
-.edge { fill: none; stroke: var(--muted); stroke-opacity: .16; stroke-width: 1; }
-.edge.up { stroke: var(--accent); stroke-opacity: .9; stroke-width: 1.6; }
-.edge.down { stroke: var(--a-web); stroke-opacity: .9; stroke-width: 1.6; }
+.edge { fill: none; stroke: var(--muted); stroke-opacity: .4; stroke-width: 1; }
+.edge.implied { stroke-opacity: 0; }
+.edge.up, .edge.implied.up { stroke: var(--accent); stroke-opacity: .9; stroke-width: 1.6; }
+.edge.down, .edge.implied.down { stroke: var(--a-web); stroke-opacity: .9; stroke-width: 1.6; }
 .hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
 .hint em { font-style: normal; font-weight: 600; }
 .hint .u { color: var(--accent); } .hint .d { color: var(--a-web); }
@@ -102,7 +102,7 @@ input[type=search] { font: 14px var(--body); padding: 8px 12px; border: 1px soli
     <h2>How the packages fit together</h2>
     <div class="legend" id="legend"></div>
     <div class="mapwrap"><svg id="map" role="img" aria-label="Package dependency map"></svg></div>
-    <p class="hint" id="hint">Each row builds only on the rows below it, within the module. Box width grows with the number of functions. Pick a package to see <em class="d">what it uses</em> and <em class="u">what uses it</em>.</p>
+    <p class="hint" id="hint">Each row builds only on the rows below it, within the module. Box width grows with the number of functions. Lines show direct links; ones already implied by others are hidden. Pick a package to see everything <em class="d">it uses</em> and <em class="u">that uses it</em>.</p>
   </section>
 
   <section>
