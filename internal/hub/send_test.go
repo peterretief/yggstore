@@ -52,3 +52,17 @@ func TestSendRecipientsAndHeaders(t *testing.T) {
 		t.Fatalf("a header slipped in: %v\n%s", rcpts, raw)
 	}
 }
+
+func TestTrialWaitsADayToSend(t *testing.T) {
+	now := time.Now()
+	s := HubState{People: []Person{{Name: "new", Added: now.Add(-time.Hour).Unix(), Trial: &Trial{}}, {Name: "kath", Added: now.Unix()}}}
+	if err := s.reserve("new", 1, now); err == nil || !strings.Contains(err.Error(), "after their first day") {
+		t.Fatalf("a new trial account sent: %v", err)
+	}
+	if err := s.reserve("new", 1, now.Add(24*time.Hour)); err != nil {
+		t.Fatalf("a day later: %v", err)
+	}
+	if err := s.reserve("kath", 1, now); err != nil {
+		t.Fatalf("someone the owner added waits too: %v", err)
+	}
+}

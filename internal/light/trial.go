@@ -85,7 +85,9 @@ func (rl *Relay) serveTrial(w http.ResponseWriter, r *http.Request, host string)
 			http.Error(w, "This group isn't taking accounts just now.", http.StatusNotFound)
 			return true
 		}
-		if p == Base+"/signup" {
+		if p == Base+"/signup" && box.TrialPaused {
+			http.Error(w, peers.SignupsPaused, http.StatusServiceUnavailable)
+		} else if p == Base+"/signup" {
 			rl.signup(w, r, host, box)
 		} else {
 			rl.confirm(w, r, host, box)

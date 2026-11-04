@@ -370,8 +370,13 @@ func (f *filesPage) trialSeen(ctx context.Context, p Person, now time.Time) {
 // signup and confirm answer a web node at my. (light.Relay).
 func (f *filesPage) signup(w http.ResponseWriter, r *http.Request, now time.Time) {
 	list, _ := peers.Load(f.u.cfg.PeersPath)
-	if tb, ok := peers.TrialBox(list); !ok || tb.IP() != f.self {
+	tb, ok := peers.TrialBox(list)
+	if !ok || tb.IP() != f.self {
 		http.Error(w, "this box doesn't take accounts", http.StatusNotFound)
+		return
+	}
+	if tb.TrialPaused {
+		http.Error(w, peers.SignupsPaused, http.StatusServiceUnavailable)
 		return
 	}
 	var req SignupRequest

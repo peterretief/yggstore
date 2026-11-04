@@ -120,3 +120,20 @@ func TestSignupLinkThroughAnotherWebNode(t *testing.T) {
 		t.Fatalf("sign-up through another web node: %d %s, sent to %q", w.Code, w.Body, to)
 	}
 }
+
+func TestSignupsPaused(t *testing.T) {
+	list := []peers.Peer{{Name: "desktop", Addr: "[201::1]:7400", Admin: true, Domain: "example.org"}, {Name: "box", Addr: "[200::2]:7400", Trial: true, TrialPaused: true}}
+	asked := false
+	box := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { asked = true }))
+	t.Cleanup(box.Close)
+	rl := &Relay{Peers: func() []peers.Peer { return list }, BoxURL: func(string) string { return box.URL }, Log: t.Logf,
+		Email: func(context.Context, string, string, string) error { return nil }}
+	r := httptest.NewRequest(http.MethodPost, Base+"/signup", strings.NewReader(`{"label":"anna","email":"anna@example.net","password":"long enough pw"}`))
+	r.Host = "my.example.org"
+	r.Header.Set("X-Yggstore", "1")
+	w := httptest.NewRecorder()
+	rl.ServeHTTP(w, r)
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "paused") || asked {
+		t.Fatalf("paused: %d %q, box asked %v", w.Code, w.Body, asked)
+	}
+}

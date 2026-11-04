@@ -49,6 +49,7 @@ an email a week before.
 
 - At most 50 trial accounts on the box, and 20 new ones a day.
 - 3 sign-ups a day from one internet address.
+- New accounts can't send mail on their first day; they can receive it.
 - Mail they send goes to at most 5 people a message and 20 people a day
   (others on a box: 20 and 200). It is always from their own address,
   and the box logs each one, so the admin can see who sent what.
@@ -70,6 +71,7 @@ an email a week before.
 | Where | What |
 | --- | --- |
 | `peers.json` | `"trial": true` on the box that takes the accounts |
+| `peers.json` | `"trial_paused": true` beside it pauses new sign-ups; links already sent still work |
 | web nodes | `-mail-out`, to send the emails |
 
 ## Not in the trial

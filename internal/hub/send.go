@@ -23,6 +23,9 @@ const (
 	SendPerMessage      = 20
 	SendPerDay          = 200
 	maxSendText         = 100 << 10
+	// TrialSendAfter is how long a trial account waits before it may send
+	// mail, so nobody signs up just to send spam from the group's domain.
+	TrialSendAfter = 24 * time.Hour
 )
 
 // sendLimits are what p may send.
@@ -65,6 +68,9 @@ func (s *HubState) reserve(person string, n int, now time.Time) error {
 		return errors.New("you're no longer on this box")
 	}
 	p := &s.People[i]
+	if from := time.Unix(p.Added, 0).Add(TrialSendAfter); p.trial() && now.Before(from) {
+		return fmt.Errorf("New accounts can send mail after their first day: from %s.", from.Format("15:04 on 2 January"))
+	}
 	per, day := sendLimits(*p)
 	if n > per {
 		return fmt.Errorf("A message can go to at most %d people.", per)

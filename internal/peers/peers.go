@@ -46,8 +46,11 @@ type Peer struct {
 	Owner   string `json:"owner,omitempty"`
 	Gateway bool   `json:"gateway,omitempty"`
 	Leaving bool   `json:"leaving,omitempty"`
-	// Trial marks the box that takes accounts people make themselves.
-	Trial bool `json:"trial,omitempty"`
+	// Trial marks the box that takes accounts people make themselves;
+	// TrialPaused stops new sign-ups for now (links already sent still
+	// work).
+	Trial       bool `json:"trial,omitempty"`
+	TrialPaused bool `json:"trial_paused,omitempty"`
 
 	YggListen []string `json:"ygg_listen,omitempty"`
 	YggPeers  []string `json:"ygg_peers,omitempty"`
@@ -66,6 +69,10 @@ var Reserved = map[string]bool{
 	"root": true, "postmaster": true, "abuse": true, "hostmaster": true, "webmaster": true, "noreply": true,
 	"no-reply": true, "security": true, "ygg": true, "my": true, "get": true, "yggstore": true,
 }
+
+// SignupsPaused is the message for a sign-up while the trial box has
+// them paused.
+const SignupsPaused = "Sign-ups are paused just now. Please try again in a day or two."
 
 // TrialBox is the box that takes accounts people make themselves (see
 // docs/trial.md): the first marked "trial".
