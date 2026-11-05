@@ -1,12 +1,10 @@
 # yggstore
 
-yggstore is a co-op hosting network for independent developers. You host
-your clients' websites and email on locally hosted devices, linked with
-those of other developers who do the same. Each member brings a box and
-gives some space, and there's no fee. Every file and message is encrypted
-and spread over several members' devices, so any one of them can break or
-be switched off without anything being lost, and your clients' sites stay
-up.
+yggstore lets developers host websites and email for themselves and their
+clients on small, low-power devices, from anywhere. Boxes link up over any
+network, with no public IP, and spread encrypted pieces across members, so
+power cuts, bad networks or a lost machine don't take anything down. It's a
+co-op: give storage or pay those who do.
 
 Sites are folders of HTML or Markdown, or apps with code and data,
 previewed before they go live and published with `git push`. Your clients
