@@ -30,11 +30,16 @@ box, and their clients are the people on it. Four things are left to build.
 
 ## What's decided
 
-- **Anyone may join.**
+- **Anyone may join,** and the admin approves each one for now (the invite,
+  or the application form).
 - **Each developer moves to their own Cloudflare account.** They can start
   on the group's, and move when they're ready.
-- **Bringing a box is optional, but space isn't free.** A developer who
-  gives no storage pays the developers who do, and yggs keep track.
+- **Giving storage is optional, but space isn't free.** A developer who
+  gives none pays the developers who do, and yggs keep track.
+- **Every developer has a machine of their own.** Without a box, that's a
+  small server running [a box in Docker](docker-box.md), which gives little
+  storage. Their clients live there, so no other member could read their
+  mail.
 
 ## 1. A client's own domain
 
@@ -120,16 +125,7 @@ Developers will ask what happens to their clients in a bad week.
 
 ## Still to decide
 
-1. **Where do the clients of a developer without a box live?** People live
-   on a box, and a box's owner could read their mail. So either another
-   member's box holds them, and that member could read it; or "no box" means
-   a small server of their own, which is still a box but gives little
-   storage. The second keeps the promise to clients, and this plan assumes it.
-2. **How does "anyone may join" work?** Joining needs the admin's approval
-   today (the invite, or the application form). Open joining means strangers'
-   nodes hold pieces and can send mail, so new members may need limits at
-   first, as free accounts have.
-3. **Who answers abuse?** Once on their own account, a developer answers
+1. **Who answers abuse?** Once on their own account, a developer answers
    for their domains. While on the group's, and for names under its domain,
    the admin does, and one bad client hurts everyone's mail.
-4. **The rate and how to settle,** as above.
+2. **The rate and how to settle,** as above.
