@@ -816,10 +816,7 @@ func (d *Dashboard) runWebsites(ctx context.Context) {
 		return
 	}
 	pub.Skip = websites.Skip
-	service := d.cfg.SiteService
-	if service == "" {
-		service = "http://localhost:8480"
-	}
+	service := d.siteService()
 	w := websites.New(websites.Config{
 		Dir:       filepath.Join(d.cfg.Outbox.Dir(), outbox.WebsitesDir),
 		StatePath: filepath.Join(d.cfg.Outbox.Dir(), ".yggstore", "websites.json"),
@@ -876,4 +873,12 @@ func (d *Dashboard) servedSites() map[string]bool {
 		}
 	}
 	return out
+}
+
+// siteService is where the tunnel reaches the web nodes.
+func (d *Dashboard) siteService() string {
+	if d.cfg.SiteService != "" {
+		return d.cfg.SiteService
+	}
+	return "http://localhost:8480"
 }

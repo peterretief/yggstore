@@ -158,7 +158,7 @@ func (d *Dashboard) addDomain(ctx context.Context, domain string) ([]string, err
 	if err != nil {
 		return nil, fmt.Errorf("the tunnel's token: %w", err)
 	}
-	return site.AddDomain(ctx, string(api), strings.TrimSpace(string(tun)), domain, d.cfg.SiteService)
+	return site.AddDomain(ctx, string(api), strings.TrimSpace(string(tun)), domain, d.siteService())
 }
 
 // giveDomain adds domain to the group's list as one of person's sites.

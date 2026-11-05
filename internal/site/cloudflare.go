@@ -82,6 +82,9 @@ func AddRoutes(ctx context.Context, apiToken, tunnelToken, domain, service strin
 // nameservers the domain's registrar must point at. It changes nothing but
 // the new zone's website records: mail records are for the admin to bring.
 func AddDomain(ctx context.Context, apiToken, tunnelToken, domain, service string) ([]string, error) {
+	if service == "" {
+		return nil, errors.New("no address for the web nodes to route the domain to")
+	}
 	account, tunnel, err := TunnelFromToken(tunnelToken)
 	if err != nil {
 		return nil, err

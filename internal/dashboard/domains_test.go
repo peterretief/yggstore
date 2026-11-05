@@ -114,3 +114,14 @@ func TestOwnDomainWaitsForTheAdmin(t *testing.T) {
 		t.Fatalf("the box sees %+v", dom)
 	}
 }
+
+func TestSiteServiceHasADefault(t *testing.T) {
+	d := New(Config{})
+	if got := d.siteService(); !strings.HasPrefix(got, "http://") {
+		t.Fatalf("the tunnel would be given %q", got)
+	}
+	d = New(Config{SiteService: "http://localhost:9000"})
+	if got := d.siteService(); got != "http://localhost:9000" {
+		t.Fatal(got)
+	}
+}
