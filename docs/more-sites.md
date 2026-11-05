@@ -1,6 +1,9 @@
 # More than one website for someone on a box
 
-Status: proposed on 2026-10-18, waiting for approval. It changes one thing
+Status: mostly built. The member list and the box run several sites for a
+person, and a domain of their own is built ([developers and their
+clients](developer-areas.md)); moving a published site to a person isn't.
+Proposed on 2026-10-18. It changes one thing
 decided on 2026-10-15 in [box-people-sites.md](box-people-sites.md): "one
 name per person".
 

@@ -234,6 +234,7 @@ const CustomersOwner = "Paying customers"
 type Contact = contacts.Contact
 
 type Dashboard struct {
+	addDomainFn  func(ctx context.Context, domain string) ([]string, error) // tests stand in for Cloudflare
 	cfg          Config
 	mu           sync.Mutex
 	websites     *websites.Watcher // the outbox's websites/ folder, once started
@@ -409,6 +410,7 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/moves", d.handleMoveStart)
 	mux.HandleFunc("GET /api/network", d.handleNetwork)
 	mux.HandleFunc("GET /api/box/people", d.handlePeople)
+	mux.HandleFunc("GET /api/box/domain-live", d.handleDomainLive)
 	mux.HandleFunc("POST /api/box/people/{action}", d.handlePeopleAction)
 	mux.Handle(FilesPage, d.filesPage())
 	return d.guard(mux)

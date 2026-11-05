@@ -152,3 +152,30 @@ func TestCloudflareAAAA(t *testing.T) {
 		t.Fatalf("records %v", fake.records)
 	}
 }
+
+func TestAddZone(t *testing.T) {
+	var posted map[string]any
+	zones := []map[string]any{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			json.NewDecoder(r.Body).Decode(&posted)
+			z := map[string]any{"id": "z1", "name": posted["name"], "name_servers": []string{"ana.ns.example", "bob.ns.example"}}
+			zones = append(zones, z)
+			json.NewEncoder(w).Encode(map[string]any{"success": true, "result": z})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true, "result": zones})
+	}))
+	t.Cleanup(srv.Close)
+	cf := &Cloudflare{APIToken: "t", Account: "acct", Base: srv.URL}
+	ns, err := cf.AddZone(context.Background(), "acme.com")
+	if err != nil || len(ns) != 2 || posted["name"] != "acme.com" || posted["account"].(map[string]any)["id"] != "acct" {
+		t.Fatalf("%v %v %v", ns, err, posted)
+	}
+	// Asked again, it's found, not added twice.
+	posted = nil
+	if ns, err := cf.AddZone(context.Background(), "acme.com"); err != nil || len(ns) != 2 || posted != nil {
+		t.Fatalf("again: %v %v %v", ns, err, posted)
+	}
+}

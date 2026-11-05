@@ -56,6 +56,8 @@ type boxPerson struct {
 	Password string `json:"password,omitempty"` // "temporary" or "own"
 	PwUntil  int64  `json:"pw_until,omitempty"`
 	PwSet    int64  `json:"pw_set,omitempty"`
+	// Domains are their own domains, asked for or given (domains.go).
+	Domains []boxDomain `json:"domains,omitempty"`
 	// Trial is set for someone who made their account themselves
 	// (hub/trial.go).
 	Trial *boxTrial `json:"trial,omitempty"`
@@ -147,7 +149,9 @@ func (d *Dashboard) handlePeople(w http.ResponseWriter, r *http.Request) {
 			bp.Site = pn.Name
 		}
 		for _, c := range claims {
-			if c.Mine && strings.EqualFold(c.Person, p.Name) {
+			if c.Mine && c.Domain && strings.EqualFold(c.Person, p.Name) {
+				bp.Domains = append(bp.Domains, boxDomain{Name: c.Name, Status: c.Status, NS: c.NS})
+			} else if c.Mine && strings.EqualFold(c.Person, p.Name) {
 				switch c.Status {
 				case "asked":
 					bp.Asked = c.Name
@@ -204,8 +208,12 @@ func (d *Dashboard) handlePeopleAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "a password can only be chosen on the box itself", http.StatusForbidden)
 		return
 	}
-	if action == "name" {
-		msg, err := d.claimForPerson(r.Context(), req.Name, req.Label)
+	if action == "name" || action == "domain" {
+		claim := d.claimForPerson
+		if action == "domain" {
+			claim = d.claimDomain
+		}
+		msg, err := claim(r.Context(), req.Name, req.Label)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

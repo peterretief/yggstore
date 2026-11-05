@@ -129,3 +129,23 @@ func TestSiteNames(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnDomainAsASite(t *testing.T) {
+	list := []Peer{{Name: "admin", Addr: "[200::1]:7400", Admin: true, Domain: "example.org"},
+		{Name: "box", Addr: "[200::2]:7400", PeopleNames: []PersonName{
+			{Name: "anna.example.org", Person: "anna", Code: "ys1a"},
+			{Name: "acme.com", Person: "anna", Code: "ys1a", Site: true}}}}
+	if err := Validate(list); err != nil {
+		t.Fatal(err)
+	}
+	if p, given, under := SiteKeeper(list, "acme.com"); !given || under || p.Name != "box" {
+		t.Fatalf("%s %v %v", p.Name, given, under)
+	}
+	if _, given, _ := SiteKeeper(list, "other.com"); given {
+		t.Fatal("a domain nobody was given")
+	}
+	list[1].PeopleNames[1].Site = false
+	if err := Validate(list); err == nil {
+		t.Fatal("a two-part domain as an address")
+	}
+}

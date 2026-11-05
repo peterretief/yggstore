@@ -93,8 +93,13 @@ func validNames(p Peer, owners map[string]bool) error {
 	}
 	people := map[string]bool{}
 	for _, pn := range p.PeopleNames {
+		// A site may be a domain of their own, such as acme.com.
 		l, dom, ok := strings.Cut(pn.Name, ".")
-		if !ok || ValidLabel(l) != nil || ValidDomain(dom) != nil {
+		if pn.Site {
+			if ValidDomain(pn.Name) != nil {
+				return fmt.Errorf("site %q is not a domain like example.org", pn.Name)
+			}
+		} else if !ok || ValidLabel(l) != nil || ValidDomain(dom) != nil {
 			return fmt.Errorf("name %q is not like anna.example.org", pn.Name)
 		}
 		if owners[pn.Name] {
@@ -233,6 +238,13 @@ func SiteKeeper(list []Peer, site string) (owner Peer, given, under bool) {
 	domain := GroupDomain(list)
 	site = strings.ToLower(strings.TrimSuffix(site, "."))
 	if domain == "" || (site != domain && !strings.HasSuffix(site, "."+domain)) {
+		// A domain of someone's own, given to them, is that box's too.
+		if p, ok := NameOwner(list, site); ok {
+			return p, true, false
+		}
+		if p, ok := NameOwner(list, strings.TrimPrefix(site, "www.")); ok {
+			return p, true, false
+		}
 		return Peer{}, false, false
 	}
 	if p, ok := NameOwner(list, site); ok {

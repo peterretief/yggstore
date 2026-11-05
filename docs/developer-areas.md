@@ -20,7 +20,7 @@ its owner runs it:
 | Publishing for a client | Built: their `websites/` folder, or `git push` |
 | Nobody else changing their sites | Built: a site changes only from the machine that published it, or an admin |
 | Nobody else reading client files | Built: other members hold only encrypted pieces |
-| **A client on their own domain** | **By hand, by the admin, and one name per person** |
+| **A client on their own domain** | **The website is built; its mail is by hand** |
 | **All their clients in one view** | **Partly: People on this box shows people, not site or mail health** |
 | **A fair share of space** | **Counted (Give and use), not limited** |
 | **Taking a client elsewhere** | **Partly: moving a site is built, moving a person is parked** |
@@ -51,11 +51,15 @@ their own. There are two stages.
 **Starting out, on the group's Cloudflare account:**
 
 1. On the box's dashboard, the developer adds `acme.example` to a client.
-2. The admin's dashboard, through Cloudflare's API, adds the zone, routes
-   the site to the web nodes and the mail to the Worker, and sends back
-   the two nameservers.
+2. The admin approves it. Their dashboard, through Cloudflare's API, adds
+   the zone, routes the site to the web nodes, gives it to the client as a
+   site, and sends back the two nameservers. (Built 2026-11-05, except
+   the mail: the domain's mail is still routed by hand.)
 3. The developer's dashboard shows them, and what to change at the
-   registrar, then says when the domain is live.
+   registrar, and checks when the domain is live.
+
+Only the box it was given to can publish a domain, and approving always
+waits for the admin: it changes the group's Cloudflare account.
 
 **Moving to their own account:** a Cloudflare tunnel belongs to one account,
 so a developer's domains can't point at the group's. They need their own:
@@ -117,7 +121,8 @@ Developers will ask what happens to their clients in a bad week.
 1. Domains for a client, by hand but written down
    ([host your first client](host-a-client.md)). The first outside developer
    tries this, with the admin doing the Cloudflare part.
-2. A client's own domain from the dashboard, on the group's account.
+2. A client's own domain from the dashboard, on the group's account: the
+   website is built; the mail is left.
 3. The clients page.
 4. Moving to their own Cloudflare account.
 5. Settling, and what happens past the limit.

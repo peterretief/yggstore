@@ -77,6 +77,51 @@ func AddRoutes(ctx context.Context, apiToken, tunnelToken, domain, service strin
 	return added, wwwErr, nil
 }
 
+// AddDomain puts a domain on the group's Cloudflare account, if it isn't
+// there, and routes it and its www. to the web nodes. It gives the two
+// nameservers the domain's registrar must point at. It changes nothing but
+// the new zone's website records: mail records are for the admin to bring.
+func AddDomain(ctx context.Context, apiToken, tunnelToken, domain, service string) ([]string, error) {
+	account, tunnel, err := TunnelFromToken(tunnelToken)
+	if err != nil {
+		return nil, err
+	}
+	cf := &Cloudflare{APIToken: strings.TrimSpace(apiToken), Account: account, Tunnel: tunnel}
+	ns, err := cf.AddZone(ctx, domain)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := cf.Route(ctx, domain, service); err != nil {
+		return ns, err
+	}
+	if _, err := cf.Route(ctx, "www."+domain, service); err != nil {
+		return ns, err
+	}
+	return ns, nil
+}
+
+// AddZone adds domain to the account, or finds it there, and gives its
+// nameservers. The API token needs Zone: Edit.
+func (c *Cloudflare) AddZone(ctx context.Context, domain string) ([]string, error) {
+	type zone struct {
+		Name        string   `json:"name"`
+		NameServers []string `json:"name_servers"`
+	}
+	var zones []zone
+	if err := c.call(ctx, "GET", "/zones?name="+url.QueryEscape(domain), nil, &zones); err != nil {
+		return nil, err
+	}
+	if len(zones) > 0 {
+		return zones[0].NameServers, nil
+	}
+	var made zone
+	body := map[string]any{"name": domain, "type": "full", "account": map[string]string{"id": c.Account}}
+	if err := c.call(ctx, "POST", "/zones", body, &made); err != nil {
+		return nil, fmt.Errorf("adding %s to Cloudflare (the API token needs Zone: Edit): %w", domain, err)
+	}
+	return made.NameServers, nil
+}
+
 // Route makes host reach the web nodes through the tunnel. It changes
 // nothing if host already has a DNS record that points elsewhere, so a
 // site still served from somewhere else isn't taken over by accident. It

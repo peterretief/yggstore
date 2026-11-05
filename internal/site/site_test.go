@@ -422,3 +422,42 @@ func background(t *testing.T, f func()) {
 	go func() { defer close(done); f() }()
 	t.Cleanup(func() { <-done })
 }
+
+func TestOwnDomainBelongsToItsBox(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	nodes := storageNodes(t, 6)
+	members := []peers.Peer{
+		{Name: "admin", Addr: "[200::9]:7400", Admin: true, Domain: "example.org"},
+		{Name: "box", Addr: "[200::1]:7400", PeopleNames: []peers.PersonName{{Name: "acme.com", Person: "acme", Code: "ys1a", Site: true}}},
+		{Name: "bob", Addr: "[200::2]:7400"},
+	}
+	list := func() []peers.Peer { return append(append([]peers.Peer{}, nodes...), members...) }
+	b := newBus()
+	web := &Web{Dir: t.TempDir(), Msgs: b, Peers: list, Client: client.New(), Log: t.Logf}
+	background(t, func() { web.Run(ctx) })
+	publish := func(from, name, body string) {
+		t.Helper()
+		b.mu.Lock()
+		b.from = from
+		b.mu.Unlock()
+		src := t.TempDir()
+		writeSite(t, src, map[string]string{"index.html": body})
+		pub := &Publisher{Dir: t.TempDir(), Client: client.New(), Announce: b, Log: t.Logf}
+		if _, _, err := pub.Publish(ctx, name, src, nodes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish("200::2", "acme.com", "bob got there first")
+	publish("200::1", "acme.com", "the client's")
+	eventually(t, web, "acme.com", "the client's")
+	publish("200::2", "acme.com", "bob's takeover")
+	publish("200::2", "www.acme.com", "bob's www")
+	publish("200::1", "acme.com", "the client's, changed")
+	eventually(t, web, "acme.com", "the client's, changed")
+	for _, s := range web.Status() {
+		if s.Site == "www.acme.com" {
+			t.Fatalf("another member took www.: %+v", s)
+		}
+	}
+}

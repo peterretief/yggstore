@@ -45,19 +45,21 @@ which you can send your client before it goes live.
 
 ## 4. Move their domain
 
-This step goes through the group's admin for now, and is the least
-finished part: someone on a box has one name, and a domain of their own
-isn't built for them yet ([the plan](developer-areas.md)). Until it is, the
-site at the domain is published from your own node, and the admin sets up
-its mail by hand. Send them the domain and who it's for. They:
+On your box's dashboard, in your client's row, open **Add their own
+domain**, type it and press **Ask the group**. When the group's admin
+approves it, the domain is on the group's Cloudflare account, its website
+is routed to the web nodes, and the row shows two nameservers.
 
-1. add the domain to the group's Cloudflare account, and give you two
-   nameservers;
-2. route the domain to the group's web nodes, and its mail to the group.
+The site is the `websites/` folder of that name in your client's folder,
+and only your box can publish it.
 
-You change the domain's nameservers at its registrar to those two. Before
-you do, list any records the domain still needs, such as mail it keeps
-elsewhere: the admin copies them over first, or that mail stops.
+Before you change anything at the registrar, tell the admin what the domain
+still needs, such as mail kept elsewhere: only the website's records are
+added, so anything else stops until it's copied over. Mail at the domain
+coming to the group is set up by the admin, by hand, for now.
+
+Then set the domain's nameservers at its registrar to those two.
+**Is it live?** in the row checks it.
 
 The change takes from a few minutes to a few hours. Then check the site
 at its domain, and send it a test message.

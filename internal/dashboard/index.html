@@ -1419,7 +1419,7 @@ async function refreshNames() {
     <div class="sub">The same name is your email address and your website, <span class="mono">yourname.${esc(n.domain)}</span>.
       ${n.admin ? "" : "The group's admin approves it first."}</div>`;
   if (n.admin) {
-    const req = n.requests.map(c => `<tr><td><b>${esc(mail(c.name))}</b><div class="sub">${c.person ? `for ${esc(c.person)}, who uses ${esc(c.node_name || c.node)}'s box (its owner vouches for them)` : `from ${esc(c.node_name || c.node)}`} · ${ago(c.time / 1000)}</div></td>
+    const req = n.requests.map(c => `<tr><td><b>${esc(c.domain ? c.name : mail(c.name))}</b>${c.domain ? ` <span class="pill info">their own domain</span>` : ""}<div class="sub">${c.person ? `for ${esc(c.person)}, who uses ${esc(c.node_name || c.node)}'s box (its owner vouches for them)` : `from ${esc(c.node_name || c.node)}`} · ${ago(c.time / 1000)}</div></td>
       <td>${c.status === "asked"
         ? `<button data-decide="${esc(c.name)}" data-node="${esc(c.node)}" data-ok="1">Approve</button> <button class="del" data-decide="${esc(c.name)}" data-node="${esc(c.node)}">Decline</button>`
         : `<span class="pill ${c.status === "approved" ? "ok" : "bad"}">${esc(c.status)}</span>`}</td></tr>`).join("");
@@ -1565,6 +1565,17 @@ async function refreshPeople() {
         <input data-label="${esc(p.name)}" placeholder="${esc(p.name.toLowerCase())}" style="width:10em"><span class="sub">.${esc(st.domain)}</span>
         <button data-pact="name" data-name="${esc(p.name)}">Ask the group</button></div>
         <div class="sub">The group's admin approves it. Then they get a page of their own, a contact form, and mail at that address, sealed for them.</div></details>` : "";
+    // Their own domains: asked for, then the nameservers to set.
+    const doms = p.removed ? "" : (p.domains || []).map(x => x.status === "approved"
+      ? `<div class="sub"><b>${esc(x.name)}</b>: at its registrar, set the nameservers to <span class="mono" style="user-select:all">${(x.ns || []).map(esc).join(", ")}</span>.
+         Add any records it still needs first, such as mail kept elsewhere. <button data-dlive="${esc(x.name)}">Is it live?</button> <span data-dmsg="${esc(x.name)}"></span></div>`
+      : x.status === "declined" ? `<div class="sub">${esc(x.name)} was declined by the group's admin</div>`
+      : `<div class="sub">asked the group for ${esc(x.name)}: waiting for the group's admin</div>`).join("") +
+      `<details style="margin-top:4px"><summary class="sub">Add their own domain</summary>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center">
+        <input data-domain="${esc(p.name)}" placeholder="acme.com" style="width:14em">
+        <button data-pact="domain" data-name="${esc(p.name)}">Ask the group</button></div>
+        <div class="sub">The group's admin approves it. You then get two nameservers to set at its registrar, and its site is their <span class="mono">websites/</span> folder of that name. Its mail is set up apart.</div></details>`;
     const f = p.forward;
     const fwd = p.removed || !f ? "" : f.allowed
       ? `<div class="sub">mail forwarded to ${esc(f.to)} <button class="del" data-pact="forward-stop" data-name="${esc(p.name)}">Stop</button></div>`
@@ -1595,7 +1606,7 @@ async function refreshPeople() {
       ? "closing: their files are being deleted"
       : `last used ${esc(new Date(t.seen * 1000).toLocaleDateString())} · closes ${esc(new Date(t.closes * 1000).toLocaleDateString())} if unused`}</span></div>`;
     return `<tr><td><b>${esc(p.name)}</b> ${state}${trialLine}${p.invite_until && !p.removed ? `<div class="sub">invite works until ${esc(new Date(p.invite_until * 1000).toLocaleDateString())}</div>` : ""}
-        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${webLine}${site}${fwd}${link}${ygg}</td>
+        ${devs}${p.syncthing ? `<div class="sub">${p.syncthing} Syncthing device${p.syncthing == 1 ? "" : "s"}</div>` : ""}${webLine}${site}${doms}${fwd}${link}${ygg}</td>
       <td class="num">${size(p.bytes)}${p.quota ? ` of ${size(p.quota)}` : ""}${over ? ` <span class="pill bad">over</span>` : ""}<div class="sub">${p.files} files</div></td>
       <td class="sub">${p.devices.length ? "last on " + esc(when(last)) : ""}</td>
       <td class="actions">${acts}${p.removed ? "" : `<details style="margin-top:6px"><summary class="sub">Limits</summary>
@@ -1614,6 +1625,14 @@ async function refreshPeople() {
     <div id="peopleMsg" class="err"></div>`;
 }
 $("people").addEventListener("click", async ev => {
+  const lv = ev.target.closest("button[data-dlive]");
+  if (lv) {
+    const out = document.querySelector(`[data-dmsg="${CSS.escape(lv.dataset.dlive)}"]`);
+    out.textContent = "checking…";
+    const r = await fetch("api/box/domain-live?name=" + encodeURIComponent(lv.dataset.dlive)).then(x => x.json()).catch(() => ({}));
+    out.textContent = r.live ? "Live: it answers." : "Not yet. The change can take a few hours.";
+    return;
+  }
   const b = ev.target.closest("button[data-pact]");
   if (!b) return;
   const act = b.dataset.pact, name = b.id === "personAdd" ? $("personName").value.trim() : b.dataset.name;
@@ -1624,6 +1643,7 @@ $("people").addEventListener("click", async ev => {
   if (act === "invite-cancel" && peopleLink && peopleLink.name === name) peopleLink = null;
   if (act === "password" && b.dataset.has && !confirm(`Give ${name} a new temporary password? Their password now, and the browsers it signed in, stop working.`)) return;
   if (act === "device-remove") body.addr = b.dataset.addr;
+  if (act === "domain") body.label = document.querySelector(`[data-domain="${CSS.escape(name)}"]`).value.trim();
   if (act === "name") body.label = (document.querySelector(`[data-label="${CSS.escape(name)}"]`).value.trim() || name).toLowerCase();
   if (act === "forward-allow" && !confirm(`Forward ${name}'s mail to ${b.closest("div").querySelector("b").textContent}?`)) return;
   if (act === "limit") {

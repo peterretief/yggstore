@@ -207,11 +207,11 @@ func (w *Web) handle(s msg.Stored) {
 	list := w.Peers()
 	keeper, given, under := peers.SiteKeeper(list, a.Site)
 	switch {
-	case under && !(given && keeper.IP() == s.From) && !isAdmin(list, s.From):
-		w.logf("web: ignored %s from %s: names under %s are published by the node the group gives them to", a.Site, s.FromName, peers.GroupDomain(list))
-	case !under && e != nil && !w.mayChange(s.From, e.Owner):
+	case (under || given) && !(given && keeper.IP() == s.From) && !isAdmin(list, s.From):
+		w.logf("web: ignored %s from %s: names the group gives are published by the node it gives them to", a.Site, s.FromName)
+	case !under && !given && e != nil && !w.mayChange(s.From, e.Owner):
 		w.logf("web: ignored a change to %s from %s, who didn't publish it", a.Site, s.FromName)
-	case !under && e == nil && a.Stub != nil && !w.mayClaim(a.Site, s.From):
+	case !under && !given && e == nil && a.Stub != nil && !w.mayClaim(a.Site, s.From):
 		w.logf("web: ignored %s from %s: www. of a site belongs to that site's publisher", a.Site, s.FromName)
 	case e != nil && s.Time <= e.Announced:
 		// an older announcement, arriving late
@@ -229,7 +229,7 @@ func (w *Web) handle(s msg.Stored) {
 			e = &webEntry{Owner: s.From}
 			w.st.Sites[a.Site] = e
 		}
-		if under && given && keeper.IP() == s.From {
+		if given && keeper.IP() == s.From {
 			e.Owner = s.From // its contact form goes to the name's node
 		}
 		e.Announced = s.Time

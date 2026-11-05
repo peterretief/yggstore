@@ -49,6 +49,10 @@ type nameClaim struct {
 	Time     int64  `json:"time"`             // unix ms
 	Status   string `json:"status"`           // asked, approved, declined
 	Mine     bool   `json:"mine,omitempty"`   // asked from this dashboard
+	// Domain marks a client's own domain (domains.go), and NS its
+	// nameservers once approved.
+	Domain bool     `json:"domain,omitempty"`
+	NS     []string `json:"ns,omitempty"`
 }
 
 type namesFile struct {
@@ -104,6 +108,8 @@ func (d *Dashboard) syncNames(ctx context.Context, list []peers.Peer) {
 				switch m.Type {
 				case typeNameClaim:
 					d.takeClaim(&f, list, m.From, m.FromName, m.Body, m.Time)
+				case typeDomainClaim:
+					d.takeDomainClaim(ctx, &f, list, m.From, m.FromName, m.Body, m.Time)
 				case typeNameAnswer:
 					takeAnswer(&f, list, m.From, m.Body)
 				case typeNameReturn:
@@ -182,15 +188,22 @@ func takeAnswer(f *namesFile, list []peers.Peer, from, body string) {
 		return
 	}
 	var ans struct {
-		Name     string `json:"name"`
-		Approved bool   `json:"approved"`
+		Name     string   `json:"name"`
+		Approved bool     `json:"approved"`
+		NS       []string `json:"ns"`
 	}
 	if json.Unmarshal([]byte(body), &ans) != nil {
 		return
 	}
 	for i := range f.Claims {
-		if c := &f.Claims[i]; c.Mine && c.Name == ans.Name && c.Status == "asked" && !ans.Approved {
+		c := &f.Claims[i]
+		if !c.Mine || c.Name != ans.Name || c.Status != "asked" {
+			continue
+		}
+		if !ans.Approved {
 			c.Status = "declined"
+		} else if c.Domain {
+			c.Status, c.NS = "approved", ans.NS
 		}
 	}
 }
@@ -441,7 +454,17 @@ func (d *Dashboard) handleDecide(w http.ResponseWriter, r *http.Request) {
 // decideName gives c's name (approve) or declines it, notes the answer,
 // and tells the box that asked.
 func (d *Dashboard) decideName(ctx context.Context, c nameClaim, approve bool) error {
-	if approve {
+	var ns []string
+	switch {
+	case approve && c.Domain:
+		var err error
+		if ns, err = d.addDomain(ctx, c.Name); err != nil {
+			return err
+		}
+		if err := d.giveDomain(c.Node, c.Name, c.Code, c.Person); err != nil {
+			return err
+		}
+	case approve:
 		if err := d.giveName(c.Node, c.Name, c.Code, c.Person); err != nil {
 			return err
 		}
@@ -450,8 +473,9 @@ func (d *Dashboard) decideName(ctx context.Context, c nameClaim, approve bool) e
 	d.namesMu.Lock()
 	f := d.loadNames()
 	for i := range f.Claims {
-		if f.Claims[i].Name == c.Name && f.Claims[i].Node == c.Node && !f.Claims[i].Mine {
-			f.Claims[i].Status = status
+		// On an admin's own box, its own request is answered here too.
+		if f.Claims[i].Name == c.Name && f.Claims[i].Node == c.Node && (!f.Claims[i].Mine || c.Domain) {
+			f.Claims[i].Status, f.Claims[i].NS = status, ns
 		}
 	}
 	err := d.saveNames(f)
@@ -460,10 +484,14 @@ func (d *Dashboard) decideName(ctx context.Context, c nameClaim, approve bool) e
 		return err
 	}
 	if lc, err := d.msgClient(); err == nil {
-		body, _ := json.Marshal(map[string]any{"name": c.Name, "approved": approve})
+		body, _ := json.Marshal(map[string]any{"name": c.Name, "approved": approve, "ns": ns})
 		lc.Send(ctx, c.Node, typeNameAnswer, string(body))
 	}
-	d.event("ok", fmt.Sprintf("%s %s for %s", status, peers.MailAddress(c.Name), claimWho(c)))
+	what := peers.MailAddress(c.Name)
+	if c.Domain {
+		what = "the domain " + c.Name
+	}
+	d.event("ok", fmt.Sprintf("%s %s for %s", status, what, claimWho(c)))
 	return nil
 }
 
