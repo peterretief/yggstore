@@ -25,28 +25,49 @@ its owner runs it:
 | **A fair share of space** | **Counted (Give and use), not limited** |
 | **Taking a client elsewhere** | **Partly: moving a site is built, moving a person is parked** |
 
-So there's no new kind of account. A developer is a member with a box, and
-their clients are the people on it. Four things are left to build.
+So there's no new kind of account. A developer is a member, usually with a
+box, and their clients are the people on it. Four things are left to build.
+
+## What's decided
+
+- **Anyone may join.**
+- **Each developer moves to their own Cloudflare account.** They can start
+  on the group's, and move when they're ready.
+- **Bringing a box is optional, but space isn't free.** A developer who
+  gives no storage pays the developers who do, and yggs keep track.
 
 ## 1. A client's own domain
 
 This is the most important step: it's what clients pay developers for, and
 it's what the admin does by hand today. It builds on
 [more than one website](more-sites.md), which allows a person a domain of
-their own.
+their own. There are two stages.
+
+**Starting out, on the group's Cloudflare account:**
 
 1. On the box's dashboard, the developer adds `acme.example` to a client.
-2. The request goes to the group's admin, as a name does. Approving it
-   is one click, and it could become automatic.
-3. The admin's dashboard, through Cloudflare's API, adds the zone to the
-   group's account, routes the site to the web nodes and the mail to the
-   Worker, and sends back the two nameservers.
-4. The developer's dashboard shows them, and what to change at the
+2. The admin's dashboard, through Cloudflare's API, adds the zone, routes
+   the site to the web nodes and the mail to the Worker, and sends back
+   the two nameservers.
+3. The developer's dashboard shows them, and what to change at the
    registrar, then says when the domain is live.
 
-Mail to any address at the domain comes to that client. Sending from it
-needs the domain added to the mail relay and its DNS records, also through
-the API.
+**Moving to their own account:** a Cloudflare tunnel belongs to one account,
+so a developer's domains can't point at the group's. They need their own:
+
+1. a tunnel, on a web node of their own (`-web`, `-web-tunnel`), which can
+   be their box;
+2. the mail Worker in their account, with a token for their web node;
+3. sending set up for their domains (`-mail-out`).
+
+A guided step on the dashboard takes their Cloudflare API token and does
+this, then moves each zone across, with the records it had. Their clients'
+sites stay stored in the group as before.
+
+A site then reaches the internet only through that developer's tunnel, so
+one web node is a single point of failure. The tunnel should run on a
+second machine too, with the developer's own second box or another member
+they trust holding its token ([always on](web-access.md#always-on)).
 
 ## 2. A clients page
 
@@ -55,13 +76,23 @@ for each one their site and whether it answers, their domain and whether
 its DNS is right, mail received lately, and space used. Anything wrong
 shows first. The box already knows most of this.
 
-## 3. Fair shares
+## 3. Paying for space
 
-A co-op needs a rule, or one member's clients fill everyone's disks. Give
-and use already counts what each member stores and gives. The rule:
-**you may store on others about as much as you give**, with a warning at
-80%, and new uploads refused at 120%. Yggs stay as a record, with no money
-changing hands.
+Give and use already counts what each member stores on others and holds
+for them, and the ledger already charges it at midnight
+([yggs](ygg.md#step-2-storage-in-the-ledger)). So a member who gives no box
+simply runs up a balance below 0, and the members holding their files earn
+it. What's left to build:
+
+- **Real settling.** Yggs are only a record today. A member past the limit
+  below 0 (50,000 yggs, $50) has to pay, in a way still to be chosen
+  ([settling](ygg.md#settling)).
+- **What happens past the limit.** It only warns now. It should warn, then
+  refuse new uploads, and never take a client's site down without notice.
+- **The rate.** 10 yggs per GB-month is 1 US cent, far too little to matter
+  to anyone. It needs setting.
+- **Other work than storage.** A web node, a tunnel for others and sending
+  mail cost something too, and aren't counted.
 
 ## 4. Leaving, and a clear promise
 
@@ -80,20 +111,25 @@ Developers will ask what happens to their clients in a bad week.
 
 1. Domains for a client, by hand but written down
    ([host your first client](host-a-client.md)). The first outside developer
-   tries this, with the admin doing step 3 of the domain flow.
-2. A client's own domain, from the dashboard.
+   tries this, with the admin doing the Cloudflare part.
+2. A client's own domain from the dashboard, on the group's account.
 3. The clients page.
-4. Fair shares.
-5. Moving a client out, and admin handover.
+4. Moving to their own Cloudflare account.
+5. Settling, and what happens past the limit.
+6. Moving a client out, and admin handover.
 
-## Decisions
+## Still to decide
 
-1. **Who may join?** By invite and the admin's approval, as now, or do
-   members vouch for new ones?
-2. **Whose Cloudflare account?** One for the group is simplest, but it
-   holds every client's zone, and the group's domain reputation is shared.
-   Each developer having their own is safer and much more work.
-3. **What may a developer's clients do?** Everyone shares withcare.co.za's
-   mail reputation, so one bad client affects all. Who answers abuse
-   reports?
-4. **Must every developer bring a box?** This plan says yes.
+1. **Where do the clients of a developer without a box live?** People live
+   on a box, and a box's owner could read their mail. So either another
+   member's box holds them, and that member could read it; or "no box" means
+   a small server of their own, which is still a box but gives little
+   storage. The second keeps the promise to clients, and this plan assumes it.
+2. **How does "anyone may join" work?** Joining needs the admin's approval
+   today (the invite, or the application form). Open joining means strangers'
+   nodes hold pieces and can send mail, so new members may need limits at
+   first, as free accounts have.
+3. **Who answers abuse?** Once on their own account, a developer answers
+   for their domains. While on the group's, and for names under its domain,
+   the admin does, and one bad client hurts everyone's mail.
+4. **The rate and how to settle,** as above.
