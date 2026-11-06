@@ -29,6 +29,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,8 @@ func main() {
 	add := flag.String("add", "", "add an account by its email, or set its password, and stop")
 	dataPath := flag.String("data", "", "a data file to show, with its diagram, forms and reports")
 	design := flag.String("import", "", "make the data file match this .sql file, and stop")
+	copyTo := flag.String("copy-to", "", "a folder in the yggstore outbox for a daily copy of the data")
+	copyNow := flag.Bool("copy-now", false, "copy-to: make a copy now, and stop")
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	flag.Parse()
 
@@ -87,14 +90,30 @@ func main() {
 		fmt.Println("saved", *add)
 		return
 	}
+	sources := []source{{db, filepath.Base(*dbPath)}}
+	var dataFile *data
+	if *dataPath != "" {
+		if dataFile, err = openData(*dataPath); err != nil {
+			log.Fatal(err)
+		}
+		sources = append(sources, source{dataFile.db, filepath.Base(*dataPath)})
+	}
+	if *copyNow {
+		if *copyTo == "" {
+			log.Fatal("-copy-now needs -copy-to")
+		}
+		if err := copyAll(sources, *copyTo); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("copied to", *copyTo)
+		return
+	}
 	if host, _, err := net.SplitHostPort(*addr); err != nil || !isLocal(host) {
 		log.Fatalf("%s isn't on this machine only", *addr)
 	}
-	a := &app{db: db, tries: map[string][]time.Time{}}
-	if *dataPath != "" {
-		if a.data, err = openData(*dataPath); err != nil {
-			log.Fatal(err)
-		}
+	a := &app{db: db, data: dataFile, tries: map[string][]time.Time{}}
+	if *copyTo != "" {
+		go keepCopies(sources, *copyTo)
 	}
 	srv := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("listening on %s", *addr)

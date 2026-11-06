@@ -83,8 +83,13 @@ This is the part most easily got wrong, and the starting point shows how.
   as they pass, passwords included, as for any site on them.
 - **Your program faces the internet.** Only your listed paths reach it, but it
   must treat every request as hostile.
-- **One machine is one point of failure.** Running the program on a second
-  machine, with its data kept in step, is for later.
+- **One machine is one point of failure.** With `-copy-to` and a folder in the
+  outbox's `files/`, the starting point makes a clean copy of its data each
+  day, which the group stores encrypted, keeping earlier days as versions.
+  The recovery copy carries what's needed to get it back, so losing the
+  machine loses a day at most. The local part stays down until you restore it
+  elsewhere. Running the program on a second machine, with its data kept in
+  step, is for later.
 - **Limits:** 10 MB a request, 30 seconds an answer and 5 local paths a site
   to begin with.
 - **Sites on a box don't get this.** Only a machine's own publisher reads
