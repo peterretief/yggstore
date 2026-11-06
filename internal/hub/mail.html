@@ -138,10 +138,11 @@ let shown = null, replyTo = "";
 function compose(m) {
   replyTo = m ? m.id : "";
   $("cTitle").textContent = m ? "Reply" : "New message";
-  // A reply goes from the address the message came to, at their own domain.
+  // From their own domain if they have one: a reply from the address the
+  // message came to, anything else from info@.
   const own = st.own_domains || [], to = m ? (m.to.match(/[^\s<>,"]+@[^\s<>,"]+/) || [""])[0].toLowerCase() : "";
   $("wFrom").hidden = !own.length;
-  $("wFrom").value = own.some(d => to.endsWith("@" + d)) ? to : (st.address || (own[0] ? "info@" + own[0] : ""));
+  $("wFrom").value = own.some(d => to.endsWith("@" + d)) ? to : (own[0] ? "info@" + own[0] : st.address);
   $("wTo").value = m ? (m.reply_to || m.from) : "";
   $("wSub").value = m ? (/^re:/i.test(m.subject || "") ? m.subject : "Re: " + (m.subject || "")) : "";
   $("wText").value = m ? "\n\n" + `On ${when(m.received)}, ${m.from} wrote:\n` + (m.text || "").split("\n").map(l => "> " + l).join("\n") : "";
