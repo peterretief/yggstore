@@ -56,6 +56,7 @@ a { color: var(--accent); }
     <p><button id="send">Send</button> <button class="plain" id="cancel">Cancel</button></p>
     <div class="sub" id="limits"></div><div class="err" id="wErr"></div></div>
   <div id="open"></div>
+  <div class="tabs" id="doms" hidden></div>
   <div class="tabs" id="tabs"></div>
   <div class="card" id="inbox"><span class="sub">Loading…</span></div>
   <div class="card" id="fwdCard" hidden><h2>Forward to your email</h2><div id="fwd"></div></div>
@@ -68,15 +69,23 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const when = ms => new Date(ms).toLocaleString();
 const size = n => n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " bytes";
-let st, open = "", folder = "INBOX";
+let st, open = "", folder = "INBOX", dom = "";
+// Domains: their address in the group and their own, a tab each. Mail
+// belongs to the domain it came to, or for Sent, the one it went from.
+const domains = () => [...new Set([(st.address || "").split("@")[1], ...(st.own_domains || [])].filter(Boolean))];
+const atDom = m => !dom || (((m.folder || "INBOX") === "Sent" ? m.from : m.to) || "").toLowerCase().includes("@" + dom);
+const here = f => st.messages.filter(m => (m.folder || "INBOX") === f && atDom(m));
 // Folders: Inbox, Sent, Archives and their own; the rest are for mail programs.
 const hidden = ["Drafts", "Trash", "Junk"];
 const label = f => f === "INBOX" ? "Inbox" : f;
 const custom = f => !["INBOX", "Sent", "Archives", ...hidden].includes(f);
-const shownFolders = () => (st.folders || ["INBOX", "Sent"]).filter(f => !hidden.includes(f));
+const shownFolders = () => (st.folders || ["INBOX", "Sent"]).filter(f => !hidden.includes(f) && (!dom || !custom(f) || f === folder || here(f).length));
 function tabs() {
+  const ds = domains();
+  $("doms").hidden = ds.length < 2;
+  $("doms").innerHTML = ["", ...ds].map(d => `<button data-dom="${esc(d)}" class="${d === dom ? "on" : ""}">${d ? esc(d) : "All mail"}</button>`).join("");
   $("tabs").innerHTML = shownFolders().map(f => {
-    const n = st.messages.filter(m => (m.folder || "INBOX") === f).length;
+    const n = here(f).length;
     return `<button data-folder="${esc(f)}" class="${f === folder ? "on" : ""}">${esc(label(f))}${n ? ` <span class="count">${n}</span>` : ""}</button>`;
   }).join("") + `<button id="newFolder">New folder</button>`;
 }
@@ -92,7 +101,7 @@ function inbox() {
   if (!st.address && !own.length) return `<h2>No email address yet</h2><p class="sub">The box's owner can ask the group for a name for you, such as
     <b>yourname@${esc(st.domain || "the-group.org")}</b>. Once the group's admin approves it, your mail comes in here.</p>`;
   if (!st.messages.length) return `<p class="sub">No mail yet. Mail to <b>${esc(st.address || "any address at " + own.join(" or "))}</b> comes in here.</p>`;
-  const list = st.messages.filter(m => (m.folder || "INBOX") === folder);
+  const list = here(folder);
   if (!list.length) return `<p class="sub">Nothing in ${esc(label(folder))}.${custom(folder) ? ` <button class="plain" id="rmfolder">Remove this folder</button>` : ""}</p>`;
   return list.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name"><b>${esc(m.subject || "(no subject)")}</b><br>
     <span class="sub">${folder === "Sent" ? "To " + esc(m.to) : esc(m.from)}</span>${m.error ? `<br><span class="err">${esc(m.error)}</span>` : ""}</span>
@@ -144,7 +153,8 @@ function compose(m) {
   // message came to, anything else from info@.
   const own = st.own_domains || [], to = m ? (m.to.match(/[^\s<>,"]+@[^\s<>,"]+/) || [""])[0].toLowerCase() : "";
   $("wFrom").hidden = !own.length;
-  $("wFrom").value = own.some(d => to.endsWith("@" + d)) ? to : (own[0] ? "info@" + own[0] : st.address);
+  const picked = own.includes(dom) ? dom : own[0];
+  $("wFrom").value = own.some(d => to.endsWith("@" + d)) ? to : (dom && !own.includes(dom) ? st.address : picked ? "info@" + picked : st.address);
   $("wTo").value = m ? (m.reply_to || m.from) : "";
   $("wSub").value = m ? (/^re:/i.test(m.subject || "") ? m.subject : "Re: " + (m.subject || "")) : "";
   $("wText").value = m ? "\n\n" + `On ${when(m.received)}, ${m.from} wrote:\n` + (m.text || "").split("\n").map(l => "> " + l).join("\n") : "";
@@ -172,6 +182,7 @@ document.addEventListener("click", async ev => {
   const row = t.closest(".row[data-id]");
   if (row) return show(row.dataset.id);
   if (t.id === "close") return show("");
+  if (t.dataset.dom !== undefined) { dom = t.dataset.dom; folder = "INBOX"; $("done").hidden = true; show(""); $("inbox").innerHTML = inbox(); tabs(); return; }
   if (t.dataset.folder) { folder = t.dataset.folder; $("done").hidden = true; show(""); $("inbox").innerHTML = inbox(); tabs(); return; }
   if (t.id === "newFolder") {
     const name = prompt("Name of the new folder, such as a sender's name");
