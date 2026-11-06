@@ -48,6 +48,7 @@ const (
 
 type app struct {
 	db    *sql.DB
+	data  *data // nil without -data
 	mu    sync.Mutex
 	tries map[string][]time.Time
 }
@@ -56,6 +57,8 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:3000", "where to listen: keep it on this machine")
 	dbPath := flag.String("db", "signin.db", "the accounts file")
 	add := flag.String("add", "", "add an account by its email, or set its password, and stop")
+	dataPath := flag.String("data", "", "a data file to show, with its diagram, forms and reports")
+	design := flag.String("design", "", "a file of CREATE TABLE IF NOT EXISTS statements for the data file")
 	flag.Parse()
 
 	db, err := sql.Open("sqlite3", "file:"+*dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)")
@@ -78,6 +81,11 @@ func main() {
 		log.Fatalf("%s isn't on this machine only", *addr)
 	}
 	a := &app{db: db, tries: map[string][]time.Time{}}
+	if *dataPath != "" {
+		if a.data, err = openData(*dataPath, *design); err != nil {
+			log.Fatal(err)
+		}
+	}
 	srv := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("listening on %s", *addr)
 	log.Fatal(srv.ListenAndServe())
@@ -95,6 +103,9 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("POST "+base+"login", a.login)
 	mux.HandleFunc("POST "+base+"logout", a.logout)
 	mux.HandleFunc("GET "+base+"me", a.me)
+	if a.data != nil {
+		a.data.routes(mux, a.signedIn)
+	}
 	return mux
 }
 
@@ -112,6 +123,17 @@ func (a *app) session(r *http.Request) string {
 	return name
 }
 
+// signedIn keeps a page to people signed in.
+func (a *app) signedIn(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.session(r) == "" {
+			http.Redirect(w, r, base+"login", http.StatusSeeOther)
+			return
+		}
+		h(w, r)
+	}
+}
+
 // private is your private page: replace it with your own. Every handler
 // with something private in it starts like this one.
 func (a *app) private(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +142,10 @@ func (a *app) private(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, base+"login", http.StatusSeeOther)
 		return
 	}
-	render(w, http.StatusOK, privatePage, name)
+	render(w, http.StatusOK, privatePage, struct {
+		Name string
+		Data bool
+	}{name, a.data != nil})
 }
 
 func (a *app) me(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +276,7 @@ func matches(hash, pw string) bool {
 	return err1 == nil && err2 == nil && len(want) > 0 && subtle.ConstantTimeCompare(got, want) == 1
 }
 
-func render(w http.ResponseWriter, code int, t *template.Template, data string) {
+func render(w http.ResponseWriter, code int, t *template.Template, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
@@ -270,6 +295,7 @@ var loginPage = template.Must(template.New("login").Parse(style + `<title>Sign i
 <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
 <button>Sign in</button></form>`))
 
-var privatePage = template.Must(template.New("private").Parse(style + `<title>Private</title><h1>Hello, {{.}}</h1>
+var privatePage = template.Must(template.New("private").Parse(style + `<title>Private</title><h1>Hello, {{.Name}}</h1>
 <p>Only people signed in see this page. It came from your own machine.</p>
+{{if .Data}}<p><a href="` + dataBase + `">Your data</a></p>{{end}}
 <form method="post" action="` + base + `logout"><button>Sign out</button></form>`))

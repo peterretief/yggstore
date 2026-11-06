@@ -59,6 +59,14 @@ passwords are hashed, wrong tries are limited, and the session is a
 `Secure`, `HttpOnly` cookie for the site's own address. Your own programs
 can use it, or replace it.
 
+**Your data, the same way.** With `-data clients.db -design design.sql`, the
+starting point also shows a diagram of the data file's tables at `/app/data/`,
+and a form and a report for each table, all worked out from the tables
+themselves: foreign keys are the relationships and become drop-downs, and
+column types, `NOT NULL` and `CHECK (x IN (...))` set each field. Reports
+search, sort, add up, group and download as CSV. Everyone signed in can see
+and change everything here.
+
 **Anything private must come from your machine.** Pages published to the
 group are public: a sign-in form in front of a published page protects
 nothing, because anyone can ask a web node for it. So a client's private
