@@ -766,7 +766,8 @@ func cmdDashboard(ctx context.Context, args []string) error {
 		InvitesPath: *invites, Group: *group, YggPeers: splitList(*yggPeers), MsgAPI: *msgAPI, MsgTokenPath: *msgToken,
 		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"), ApproveNames: *approveNames, WalletDir: filepath.Join(yggstoreHome(), "ygg"),
 		SitesDir: filepath.Join(yggstoreHome(), "sites"), Home: yggstoreHome(), MePath: filepath.Join(yggstoreHome(), "me.name"), Version: versionString(),
-		CloudflareToken: filepath.Join(yggstoreHome(), "cloudflare-api.token"), TunnelToken: filepath.Join(yggstoreHome(), "group-sites.token")}
+		CloudflareToken: filepath.Join(yggstoreHome(), "cloudflare-api.token"), TunnelToken: filepath.Join(yggstoreHome(), "group-sites.token"),
+		MailOut: filepath.Join(yggstoreHome(), "mail-out.json")}
 	serveAddr := *listen
 	if *remote {
 		_, port, err := net.SplitHostPort(*listen)

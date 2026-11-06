@@ -41,6 +41,8 @@ type sitePageState struct {
 	Messages []mail.Summary    `json:"messages"`
 	Forward  *forwardState     `json:"forward,omitempty"`
 	Trial    bool              `json:"trial,omitempty"` // tighter limits on sending
+	// OwnDomains are their own domains, which they may send from.
+	OwnDomains []string `json:"own_domains,omitempty"`
 }
 
 type forwardState struct {
@@ -48,6 +50,17 @@ type forwardState struct {
 	Confirmed bool   `json:"confirmed"`
 	Allowed   bool   `json:"allowed"`
 	Sent      int64  `json:"sent,omitempty"` // when the code last went (unix)
+}
+
+// ownDomains are person's domains of their own, on the box at self.
+func ownDomains(list []peers.Peer, self, person string) []string {
+	var out []string
+	for _, pn := range peers.PersonNamesOf(list, self, person) {
+		if _, _, ok := peers.OwnDomain(list, pn.Name); ok {
+			out = append(out, pn.Name)
+		}
+	}
+	return out
 }
 
 func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
@@ -95,6 +108,7 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 					out.Site = &s
 				}
 			}
+			out.OwnDomains = ownDomains(list, ps.cfg.Self, p.Name)
 			if msgs, err := box.List(); err == nil {
 				out.Messages = msgs
 			}
@@ -150,13 +164,18 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if !hasAddress {
-			fail(errors.New("You can send mail once you have an address in the group."))
+		group := ""
+		if hasAddress {
+			group = peers.MailAddress(pn.Name)
+		}
+		sendFrom, err := chooseFrom(req.From, group, ownDomains(list, ps.cfg.Self, p.Name))
+		if err != nil {
+			fail(err)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
 		defer cancel()
-		if err := f.send(ctx, p, peers.MailAddress(pn.Name), box, req); err != nil {
+		if err := f.send(ctx, p, sendFrom, box, req); err != nil {
 			fail(err)
 			return
 		}

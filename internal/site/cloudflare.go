@@ -190,6 +190,32 @@ func (c *Cloudflare) TakeMail(ctx context.Context, domain, worker string) error 
 	return c.call(ctx, "PUT", "/zones/"+zone+"/email/routing/rules/catch_all", body, nil)
 }
 
+// EnableSending sets domain up for Cloudflare Email Sending, if it isn't:
+// Cloudflare adds its bounce, SPF, DKIM and DMARC records. apiToken finds
+// the zone; sendToken needs Email Sending: Edit.
+func EnableSending(ctx context.Context, apiToken, sendToken, domain string) error {
+	return enableSending(ctx, &Cloudflare{APIToken: strings.TrimSpace(apiToken)}, &Cloudflare{APIToken: strings.TrimSpace(sendToken)}, domain)
+}
+
+func enableSending(ctx context.Context, finder, sender *Cloudflare, domain string) error {
+	zone, _, err := finder.Zone(ctx, domain)
+	if err != nil {
+		return err
+	}
+	var subs []struct {
+		Name string `json:"name"`
+	}
+	if err := sender.call(ctx, "GET", "/zones/"+zone+"/email/sending/subdomains", nil, &subs); err != nil {
+		return err
+	}
+	for _, s := range subs {
+		if s.Name == domain {
+			return nil
+		}
+	}
+	return sender.call(ctx, "POST", "/zones/"+zone+"/email/sending/subdomains", map[string]string{"name": domain}, nil)
+}
+
 // Route makes host reach the web nodes through the tunnel. It changes
 // nothing if host already has a DNS record that points elsewhere, so a
 // site still served from somewhere else isn't taken over by accident. It

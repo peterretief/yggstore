@@ -180,3 +180,20 @@ func TestMailboxLookup(t *testing.T) {
 		}
 	}
 }
+
+func TestRelayOwnDomain(t *testing.T) {
+	list := []peers.Peer{{Name: "admin", Addr: "[200::1]:7400", Admin: true, Domain: "example.org"},
+		{Name: "box", Addr: "[200::2]:7400", PeopleNames: []peers.PersonName{{Name: "acme.com", Person: "acme", Code: "ys1a", Site: true},
+			{Name: "shop.example.org", Person: "acme", Code: "ys1a", Site: true}}},
+		{Name: "other", Addr: "[200::3]:7400"}}
+	r := &Relay{Peers: func() []peers.Peer { return list }}
+	if !r.may("200::2", "info@acme.com") || !r.may("200::2", "First.Last@ACME.com") {
+		t.Fatal("the box may send from its client's domain")
+	}
+	if r.may("200::3", "info@acme.com") {
+		t.Fatal("another node sent as acme.com")
+	}
+	if r.may("200::2", "info@other.com") || r.may("200::2", "anyone@shop.example.org") {
+		t.Fatal("sent from a domain that isn't the client's own")
+	}
+}

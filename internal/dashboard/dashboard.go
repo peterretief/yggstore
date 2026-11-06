@@ -118,6 +118,9 @@ type Config struct {
 	// outbox's websites/ folder gets its route added. SiteService is where
 	// the web nodes serve, as the tunnel reaches them.
 	CloudflareToken, TunnelToken, SiteService string
+	// MailOut is the web node's mail relay settings (-mail-out), whose
+	// token sets a domain up for sending (domains.go).
+	MailOut string
 	// Version is this yggstore's, shown under My box.
 	Version string
 	// HubState, on a box, is its hub's state file, and HubPeople where the
@@ -234,43 +237,44 @@ const CustomersOwner = "Paying customers"
 type Contact = contacts.Contact
 
 type Dashboard struct {
-	addDomainFn  func(ctx context.Context, domain string) ([]string, error) // tests stand in for Cloudflare
-	takeMailFn   func(ctx context.Context, domain string) error
-	cfg          Config
-	mu           sync.Mutex
-	websites     *websites.Watcher // the outbox's websites/ folder, once started
-	recovery     *recovery.Keeper  // the recovery copy, once started
-	workcopy     *workcopy.Tracker // where the working copy is, once started
-	recoveryKick chan struct{}     // asks keepRecords to run now
-	boxList      []BoxChoice       // members running a hub, found at boxesAt
-	boxesAt      time.Time
-	box          *mail.Box
-	fwdErr       map[string]string // the last problem forwarding each site's messages
-	state        State
-	history      map[string][]float64
-	seen         map[string]int64
-	events       []Event
-	wake         chan struct{}
-	pushed       map[string]time.Time // last list push per node, used only by poll
-	took         map[string]string    // list hash@start time each node accepted last, used only by poll
-	logMu        sync.Mutex           // the activity log file
-	namesMu      sync.Mutex           // NamesPath, and the list while names change
-	walletMu     sync.Mutex           // the wallet file, and the ledger
-	yggLedger    *ygg.Ledger          // the ledger, if this dashboard keeps it
-	storage      *usageFile           // the keeper's storage count, under walletMu
-	storageSaved time.Time            // when it was last written, under walletMu
-	siteMu       sync.Mutex           // one website publish at a time
-	repair       func()               // asks for a repair pass now (see SetRepair)
-	noRoom       func() map[string]int
-	down         func() map[string]int64
-	asks         []deviceAsk // devices asking to be let in
-	usage        usageCache  // what the box's people store
-	usageOnce    sync.Once   // usageR, the boxes' usage summaries (groupusage.go)
-	usageR       *usageReports
-	netProbe     netProbe        // the network page's probes
-	yggName      string          // this machine's name for its Yggdrasil address (see peers.YggNames), under mu
-	yggDNSAt     time.Time       // when the machines' names were last added to DNS, used only by poll
-	names        peers.NameCheck // which machines' names are in DNS
+	addDomainFn     func(ctx context.Context, domain string) ([]string, error) // tests stand in for Cloudflare
+	takeMailFn      func(ctx context.Context, domain string) error
+	enableSendingFn func(ctx context.Context, domain string) error
+	cfg             Config
+	mu              sync.Mutex
+	websites        *websites.Watcher // the outbox's websites/ folder, once started
+	recovery        *recovery.Keeper  // the recovery copy, once started
+	workcopy        *workcopy.Tracker // where the working copy is, once started
+	recoveryKick    chan struct{}     // asks keepRecords to run now
+	boxList         []BoxChoice       // members running a hub, found at boxesAt
+	boxesAt         time.Time
+	box             *mail.Box
+	fwdErr          map[string]string // the last problem forwarding each site's messages
+	state           State
+	history         map[string][]float64
+	seen            map[string]int64
+	events          []Event
+	wake            chan struct{}
+	pushed          map[string]time.Time // last list push per node, used only by poll
+	took            map[string]string    // list hash@start time each node accepted last, used only by poll
+	logMu           sync.Mutex           // the activity log file
+	namesMu         sync.Mutex           // NamesPath, and the list while names change
+	walletMu        sync.Mutex           // the wallet file, and the ledger
+	yggLedger       *ygg.Ledger          // the ledger, if this dashboard keeps it
+	storage         *usageFile           // the keeper's storage count, under walletMu
+	storageSaved    time.Time            // when it was last written, under walletMu
+	siteMu          sync.Mutex           // one website publish at a time
+	repair          func()               // asks for a repair pass now (see SetRepair)
+	noRoom          func() map[string]int
+	down            func() map[string]int64
+	asks            []deviceAsk // devices asking to be let in
+	usage           usageCache  // what the box's people store
+	usageOnce       sync.Once   // usageR, the boxes' usage summaries (groupusage.go)
+	usageR          *usageReports
+	netProbe        netProbe        // the network page's probes
+	yggName         string          // this machine's name for its Yggdrasil address (see peers.YggNames), under mu
+	yggDNSAt        time.Time       // when the machines' names were last added to DNS, used only by poll
+	names           peers.NameCheck // which machines' names are in DNS
 
 	moverOnce sync.Once
 	moves     *sitemove.Agent // this machine's part in moving sites (moves.go)

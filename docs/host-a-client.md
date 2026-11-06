@@ -57,10 +57,10 @@ Before you change anything at the registrar, tell the admin what the domain
 still needs, such as mail kept elsewhere: only the website's records are
 added, so anything else stops until it's copied over.
 
-For the domain's mail to come to your client, ask the admin to press **Take
-its mail too**. Every address at the domain then goes to one mailbox, your
-client's, on their mail page. They can read and answer it there, though
-replies still go out from their address in the group for now.
+For the domain's mail, ask the admin to press **Take its mail too**. Every
+address at the domain then goes to one mailbox, your client's, on their
+mail page, and they can send from any address at it. A reply goes from the
+address the message came to. New domains can land in spam at first.
 
 Then set the domain's nameservers at its registrar to those two.
 **Is it live?** in the row checks it.

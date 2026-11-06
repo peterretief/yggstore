@@ -66,3 +66,26 @@ func TestTrialWaitsADayToSend(t *testing.T) {
 		t.Fatalf("someone the owner added waits too: %v", err)
 	}
 }
+
+func TestChooseFrom(t *testing.T) {
+	own := []string{"acme.com"}
+	for _, c := range []struct {
+		want, group, got string
+		ok               bool
+	}{
+		{"", "tommy@example.org", "tommy@example.org", true},
+		{"tommy@example.org", "tommy@example.org", "tommy@example.org", true},
+		{"Info@Acme.com", "tommy@example.org", "info@acme.com", true},
+		{"first.last@acme.com", "", "first.last@acme.com", true},
+		{"", "", "", false},
+		{"kath@example.org", "tommy@example.org", "", false},
+		{"boss@other.com", "tommy@example.org", "", false},
+		{"a b@acme.com", "tommy@example.org", "", false},
+		{"x@acme.com\r\nBcc: y@z.com", "tommy@example.org", "", false},
+	} {
+		got, err := chooseFrom(c.want, c.group, own)
+		if (err == nil) != c.ok || got != c.got {
+			t.Errorf("%q: %q %v", c.want, got, err)
+		}
+	}
+}

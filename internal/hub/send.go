@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	netmail "net/mail"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -43,6 +44,27 @@ type SendRequest struct {
 	Subject string `json:"subject"`
 	Text    string `json:"text"`
 	ReplyTo string `json:"reply_to"` // the ID of the message answered, if any
+	From    string `json:"from"`     // an address at a domain of their own; "": their address in the group
+}
+
+var sendLocal = regexp.MustCompile(`^[a-z0-9][a-z0-9._+-]{0,63}$`)
+
+// chooseFrom is the address a message goes from: want, if it's at one of
+// their own domains, or their address in the group. Nobody sends as anyone
+// else: the box decides, whatever the page asks for.
+func chooseFrom(want, group string, own []string) (string, error) {
+	want = strings.ToLower(strings.TrimSpace(want))
+	if want == "" || want == group {
+		if group == "" {
+			return "", errors.New("Say which address it's from.")
+		}
+		return group, nil
+	}
+	local, domain, ok := strings.Cut(want, "@")
+	if !ok || !sendLocal.MatchString(local) || !slices.Contains(own, domain) {
+		return "", fmt.Errorf("You can send from %s, or any address at your own domain.", strings.TrimSpace(group+" "+strings.Join(own, " ")))
+	}
+	return want, nil
 }
 
 // recipients checks a To or Cc list: plain addresses, comma-separated.

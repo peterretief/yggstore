@@ -234,18 +234,49 @@ func (d *Dashboard) handleTakeMail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	sendErr := d.enableSending(ctx, pn.Name)
 	d.namesMu.Lock()
 	defer d.namesMu.Unlock()
 	f := d.loadNames()
 	if !contains(f.MailDomains, pn.Name) {
 		f.MailDomains = append(f.MailDomains, pn.Name)
 	}
+	if sendErr == nil && !contains(f.SendDomains, pn.Name) {
+		f.SendDomains = append(f.SendDomains, pn.Name)
+	}
 	if err := d.saveNames(f); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	d.event("ok", fmt.Sprintf("every address at %s now goes to %s's mailbox", pn.Name, pn.Person))
-	w.WriteHeader(http.StatusNoContent)
+	if sendErr != nil {
+		d.event("warn", fmt.Sprintf("%s's mail comes here, but sending from it isn't set up: %v", pn.Name, sendErr))
+		writeJSONResp(w, map[string]string{"warning": "Its mail comes here now, but sending from it isn't set up: " + sendErr.Error()})
+		return
+	}
+	d.event("ok", fmt.Sprintf("%s can send from %s; Cloudflare's records can take 15 minutes", pn.Person, pn.Name))
+	writeJSONResp(w, map[string]string{})
+}
+
+// enableSending sets a domain up for sending, with the token the web nodes
+// send through (Email Sending: Edit).
+func (d *Dashboard) enableSending(ctx context.Context, domain string) error {
+	if d.enableSendingFn != nil {
+		return d.enableSendingFn(ctx, domain)
+	}
+	api, err := os.ReadFile(d.cfg.CloudflareToken)
+	if err != nil {
+		return fmt.Errorf("the Cloudflare API token: %w", err)
+	}
+	b, err := os.ReadFile(d.cfg.MailOut)
+	if err != nil {
+		return fmt.Errorf("the mail relay's settings: %w", err)
+	}
+	var out struct{ Password string }
+	if json.Unmarshal(b, &out) != nil || out.Password == "" {
+		return errors.New("the mail relay's settings have no password")
+	}
+	return site.EnableSending(ctx, string(api), out.Password, domain)
 }
 
 func (d *Dashboard) takeMail(ctx context.Context, domain string) error {

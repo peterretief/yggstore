@@ -308,6 +308,10 @@ func (r *Relay) may(node, addr string) bool {
 		if p, ok := peers.MailOwner(r.Peers(), addr); ok && p.IP() == node {
 			return true
 		}
+		// A domain of someone's own is theirs, on that box, at any address.
+		if p, _, ok := peers.OwnDomain(r.Peers(), domain); ok && p.IP() == node {
+			return true
+		}
 	}
 	return false
 }

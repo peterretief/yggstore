@@ -230,3 +230,35 @@ func TestTakeMail(t *testing.T) {
 		t.Fatal("took mail for part of a zone")
 	}
 }
+
+func TestEnableSending(t *testing.T) {
+	var posted []string
+	subs := []map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		ok := func(v any) { json.NewEncoder(w).Encode(map[string]any{"success": true, "result": v}) }
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/zones"):
+			ok([]map[string]string{{"id": "z1", "name": "acme.com"}})
+		case r.Method == http.MethodPost:
+			if r.Header.Get("Authorization") != "Bearer send" {
+				t.Errorf("made with %q", r.Header.Get("Authorization"))
+			}
+			posted = append(posted, r.URL.Path)
+			subs = append(subs, map[string]string{"name": "acme.com"})
+			ok(map[string]any{})
+		default:
+			ok(subs)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	api, send := &Cloudflare{APIToken: "api", Base: srv.URL}, &Cloudflare{APIToken: "send", Base: srv.URL}
+	for range 2 { // the second time it's there already
+		if err := enableSending(context.Background(), api, send, "acme.com"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(posted) != 1 || posted[0] != "/zones/z1/email/sending/subdomains" {
+		t.Fatalf("posted %v", posted)
+	}
+}

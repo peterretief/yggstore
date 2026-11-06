@@ -142,7 +142,13 @@ func TestTakeMailOnlyForOwnDomains(t *testing.T) {
 	if w := do(admin, post("/api/names/take-mail", strings.NewReader(`{"Name":"anna.example.org"}`))); w.Code != http.StatusNotFound || len(took) != 0 {
 		t.Fatalf("a group name: %d %v", w.Code, took)
 	}
-	if w := do(admin, post("/api/names/take-mail", strings.NewReader(`{"Name":"acme.com"}`))); w.Code != http.StatusNoContent || len(took) != 1 {
+	admin.enableSendingFn = func(context.Context, string) error { return errors.New("no token") }
+	if w := do(admin, post("/api/names/take-mail", strings.NewReader(`{"Name":"acme.com"}`))); w.Code != 200 || !strings.Contains(w.Body.String(), "warning") {
+		t.Fatalf("sending failed: %d %s", w.Code, w.Body)
+	}
+	took = nil
+	admin.enableSendingFn = func(context.Context, string) error { return nil }
+	if w := do(admin, post("/api/names/take-mail", strings.NewReader(`{"Name":"acme.com"}`))); w.Code != 200 || strings.Contains(w.Body.String(), "warning") || len(took) != 1 {
 		t.Fatalf("own domain: %d %s %v", w.Code, w.Body, took)
 	}
 	r := httptest.NewRequest(http.MethodGet, "/api/names", nil)
@@ -151,7 +157,7 @@ func TestTakeMailOnlyForOwnDomains(t *testing.T) {
 	json.Unmarshal(do(admin, r).Body.Bytes(), &st)
 	found := false
 	for _, g := range st.Given {
-		found = found || (g.Name == "acme.com" && g.Own && g.Mail)
+		found = found || (g.Name == "acme.com" && g.Own && g.Mail && g.Send)
 	}
 	if !found {
 		t.Fatalf("not shown as taken: %+v", st.Given)

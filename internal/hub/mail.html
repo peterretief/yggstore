@@ -41,6 +41,7 @@ a { color: var(--accent); }
   <div class="sub"><span id="addr"></span><a href="/files">Your files</a> · <a href="/files/site">Your website</a></div>
   <p id="writeBox" hidden><button id="write">Write</button> <span class="ok" id="sent"></span></p>
   <div class="card" id="compose" hidden><h2 id="cTitle">New message</h2>
+    <input id="wFrom" type="text" placeholder="From" hidden>
     <input id="wTo" type="text" placeholder="To: their email address (more, separated by commas)" autocomplete="email">
     <input id="wSub" type="text" placeholder="Subject" maxlength="200">
     <textarea id="wText"></textarea>
@@ -67,9 +68,10 @@ async function act(op, body) {
   return true;
 }
 function inbox() {
-  if (!st.address) return `<h2>No email address yet</h2><p class="sub">The box's owner can ask the group for a name for you, such as
+  const own = st.own_domains || [];
+  if (!st.address && !own.length) return `<h2>No email address yet</h2><p class="sub">The box's owner can ask the group for a name for you, such as
     <b>yourname@${esc(st.domain || "the-group.org")}</b>. Once the group's admin approves it, your mail comes in here.</p>`;
-  if (!st.messages.length) return `<p class="sub">No mail yet. Mail to <b>${esc(st.address)}</b> comes in here.</p>`;
+  if (!st.messages.length) return `<p class="sub">No mail yet. Mail to <b>${esc(st.address || "any address at " + own.join(" or "))}</b> comes in here.</p>`;
   return st.messages.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name"><b>${esc(m.subject || "(no subject)")}</b><br>
     <span class="sub">${esc(m.from)}</span>${m.error ? `<br><span class="err">${esc(m.error)}</span>` : ""}</span>
     <span class="when">${when(m.received)}</span></div>`).join("");
@@ -115,11 +117,15 @@ let shown = null, replyTo = "";
 function compose(m) {
   replyTo = m ? m.id : "";
   $("cTitle").textContent = m ? "Reply" : "New message";
+  // A reply goes from the address the message came to, at their own domain.
+  const own = st.own_domains || [], to = m ? (m.to.match(/[^\s<>,"]+@[^\s<>,"]+/) || [""])[0].toLowerCase() : "";
+  $("wFrom").hidden = !own.length;
+  $("wFrom").value = own.some(d => to.endsWith("@" + d)) ? to : (st.address || (own[0] ? "info@" + own[0] : ""));
   $("wTo").value = m ? (m.reply_to || m.from) : "";
   $("wSub").value = m ? (/^re:/i.test(m.subject || "") ? m.subject : "Re: " + (m.subject || "")) : "";
   $("wText").value = m ? "\n\n" + `On ${when(m.received)}, ${m.from} wrote:\n` + (m.text || "").split("\n").map(l => "> " + l).join("\n") : "";
   $("wErr").textContent = "";
-  $("limits").textContent = "From " + st.address + (st.trial ? ". A message goes to at most 5 people, and 20 people a day in all." : ".");
+  $("limits").textContent = (own.length ? "From your address, or any address at " + own.join(" or ") : "From " + st.address) + (st.trial ? ". A message goes to at most 5 people, and 20 people a day in all." : ".");
   $("compose").hidden = false;
   (m ? $("wText") : $("wTo")).focus();
   if (m) $("wText").setSelectionRange(0, 0);
@@ -131,7 +137,7 @@ async function load() {
   $("addr").innerHTML = st.address ? `<b>${esc(st.address)}</b> · ` : "";
   $("inbox").innerHTML = inbox();
   $("fwdCard").hidden = $("note").hidden = !st.address;
-  $("writeBox").hidden = !st.address;
+  $("writeBox").hidden = !st.address && !(st.own_domains || []).length;
   if (!document.activeElement || !["to", "code"].includes(document.activeElement.id)) $("fwd").innerHTML = fwdCard();
 }
 document.addEventListener("click", async ev => {
@@ -145,7 +151,7 @@ document.addEventListener("click", async ev => {
   if (t.id === "send") {
     t.disabled = true; $("wErr").textContent = "";
     const r = await fetch("?op=send", {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"},
-      body: JSON.stringify({to: $("wTo").value, subject: $("wSub").value, text: $("wText").value, reply_to: replyTo})});
+      body: JSON.stringify({from: $("wFrom").value, to: $("wTo").value, subject: $("wSub").value, text: $("wText").value, reply_to: replyTo})});
     t.disabled = false;
     if (!r.ok) { $("wErr").textContent = (await r.text()).trim(); return; }
     $("compose").hidden = true;
