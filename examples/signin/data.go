@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -20,7 +19,8 @@ import (
 // each form field is. So the diagram, forms and reports below are worked
 // out from the file each time, and change when the design does.
 //
-//	go run ./examples/signin -data clients.db -design design.sql
+//	go run ./examples/signin -data clients.db -import design.sql   # see import.go
+//	go run ./examples/signin -data clients.db
 //
 // Everyone signed in can see and change everything here.
 
@@ -111,20 +111,10 @@ func tableLink(name string) string { return dataBase + url.PathEscape(name) + "/
 
 type data struct{ db *sql.DB }
 
-// openData opens the data file, with its design if it's given one.
-func openData(path, design string) (*data, error) {
+func openData(path string) (*data, error) {
 	db, err := sql.Open("sqlite3", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
-	}
-	if design != "" {
-		stmts, err := os.ReadFile(design)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := db.Exec(string(stmts)); err != nil {
-			return nil, fmt.Errorf("%s: %w", design, err)
-		}
 	}
 	return &data{db}, nil
 }
@@ -881,7 +871,7 @@ svg rect{fill:var(--box);stroke:var(--line)}svg path{fill:none;stroke:var(--acce
 {{range .Rows}}<text x="{{$b.X | add 10}}" y="{{.Y}}">{{if .Mark}}{{if eq .Mark "key"}}# {{else}}→ {{end}}{{end}}{{.Name}}</text><text class="type" x="{{$b.X | add 150}}" y="{{.Y}}">{{.Type}}</text>{{end}}{{end}}
 </svg></div>
 <h2>Tables</h2><ul>{{range .Tables}}<li><a href="{{tableLink .Name}}">{{human .Name}}</a></li>{{end}}</ul>
-{{else}}<p>There are no tables yet. Start the program with -design and a file of CREATE TABLE statements.</p>{{end}}{{end}}
+{{else}}<p>There are no tables yet. Write your tables in a .sql file and import it with -import.</p>{{end}}{{end}}
 
 {{define "report"}}{{template "top"}}<title>{{human .Name}}</title>
 <nav><a href="` + dataBase + `">Your data</a></nav><h1>{{human .Name}}</h1>

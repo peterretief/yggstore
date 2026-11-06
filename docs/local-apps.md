@@ -59,8 +59,11 @@ passwords are hashed, wrong tries are limited, and the session is a
 `Secure`, `HttpOnly` cookie for the site's own address. Your own programs
 can use it, or replace it.
 
-**Your data, the same way.** With `-data clients.db -design design.sql`, the
-starting point also shows a diagram of the data file's tables at `/app/data/`,
+**Your data, the same way.** Write your tables in a `.sql` file and import it
+with `-data clients.db -import design.sql`. Edit the file and import again
+whenever you like: a mistake in it changes nothing, rows are kept, a copy of
+the data file is kept first, and anything that would be removed needs `-drop`.
+With `-data`, the starting point shows a diagram of the tables at `/app/data/`,
 and a form and a report for each table, all worked out from the tables
 themselves: foreign keys are the relationships and become drop-downs, and
 column types, `NOT NULL` and `CHECK (x IN (...))` set each field. Reports

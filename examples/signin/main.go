@@ -58,7 +58,8 @@ func main() {
 	dbPath := flag.String("db", "signin.db", "the accounts file")
 	add := flag.String("add", "", "add an account by its email, or set its password, and stop")
 	dataPath := flag.String("data", "", "a data file to show, with its diagram, forms and reports")
-	design := flag.String("design", "", "a file of CREATE TABLE IF NOT EXISTS statements for the data file")
+	design := flag.String("import", "", "make the data file match this .sql file, and stop")
+	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	flag.Parse()
 
 	db, err := sql.Open("sqlite3", "file:"+*dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)")
@@ -69,6 +70,15 @@ func main() {
 		CREATE TABLE IF NOT EXISTS accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL);
 		CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL);`); err != nil {
 		log.Fatal(err)
+	}
+	if *design != "" {
+		if *dataPath == "" {
+			log.Fatal("-import needs -data, the data file")
+		}
+		if err := importDesign(*dataPath, *design, *drop, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 	if *add != "" {
 		if err := addAccount(db, *add); err != nil {
@@ -82,7 +92,7 @@ func main() {
 	}
 	a := &app{db: db, tries: map[string][]time.Time{}}
 	if *dataPath != "" {
-		if a.data, err = openData(*dataPath, *design); err != nil {
+		if a.data, err = openData(*dataPath); err != nil {
 			log.Fatal(err)
 		}
 	}

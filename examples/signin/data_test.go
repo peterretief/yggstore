@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,7 +14,10 @@ import (
 
 func TestData(t *testing.T) {
 	dir := t.TempDir()
-	d, err := openData(filepath.Join(dir, "d.db"), "design.sql")
+	if err := importDesign(filepath.Join(dir, "d.db"), "design.sql", false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	d, err := openData(filepath.Join(dir, "d.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
