@@ -212,3 +212,15 @@ func TestContactJunk(t *testing.T) {
 		}
 	}
 }
+
+func TestNoMailHereIsNotNoSuchMailbox(t *testing.T) {
+	web := &Web{Dir: t.TempDir(), Peers: func() []peers.Peer { return nil }, Log: t.Logf}
+	for _, path := range []string{mail.MailboxPath + "?to=a@b.org", mail.IngestPath} {
+		r := httptest.NewRequest(http.MethodGet, "http://mail-in.example.org"+path, nil)
+		rec := httptest.NewRecorder()
+		web.ServeHTTP(rec, r)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: %d: the Worker would bounce the mail", path, rec.Code)
+		}
+	}
+}

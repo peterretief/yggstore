@@ -501,7 +501,14 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if w.Mail != nil && (r.URL.Path == mail.IngestPath || r.URL.Path == mail.MailboxPath) {
+	if r.URL.Path == mail.IngestPath || r.URL.Path == mail.MailboxPath {
+		// A web node without -mail-in must not look like "no such mailbox":
+		// the Worker would bounce the mail for good. A failure makes the
+		// sending server try again, and reach a node that takes it.
+		if w.Mail == nil {
+			http.Error(rw, "this web node takes no mail: try another", http.StatusServiceUnavailable)
+			return
+		}
 		w.Mail.ServeHTTP(rw, r)
 		return
 	}
