@@ -125,3 +125,35 @@ func TestSiteServiceHasADefault(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestTakeMailOnlyForOwnDomains(t *testing.T) {
+	_, admin, member, do, _, listOf := namePair(t, nil)
+	list := listOf(admin)
+	list[1].PeopleNames = append(list[1].PeopleNames, peers.PersonName{Name: "acme.com", Person: "acme", Code: "ys1a", Site: true},
+		peers.PersonName{Name: "anna.example.org", Person: "anna", Code: "ys1b"})
+	if err := peers.Write(admin.cfg.PeersPath, list); err != nil {
+		t.Fatal(err)
+	}
+	var took []string
+	admin.takeMailFn = func(_ context.Context, domain string) error { took = append(took, domain); return nil }
+	if w := do(member, post("/api/names/take-mail", strings.NewReader(`{"Name":"acme.com"}`))); w.Code != http.StatusForbidden {
+		t.Fatalf("a member: %d", w.Code)
+	}
+	if w := do(admin, post("/api/names/take-mail", strings.NewReader(`{"Name":"anna.example.org"}`))); w.Code != http.StatusNotFound || len(took) != 0 {
+		t.Fatalf("a group name: %d %v", w.Code, took)
+	}
+	if w := do(admin, post("/api/names/take-mail", strings.NewReader(`{"Name":"acme.com"}`))); w.Code != http.StatusNoContent || len(took) != 1 {
+		t.Fatalf("own domain: %d %s %v", w.Code, w.Body, took)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/names", nil)
+	r.Host = "127.0.0.1:7480"
+	var st namesState
+	json.Unmarshal(do(admin, r).Body.Bytes(), &st)
+	found := false
+	for _, g := range st.Given {
+		found = found || (g.Name == "acme.com" && g.Own && g.Mail)
+	}
+	if !found {
+		t.Fatalf("not shown as taken: %+v", st.Given)
+	}
+}

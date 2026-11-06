@@ -211,14 +211,34 @@ func MailOwner(list []Peer, addr string) (Peer, bool) {
 }
 
 // MailHolder is the peer that takes an address's mail, with the code it
-// is sealed for. A site takes no mail.
+// is sealed for. A site under the group's domain takes no mail. A domain
+// of someone's own is one mailbox: every address at it is theirs.
 func MailHolder(list []Peer, addr string) (Peer, PersonName, bool) {
 	local, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
+	if ok && local != "" {
+		if p, pn, own := OwnDomain(list, domain); own {
+			return p, pn, true
+		}
+	}
 	if !ok || ValidLabel(local) != nil {
 		return Peer{}, PersonName{}, false
 	}
 	p, pn, ok := NameHolder(list, local+"."+domain)
 	if !ok || pn.Site {
+		return Peer{}, PersonName{}, false
+	}
+	return p, pn, true
+}
+
+// OwnDomain finds domain among the sites given to people on boxes, when
+// it isn't under the group's domain.
+func OwnDomain(list []Peer, domain string) (Peer, PersonName, bool) {
+	group := GroupDomain(list)
+	if group != "" && (domain == group || strings.HasSuffix(domain, "."+group)) {
+		return Peer{}, PersonName{}, false
+	}
+	p, pn, ok := NameHolder(list, domain)
+	if !ok || !pn.Site || pn.Person == "" {
 		return Peer{}, PersonName{}, false
 	}
 	return p, pn, true

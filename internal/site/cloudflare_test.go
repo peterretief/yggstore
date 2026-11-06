@@ -179,3 +179,54 @@ func TestAddZone(t *testing.T) {
 		t.Fatalf("again: %v %v %v", ns, err, posted)
 	}
 }
+
+func TestTakeMail(t *testing.T) {
+	var rules []map[string]any
+	enabled, caught := false, ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		ok := func(v any) { json.NewEncoder(w).Encode(map[string]any{"success": true, "result": v}) }
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/zones"):
+			ok([]map[string]string{{"id": "z1", "name": "acme.com"}})
+		case strings.HasSuffix(r.URL.Path, "/email/routing/rules/catch_all"):
+			var b struct {
+				Actions []struct {
+					Value []string `json:"value"`
+				} `json:"actions"`
+			}
+			json.NewDecoder(r.Body).Decode(&b)
+			caught = b.Actions[0].Value[0]
+			ok(map[string]any{})
+		case strings.HasSuffix(r.URL.Path, "/email/routing/rules"):
+			ok(rules)
+		case strings.HasSuffix(r.URL.Path, "/email/routing/enable"):
+			enabled = true
+			ok(map[string]any{})
+		case strings.HasSuffix(r.URL.Path, "/email/routing"):
+			ok(map[string]bool{"enabled": enabled})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	cf := &Cloudflare{APIToken: "t", Account: "a", Base: srv.URL}
+	ctx := context.Background()
+	// Mail already going elsewhere is left alone.
+	rules = []map[string]any{{"enabled": true, "actions": []map[string]any{{"type": "worker", "value": []string{"mail-bridge-test"}}}}}
+	if err := cf.TakeMail(ctx, "acme.com", "yggstore-mail"); err == nil || !strings.Contains(err.Error(), "somewhere else") || caught != "" || enabled {
+		t.Fatalf("took mail in use: %v, caught %q", err, caught)
+	}
+	rules = []map[string]any{{"enabled": true, "actions": []map[string]any{{"type": "forward", "value": []string{"x@example.net"}}}}}
+	if err := cf.TakeMail(ctx, "acme.com", "yggstore-mail"); err == nil || caught != "" {
+		t.Fatalf("took forwarded mail: %v", err)
+	}
+	// A disabled rule, such as the default catch-all, isn't in use.
+	rules = []map[string]any{{"enabled": false, "actions": []map[string]any{{"type": "drop"}}}}
+	if err := cf.TakeMail(ctx, "acme.com", "yggstore-mail"); err != nil || caught != "yggstore-mail" || !enabled {
+		t.Fatalf("%v caught %q enabled %v", err, caught, enabled)
+	}
+	if err := cf.TakeMail(ctx, "shop.acme.com", "yggstore-mail"); err == nil {
+		t.Fatal("took mail for part of a zone")
+	}
+}

@@ -149,3 +149,24 @@ func TestOwnDomainAsASite(t *testing.T) {
 		t.Fatal("a two-part domain as an address")
 	}
 }
+
+func TestOwnDomainIsOneMailbox(t *testing.T) {
+	list := []Peer{{Name: "admin", Addr: "[200::1]:7400", Admin: true, Domain: "example.org"},
+		{Name: "box", Addr: "[200::2]:7400", PeopleNames: []PersonName{
+			{Name: "anna.example.org", Person: "anna", Code: "ys1anna"},
+			{Name: "shop.example.org", Person: "anna", Code: "ys1anna", Site: true},
+			{Name: "acme.com", Person: "acme", Code: "ys1acme", Site: true}}}}
+	for _, a := range []string{"info@acme.com", "SALES@Acme.com", "first.last@acme.com", "a+b@acme.com"} {
+		if p, pn, ok := MailHolder(list, a); !ok || p.Name != "box" || pn.Code != "ys1acme" {
+			t.Errorf("%s: %v %+v", a, ok, pn)
+		}
+	}
+	for _, a := range []string{"anyone@shop.example.org", "info@other.com", "@acme.com", "acme.com"} {
+		if _, _, ok := MailHolder(list, a); ok {
+			t.Errorf("%s has a mailbox", a)
+		}
+	}
+	if _, pn, ok := MailHolder(list, "anna@example.org"); !ok || pn.Code != "ys1anna" {
+		t.Fatalf("a group address: %v %+v", ok, pn)
+	}
+}

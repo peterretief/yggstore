@@ -208,3 +208,57 @@ func (d *Dashboard) handleDomainLive(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	writeJSONResp(w, map[string]bool{"live": site.Answers(ctx, name)})
 }
+
+// mailWorker is the group's mail Worker (deploy/mail-worker).
+const mailWorker = "yggstore-mail"
+
+// handleTakeMail sends a domain of someone's own's mail to the group: one
+// mailbox, theirs. It's separate from giving the domain, so a domain's mail
+// is never moved by accident (admin dashboards).
+func (d *Dashboard) handleTakeMail(w http.ResponseWriter, r *http.Request) {
+	var req struct{ Name string }
+	json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req)
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil || !isAdmin(list, d.cfg.SelfID) {
+		http.Error(w, "only an admin dashboard moves a domain's mail", http.StatusForbidden)
+		return
+	}
+	_, pn, ok := peers.OwnDomain(list, req.Name)
+	if !ok {
+		http.Error(w, req.Name+" isn't a domain given to someone on a box", http.StatusNotFound)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+	defer cancel()
+	if err := d.takeMail(ctx, pn.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	d.namesMu.Lock()
+	defer d.namesMu.Unlock()
+	f := d.loadNames()
+	if !contains(f.MailDomains, pn.Name) {
+		f.MailDomains = append(f.MailDomains, pn.Name)
+	}
+	if err := d.saveNames(f); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	d.event("ok", fmt.Sprintf("every address at %s now goes to %s's mailbox", pn.Name, pn.Person))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d *Dashboard) takeMail(ctx context.Context, domain string) error {
+	if d.takeMailFn != nil {
+		return d.takeMailFn(ctx, domain)
+	}
+	api, err := os.ReadFile(d.cfg.CloudflareToken)
+	if err != nil {
+		return fmt.Errorf("the Cloudflare API token: %w", err)
+	}
+	tun, err := os.ReadFile(d.cfg.TunnelToken)
+	if err != nil {
+		return fmt.Errorf("the tunnel's token: %w", err)
+	}
+	return site.TakeMail(ctx, string(api), strings.TrimSpace(string(tun)), domain, mailWorker)
+}

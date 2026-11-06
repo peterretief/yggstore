@@ -125,6 +125,71 @@ func (c *Cloudflare) AddZone(ctx context.Context, domain string) ([]string, erro
 	return made.NameServers, nil
 }
 
+// TakeMail sends every address at domain to the group's mail Worker: it
+// turns Email Routing on and sets the catch-all. It changes nothing if the
+// domain's mail already goes somewhere else, so a domain in use is never
+// taken over by accident.
+func TakeMail(ctx context.Context, apiToken, tunnelToken, domain, worker string) error {
+	account, tunnel, err := TunnelFromToken(tunnelToken)
+	if err != nil {
+		return err
+	}
+	return (&Cloudflare{APIToken: strings.TrimSpace(apiToken), Account: account, Tunnel: tunnel}).TakeMail(ctx, domain, worker)
+}
+
+// TakeMail is the package's TakeMail, on c.
+func (c *Cloudflare) TakeMail(ctx context.Context, domain, worker string) error {
+	zone, name, err := c.Zone(ctx, domain)
+	if err != nil {
+		return err
+	}
+	if name != domain {
+		return fmt.Errorf("%s is part of %s, not a domain of its own", domain, name)
+	}
+	type action struct {
+		Type  string   `json:"type"`
+		Value []string `json:"value,omitempty"`
+	}
+	type rule struct {
+		Enabled  bool     `json:"enabled"`
+		Actions  []action `json:"actions"`
+		Matchers []struct {
+			Type string `json:"type"`
+		} `json:"matchers"`
+	}
+	ours := func(r rule) bool {
+		for _, a := range r.Actions {
+			if a.Type != "worker" || len(a.Value) != 1 || a.Value[0] != worker {
+				return false
+			}
+		}
+		return len(r.Actions) > 0
+	}
+	var rules []rule
+	if err := c.call(ctx, "GET", "/zones/"+zone+"/email/routing/rules", nil, &rules); err != nil {
+		return err
+	}
+	for _, r := range rules {
+		if r.Enabled && !ours(r) {
+			return fmt.Errorf("%s's mail already goes somewhere else: remove its Email Routing rules in Cloudflare first, if it should move", domain)
+		}
+	}
+	var settings struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.call(ctx, "GET", "/zones/"+zone+"/email/routing", nil, &settings); err != nil {
+		return err
+	}
+	if !settings.Enabled {
+		if err := c.call(ctx, "POST", "/zones/"+zone+"/email/routing/enable", map[string]any{}, nil); err != nil {
+			return fmt.Errorf("turning on Email Routing for %s: %w", domain, err)
+		}
+	}
+	body := map[string]any{"enabled": true, "name": "yggstore", "matchers": []map[string]string{{"type": "all"}},
+		"actions": []map[string]any{{"type": "worker", "value": []string{worker}}}}
+	return c.call(ctx, "PUT", "/zones/"+zone+"/email/routing/rules/catch_all", body, nil)
+}
+
 // Route makes host reach the web nodes through the tunnel. It changes
 // nothing if host already has a DNS record that points elsewhere, so a
 // site still served from somewhere else isn't taken over by accident. It

@@ -58,6 +58,8 @@ type nameClaim struct {
 type namesFile struct {
 	After  int64       `json:"after"` // last message read
 	Claims []nameClaim `json:"claims"`
+	// MailDomains are people's own domains whose mail comes to the group.
+	MailDomains []string `json:"mail_domains,omitempty"`
 }
 
 func (d *Dashboard) loadNames() namesFile {
@@ -250,6 +252,8 @@ type givenName struct {
 	Name   string `json:"name"`
 	Node   string `json:"node"`
 	Person string `json:"person,omitempty"` // someone on that box
+	Own    bool   `json:"own,omitempty"`    // a domain of their own
+	Mail   bool   `json:"mail,omitempty"`   // its mail comes to the group
 }
 
 func (d *Dashboard) handleNames(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +288,8 @@ func (d *Dashboard) handleNames(w http.ResponseWriter, r *http.Request) {
 				out.Given = append(out.Given, givenName{Name: n, Node: p.Name})
 			}
 			for _, pn := range p.PeopleNames {
-				out.Given = append(out.Given, givenName{Name: pn.Name, Node: p.Name, Person: pn.Person})
+				_, _, own := peers.OwnDomain(list, pn.Name)
+				out.Given = append(out.Given, givenName{Name: pn.Name, Node: p.Name, Person: pn.Person, Own: own, Mail: contains(f.MailDomains, pn.Name)})
 			}
 		}
 	}

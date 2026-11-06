@@ -1424,7 +1424,7 @@ async function refreshNames() {
         ? `<button data-decide="${esc(c.name)}" data-node="${esc(c.node)}" data-ok="1">Approve</button> <button class="del" data-decide="${esc(c.name)}" data-node="${esc(c.node)}">Decline</button>`
         : `<span class="pill ${c.status === "approved" ? "ok" : "bad"}">${esc(c.status)}</span>`}</td></tr>`).join("");
     const given = n.given.map(g => `<tr><td>${esc(mail(g.name))}</td><td class="sub">${g.person ? `${esc(g.person)}, on ${esc(g.node)}` : esc(g.node)}</td>
-      <td><button class="del" data-unname="${esc(g.name)}">Take back</button></td></tr>`).join("");
+      <td>${g.own ? (g.mail ? `<span class="pill ok">its mail comes here</span> ` : `<button data-takemail="${esc(g.name)}">Take its mail too</button> `) : ""}<button class="del" data-unname="${esc(g.name)}">Take back</button></td></tr>`).join("");
     html += `<h3 style="font-size:13px;margin:16px 0 4px">Requests</h3>
       ${req ? `<table>${req}</table>` : `<div class="sub">No one has asked for a name.</div>`}
       <h3 style="font-size:13px;margin:16px 0 4px">Names given</h3>
@@ -1433,6 +1433,14 @@ async function refreshNames() {
   el.innerHTML = html;
 }
 $("names").addEventListener("click", async ev => {
+  const tm = ev.target.closest("button[data-takemail]");
+  if (tm) {
+    if (!confirm(`Send every address at ${tm.dataset.takemail} to its owner's mailbox? It stops if the domain's mail already goes somewhere else.`)) return;
+    const r = await post("api/names/take-mail", {body: JSON.stringify({name: tm.dataset.takemail})});
+    if (!r.ok) alert((await r.text()).trim());
+    namesKey = ""; refreshNames();
+    return;
+  }
   const ask = ev.target.closest("#nameAsk"), dec = ev.target.closest("button[data-decide]"), un = ev.target.closest("button[data-unname]");
   let r;
   if (ev.target.closest("#meSave")) {
