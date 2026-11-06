@@ -137,6 +137,11 @@ works.
 
 ## When something goes wrong
 
+Every web node on the tunnel needs `-mail-in`, since the tunnel can bring
+mail to any of them; one without it warns when it starts, and the admin's
+dashboard shows **takes no mail** under **Incoming mail**. Refused addresses
+are logged on the web node (`mail: refused`) and counted there.
+
 | You see | Check |
 | --- | --- |
 | nothing arrives | `npx wrangler tail`: 403 means the tokens differ; 503 means the web node couldn't store it or reach your node (the sender retries) |

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +60,8 @@ type Node struct {
 	mu        sync.Mutex
 	st        state
 	wake      chan struct{}
-	refillErr string // the last refill error logged, so it is logged once
+	refillErr string      // the last refill error logged, so it is logged once
+	refused   []time.Time // addresses the Worker was told are no one's, in the last day
 }
 
 type state struct {
@@ -412,6 +414,25 @@ func (n *Node) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type badRequest struct{ error }
 
+func (n *Node) noteRefused(now time.Time) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.refused = append(n.pruneRefused(now), now)
+}
+
+func (n *Node) pruneRefused(now time.Time) []time.Time {
+	return slices.DeleteFunc(n.refused, func(t time.Time) bool { return now.Sub(t) > 24*time.Hour })
+}
+
+// RefusedToday is how many addresses this web node said are no one's in
+// the last day: mail the sender gets back as bounced.
+func (n *Node) RefusedToday() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.refused = n.pruneRefused(time.Now())
+	return len(n.refused)
+}
+
 // lookup answers which node an address's mail goes to, and the sharing code
 // to seal it for, from the names the admin gave in the group's list: 404 if
 // the address is no one's.
@@ -420,8 +441,11 @@ func (n *Node) lookup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "use GET", http.StatusMethodNotAllowed)
 		return
 	}
-	p, holder, ok := peers.MailHolder(n.Peers(), r.URL.Query().Get("to"))
+	to := r.URL.Query().Get("to")
+	p, holder, ok := peers.MailHolder(n.Peers(), to)
 	if !ok || p.Gateway {
+		n.logf("mail: refused %q: no such mailbox in the group's names", to)
+		n.noteRefused(time.Now())
 		http.Error(w, "no such mailbox", http.StatusNotFound)
 		return
 	}

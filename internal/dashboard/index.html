@@ -1427,6 +1427,9 @@ async function refreshNames() {
       <td>${g.own ? (g.mail && g.send && g.report ? `<span class="pill ok">its mail comes here</span> ` : `<button data-takemail="${esc(g.name)}">${g.mail ? "Finish its mail setup" : "Take its mail too"}</button> `) : ""}<button class="del" data-unname="${esc(g.name)}">Take back</button></td></tr>`).join("");
     html += `<h3 style="font-size:13px;margin:16px 0 4px">Requests</h3>
       ${req ? `<table>${req}</table>` : `<div class="sub">No one has asked for a name.</div>`}
+      ${(n.mail_nodes || []).length ? `<h3 style="font-size:13px;margin:16px 0 4px">Incoming mail</h3><div class="sub">${n.mail_nodes.map(m =>
+        `${esc(m.node)}: ${m.off ? `<span class="pill bad">takes no mail</span>${m.missed ? ` ${m.missed} delayed` : ""}` : `${m.refused || 0} refused in the last day`}`).join(" · ")}</div>
+        <div class="sub">Refused means a sender got a bounce for an address nobody has. Each one is in that web node's log, with the address.</div>` : ""}
       <h3 style="font-size:13px;margin:16px 0 4px">Names given</h3>
       ${given ? `<table>${given}</table>` : `<div class="sub">None yet.</div>`}`;
   }

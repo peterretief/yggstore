@@ -323,3 +323,45 @@ func (d *Dashboard) takeMail(ctx context.Context, domain string) error {
 	}
 	return site.TakeMail(ctx, string(api), strings.TrimSpace(string(tun)), domain, mailWorker)
 }
+
+// mailNode is how one web node is doing with incoming mail.
+type mailNode struct {
+	Node    string `json:"node"`
+	Off     bool   `json:"off,omitempty"`     // has the tunnel, takes no mail
+	Missed  int64  `json:"missed,omitempty"`  // mail that reached it anyway
+	Refused int    `json:"refused,omitempty"` // addresses refused in the last day
+}
+
+// mailNodes reads the web nodes' mail figures from the last poll.
+func (d *Dashboard) mailNodes() []mailNode {
+	out := []mailNode{}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, p := range d.state.Peers {
+		if p.Test || !p.Up || p.Info == nil || len(p.Info.Web) == 0 {
+			continue
+		}
+		var st site.NodeStatus
+		if json.Unmarshal(p.Info.Web, &st) == nil {
+			out = append(out, mailNode{Node: p.Name, Off: st.MailOff, Missed: st.MailMissed, Refused: st.MailRefused})
+		}
+	}
+	return out
+}
+
+// warnMailOff tells an admin, once per node, of a web node with the tunnel
+// that takes no mail.
+func (d *Dashboard) warnMailOff(list []peers.Peer) {
+	if !isAdmin(list, d.cfg.SelfID) {
+		return
+	}
+	for _, n := range d.mailNodes() {
+		if n.Off && !d.mailOffTold[n.Node] {
+			if d.mailOffTold == nil {
+				d.mailOffTold = map[string]bool{}
+			}
+			d.mailOffTold[n.Node] = true
+			d.event("warn", n.Node+" has the tunnel but takes no mail (no -mail-in): mail reaching it is delayed. See docs/mail.md.")
+		}
+	}
+}

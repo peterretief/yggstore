@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
@@ -31,11 +32,12 @@ type Messages interface {
 
 // Web serves the group's sites from copies kept in Dir.
 type Web struct {
-	Dir    string
-	Msgs   Messages
-	Peers  func() []peers.Peer
-	Client client.Client
-	Log    func(string, ...any)
+	mailMissed atomic.Int64 // mail that reached this node with no -mail-in
+	Dir        string
+	Msgs       Messages
+	Peers      func() []peers.Peer
+	Client     client.Client
+	Log        func(string, ...any)
 	// Mail, if set, takes the mail Worker's posts (see package mail).
 	// Work, if set, is the page a person's recovery link opens, on any
 	// site served here (WorkPath; see package workhere).
@@ -100,6 +102,12 @@ type webEntry struct {
 type NodeStatus struct {
 	Tunnel string       `json:"tunnel,omitempty"` // its connector, if it runs one
 	Sites  []SiteStatus `json:"sites"`
+	// MailOff: it has the tunnel but takes no mail, so mail reaching it is
+	// delayed (MailMissed: how often since it started). MailRefused is how
+	// many addresses it said are no one's in the last day.
+	MailOff     bool  `json:"mail_off,omitempty"`
+	MailMissed  int64 `json:"mail_missed,omitempty"`
+	MailRefused int   `json:"mail_refused,omitempty"`
 }
 
 // SiteStatus is one site as a web node has it.
@@ -254,6 +262,9 @@ func (w *Web) handle(s msg.Stored) {
 	w.save()
 	w.mu.Unlock()
 }
+
+// MailMissed is how often mail reached this node with no -mail-in.
+func (w *Web) MailMissed() int64 { return w.mailMissed.Load() }
 
 // allowCode takes an admin's CodeAllowance. Called with w.mu held.
 func (w *Web) allowCode(s msg.Stored) {
@@ -506,6 +517,8 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		// the Worker would bounce the mail for good. A failure makes the
 		// sending server try again, and reach a node that takes it.
 		if w.Mail == nil {
+			w.mailMissed.Add(1)
+			w.logf("web: mail reached this node, which has no -mail-in: the sender will retry")
 			http.Error(rw, "this web node takes no mail: try another", http.StatusServiceUnavailable)
 			return
 		}

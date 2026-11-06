@@ -242,14 +242,15 @@ func contains(list []string, s string) bool {
 }
 
 type namesState struct {
-	Domain   string      `json:"domain"`
-	Admin    bool        `json:"admin"`
-	Me       string      `json:"me"`       // the person's name, as people see it
-	Mine     []string    `json:"mine"`     // names this node has
-	Claims   []nameClaim `json:"claims"`   // asked from here
-	Requests []nameClaim `json:"requests"` // from others, on an admin dashboard
-	Given    []givenName `json:"given"`    // every name in the group, on an admin dashboard
-	Error    string      `json:"error,omitempty"`
+	MailNodes []mailNode  `json:"mail_nodes,omitempty"` // for an admin: incoming mail on each web node
+	Domain    string      `json:"domain"`
+	Admin     bool        `json:"admin"`
+	Me        string      `json:"me"`       // the person's name, as people see it
+	Mine      []string    `json:"mine"`     // names this node has
+	Claims    []nameClaim `json:"claims"`   // asked from here
+	Requests  []nameClaim `json:"requests"` // from others, on an admin dashboard
+	Given     []givenName `json:"given"`    // every name in the group, on an admin dashboard
+	Error     string      `json:"error,omitempty"`
 }
 
 type givenName struct {
@@ -289,6 +290,7 @@ func (d *Dashboard) handleNames(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(out.Requests, func(i, j int) bool { return out.Requests[i].Time > out.Requests[j].Time })
 	if out.Admin {
+		out.MailNodes = d.mailNodes()
 		for _, p := range list {
 			for _, n := range p.Names {
 				out.Given = append(out.Given, givenName{Name: n, Node: p.Name})

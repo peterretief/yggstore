@@ -442,6 +442,9 @@ func cmdServe(ctx context.Context, args []string) error {
 				log.Printf("web: %v", err)
 			}
 		}()
+		if *webTunnel != "" && web.Mail == nil {
+			log.Printf("WARNING: this web node has the tunnel but no -mail-in: mail the tunnel brings here is delayed until it reaches a node that takes it. Add -mail-in, as on the other web nodes (docs/mail.md).")
+		}
 		var tun *site.Tunnel
 		if *webTunnel != "" {
 			tun = &site.Tunnel{Bin: *cloudflared, TokenFile: *webTunnel, Dir: filepath.Join(*dataDir, "web"), WebAddr: *webAddr, Log: log.Printf}
@@ -453,9 +456,10 @@ func cmdServe(ctx context.Context, args []string) error {
 			}
 		}
 		webStatus = func() json.RawMessage {
-			st := site.NodeStatus{Sites: web.Status()}
+			st := site.NodeStatus{Sites: web.Status(), MailRefused: mailNode.RefusedToday(), MailMissed: web.MailMissed()}
 			if tun != nil {
 				st.Tunnel = tun.State()
+				st.MailOff = web.Mail == nil
 			}
 			b, _ := json.Marshal(st)
 			return b

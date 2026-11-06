@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	netmail "net/mail"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/peterretief/yggstore/internal/peers"
 )
@@ -195,5 +197,23 @@ func TestRelayOwnDomain(t *testing.T) {
 	}
 	if r.may("200::2", "info@other.com") || r.may("200::2", "anyone@shop.example.org") {
 		t.Fatal("sent from a domain that isn't the client's own")
+	}
+}
+
+func TestRefusedIsCounted(t *testing.T) {
+	var logged []string
+	n := &Node{Token: "secret", Peers: func() []peers.Peer {
+		return []peers.Peer{{Name: "a", Addr: "[200::1]:7400", Admin: true, Domain: "example.org"}}
+	}, Log: func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }}
+	r := httptest.NewRequest(http.MethodGet, MailboxPath+"?to=nobody@example.org", nil)
+	r.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	n.ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound || n.RefusedToday() != 1 || len(logged) != 1 || !strings.Contains(logged[0], "nobody@example.org") {
+		t.Fatalf("%d, refused %d, logged %v", w.Code, n.RefusedToday(), logged)
+	}
+	n.refused[0] = time.Now().Add(-25 * time.Hour)
+	if n.RefusedToday() != 0 {
+		t.Fatal("still counted after a day")
 	}
 }

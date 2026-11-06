@@ -241,6 +241,7 @@ type Dashboard struct {
 	takeMailFn      func(ctx context.Context, domain string) error
 	enableSendingFn func(ctx context.Context, domain string) error
 	dmarcReportsFn  func(ctx context.Context, domain string) error
+	mailOffTold     map[string]bool // web nodes the admin was told take no mail
 	cfg             Config
 	mu              sync.Mutex
 	websites        *websites.Watcher // the outbox's websites/ folder, once started
@@ -783,6 +784,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 		d.syncNames(ctx, mainList)
 		d.approveNames(ctx, mainList)
 		d.askTrialNames(ctx)
+		d.warnMailOff(mainList)
 		d.sendUsage(ctx, mainList)
 		d.syncWallet(ctx, mainList)
 		if st.AdminEntry != "" && time.Since(d.yggDNSAt) > 30*time.Minute {
