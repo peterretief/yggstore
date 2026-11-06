@@ -135,7 +135,7 @@ if (live) {
   const mail = document.documentElement.dataset.mail;
   if (mail) { const a = document.createElement("a"); a.href = mail; a.textContent = "Your mail"; $("saved").append(" · ", a); }
   const site = document.documentElement.dataset.site;
-  if (site) { const a = document.createElement("a"); a.href = site; a.textContent = "Your website"; $("saved").append(" · ", a); }
+  if (site) { const a = document.createElement("a"); a.href = site; a.textContent = "Your websites"; $("saved").append(" · ", a); }
 } else if (!id || !link) { $("bad").hidden = false; $("stepsWrap").hidden = true; }
 // off: the web node sent a light client here because their box is off.
 if (!live && new URLSearchParams(location.search).get("off") === "1") { $("off").hidden = false; $("stepsWrap").hidden = true; }
