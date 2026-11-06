@@ -83,8 +83,8 @@ async function load() {
   const vs = r && r.ok ? await r.json() : [];
   $("verCard").hidden = vs.length < 2;
   const size = n => n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
-  const cur = vs.findIndex(v => v.current);
-  $("vers").innerHTML = (cur >= 0 && cur + 1 < vs.length ? `<p><button data-back="">Go back to the version before</button></p>` : "") +
+  const live = vs.findIndex(v => v.current);
+  $("vers").innerHTML = (live >= 0 && live + 1 < vs.length ? `<p><button data-back="">Go back to the version before</button></p>` : "") +
     vs.map(v => `<div class="row"><span class="name">${when(v.stored_at * 1000)} · ${v.files} file${v.files == 1 ? "" : "s"}, ${size(v.bytes)}</span>
       ${v.current ? `<span class="ok">online now</span>` : `<button class="plain" data-back="${esc(v.id)}">Go back to this one</button>`}</div>`).join("");
 }
