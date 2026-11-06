@@ -133,19 +133,22 @@ func human(s string) string {
 
 func tableLink(name string) string { return dataBase + url.PathEscape(name) + "/" }
 
-type data struct{ db *sql.DB }
+type data struct {
+	db   *sql.DB
+	sync *syncLog // nil without -machine
+}
 
 func openData(path string) (*data, error) {
-	db, err := sql.Open("sqlite3", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite3", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(1)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}
-	return &data{db}, nil
+	return &data{db: db}, nil
 }
 
 // design reads the file's tables, in name order.
 func (d *data) design() ([]table, error) {
-	rows, err := d.db.Query(`SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY name`)
+	rows, err := d.db.Query(`SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite%' AND name NOT LIKE '\_sync%' ESCAPE '\' ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +275,10 @@ func (d *data) tableFor(w http.ResponseWriter, r *http.Request) ([]table, *table
 
 func (d *data) routes(mux *http.ServeMux, in func(http.HandlerFunc) http.HandlerFunc) {
 	mux.HandleFunc("GET "+dataBase+"{$}", in(d.diagram))
+	if d.sync != nil {
+		mux.HandleFunc("GET "+dataBase+"_refused", in(d.refusedPage))
+		mux.HandleFunc("POST "+dataBase+"_refused", in(d.dismiss))
+	}
 	mux.HandleFunc("GET "+dataBase+"{table}/{$}", in(d.report))
 	mux.HandleFunc("GET "+dataBase+"{table}/new", in(d.form))
 	mux.HandleFunc("POST "+dataBase+"{table}/new", in(d.save))
@@ -303,13 +310,15 @@ type line struct {
 }
 
 type diagramPage struct {
-	Tables []table
-	W, H   int
-	Boxes  []box
-	Lines  []line
+	Tables  []table
+	Refused int
+	W, H    int
+	Boxes   []box
+	Lines   []line
 }
 
-func layout(tables []table) diagramPage {
+// levels is how many tables deep each table's parents go.
+func levels(tables []table) map[string]int {
 	level := map[string]int{}
 	for range tables { // cycles stop when the loop does
 		for _, t := range tables {
@@ -320,6 +329,11 @@ func layout(tables []table) diagramPage {
 			}
 		}
 	}
+	return level
+}
+
+func layout(tables []table) diagramPage {
+	level := levels(tables)
 	p := diagramPage{Tables: tables}
 	nextY := map[int]int{}
 	rowY := map[string]int{} // "table.column" to the middle of its row
@@ -372,7 +386,9 @@ func (d *data) diagram(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "something went wrong", http.StatusInternalServerError)
 		return
 	}
-	page(w, http.StatusOK, "diagram", layout(tables))
+	p := layout(tables)
+	p.Refused = d.refusedCount()
+	page(w, http.StatusOK, "diagram", p)
 }
 
 // Reports.
@@ -806,6 +822,7 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var names, marks []string
 	var args []any
+	fields := map[string]any{}
 	for _, c := range t.Cols {
 		if c.Random && id == "" {
 			names = append(names, quote(c.Name))
@@ -824,9 +841,12 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 		names = append(names, quote(c.Name))
 		marks = append(marks, "?")
 		args = append(args, v)
+		fields[c.Name] = v
 	}
 	var err error
-	if id == "" {
+	if d.sync != nil {
+		err = d.saveEntry(*t, id, fields)
+	} else if id == "" {
 		_, err = d.db.Exec("INSERT INTO "+quote(t.Name)+" ("+strings.Join(names, ", ")+") VALUES ("+strings.Join(marks, ", ")+")", args...)
 	} else {
 		sets := make([]string, len(names))
@@ -850,7 +870,13 @@ func (d *data) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if _, err := d.db.Exec("DELETE FROM "+quote(t.Name)+" WHERE "+quote(t.Key)+" = ?", id); err != nil {
+	var err error
+	if d.sync != nil {
+		err = d.sync.write(entryDelete, t.Name, id, nil)
+	} else {
+		_, err = d.db.Exec("DELETE FROM "+quote(t.Name)+" WHERE "+quote(t.Key)+" = ?", id)
+	}
+	if err != nil {
 		p := formPage{Name: t.Name, Link: tableLink(t.Name), Action: tableLink(t.Name) + url.PathEscape(id), Error: plainError(err),
 			Fields: d.fields(tables, *t, r.PostFormValue)}
 		page(w, http.StatusConflict, "message", p)
@@ -900,6 +926,7 @@ svg rect{fill:var(--box);stroke:var(--line)}svg path{fill:none;stroke:var(--acce
 
 {{define "diagram"}}{{template "top"}}<title>Your data</title>
 <nav><a href="` + base + `">Home</a></nav><h1>Your data</h1>
+{{if .Refused}}<p class="err"><a href="` + dataBase + `_refused">{{.Refused}} to look at</a>: saves that couldn't be merged.</p>{{end}}
 {{if .Tables}}<div class="scroll"><svg width="{{.W}}" height="{{.H}}" viewBox="0 0 {{.W}} {{.H}}" role="img" aria-label="Tables and how they relate">
 {{range .Lines}}<path d="{{.D}}"/><text class="end" x="{{.OneX}}" y="{{.OneY}}">1</text><text class="end" x="{{.ManyX}}" y="{{.ManyY}}">n</text>{{end}}
 {{range .Boxes}}{{$b := .}}<a href="{{.Link}}"><rect x="{{.X}}" y="{{.Y}}" width="220" height="{{.H}}" rx="6"/>
@@ -935,6 +962,14 @@ svg rect{fill:var(--box);stroke:var(--line)}svg path{fill:none;stroke:var(--acce
 <button>Save</button></form>
 {{if .Delete}}<form method="post" action="{{.Delete}}" onsubmit="return confirm('Delete this?')"><p><button>Delete</button></p></form>{{end}}
 {{if .Children}}<h2>Related</h2><ul>{{range .Children}}<li><a href="{{.Link}}">{{.Title}}</a> ({{.Count}}) · <a href="{{.Add}}">Add</a></li>{{end}}</ul>{{end}}{{end}}
+
+{{define "refused"}}{{template "top"}}<title>To look at</title>
+<nav><a href="` + dataBase + `">Your data</a></nav><h1>To look at</h1>
+{{if .}}<p>These saves were made on one machine and couldn't be merged with another's. Nothing was lost: each is here until someone deals with it.</p>
+<div class="scroll"><table><thead><tr><th>When</th><th>Machine</th><th>Table</th><th>What it tried</th><th>Why not</th><th></th></tr></thead><tbody>
+{{range .}}<tr><td>{{.When}}</td><td>{{.Node}}</td><td>{{human .Table}}</td><td>{{range .Fields}}{{.}}<br>{{end}}</td><td>{{.Reason}}</td>
+<td><a href="{{.Fix}}">Put it right</a> <form method="post" action="` + dataBase + `_refused" style="display:inline"><input type="hidden" name="node" value="{{.Node}}"><input type="hidden" name="seq" value="{{.Seq}}"><button>Dismiss</button></form></td></tr>{{end}}
+</tbody></table></div>{{else}}<p>Nothing to look at.</p>{{end}}{{end}}
 
 {{define "message"}}{{template "top"}}<title>{{human .Name}}</title>
 <nav><a href="{{.Action}}">Back</a></nav><p class="err">{{.Error}}</p>{{end}}

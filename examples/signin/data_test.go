@@ -13,6 +13,11 @@ import (
 )
 
 func TestData(t *testing.T) {
+	t.Run("plain", func(t *testing.T) { testData(t, false) })
+	t.Run("with a log", func(t *testing.T) { testData(t, true) })
+}
+
+func testData(t *testing.T, logged bool) {
 	dir := t.TempDir()
 	if err := importDesign(filepath.Join(dir, "d.db"), "design.sql", false, io.Discard); err != nil {
 		t.Fatal(err)
@@ -22,6 +27,11 @@ func TestData(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.db.Close() })
+	if logged {
+		if d.sync, err = openSync(d, "desktop"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	db, _ := sql.Open("sqlite3", "file:"+filepath.Join(dir, "s.db"))
 	t.Cleanup(func() { db.Close() })
 	db.Exec(`CREATE TABLE sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL)`)

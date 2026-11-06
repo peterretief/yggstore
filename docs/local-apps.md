@@ -130,8 +130,8 @@ Go, and the design file, diagram, forms and reports stay as they are.
   the merge is refused everywhere. For example, two machines each take the same
   invoice number. A refused entry is listed on a page with what it tried to do,
   so a person can put it right. It's never just dropped.
-- **Sign-in too.** Accounts and sessions are entries like any others. Wrong tries
-  stay counted per machine.
+- **Sign-in too.** Accounts are entries like any others. Sessions and wrong tries
+  stay on each machine, so someone sent to another machine signs in again.
 - **The design travels with the log.** An import is an entry as well, so every
   machine changes its tables at the same point in the order. Otherwise an entry
   could arrive for a column one machine doesn't have yet.
@@ -153,8 +153,9 @@ will need snapshots, which aren't built for site data yet either.
 1. Random ids in the design and forms, with a way to move numbered rows over
    (built: change the ids and what refers to them to `TEXT` and import; `-import`
    notes what's left to change).
-2. Entries and replay on one machine, with forms writing entries.
-3. The refused list.
+2. Entries and replay on one machine, with forms writing entries (built:
+   `-machine NAME`; the data file then holds its log, in `_sync_` tables).
+3. The refused list (built: `/app/data/_refused`).
 4. Sharing the log between your machines, encrypted.
 5. The web node trying a second machine (built).
 6. Try it with the desktop and one box, by pulling the plug on each in turn.

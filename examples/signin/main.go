@@ -67,6 +67,7 @@ func main() {
 		return nil
 	})
 	copyNow := flag.Bool("copy-now", false, "copy-to: make a copy now, and stop")
+	machine := flag.String("machine", "", "keep a log of the data's changes, under this machine's name")
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	flag.Parse()
 
@@ -86,6 +87,19 @@ func main() {
 		if err := importDesign(*dataPath, *design, *drop, os.Stdout); err != nil {
 			log.Fatal(err)
 		}
+		d, err := openData(*dataPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if name := syncMachine(d.db); name != "" {
+			l, err := openSync(d, name) // takes in rows from the file
+			if err == nil {
+				err = l.rebuild()
+			}
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
 		return
 	}
 	if *add != "" {
@@ -102,6 +116,15 @@ func main() {
 			log.Fatal(err)
 		}
 		sources = append(sources, source{dataFile.db, filepath.Base(*dataPath)})
+		name := *machine
+		if name == "" {
+			name = syncMachine(dataFile.db)
+		}
+		if name != "" {
+			if dataFile.sync, err = openSync(dataFile, name); err != nil {
+				log.Fatal(err)
+			}
+		}
 	}
 	if *copyNow {
 		if *copyTo == "" {
