@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/base32"
 	"encoding/csv"
 	"fmt"
 	"html/template"
@@ -40,7 +42,8 @@ type ref struct{ Table, Column string }
 type column struct {
 	Name, Type string
 	Required   bool
-	Auto       bool // the number SQLite gives a new row
+	Auto       bool // given when a row is made, not asked for
+	Random     bool // Auto, and a random id: see newID
 	Ref        *ref
 	Choices    []string
 }
@@ -50,6 +53,27 @@ type table struct {
 	Cols  []column
 	Key   string // what identifies a row
 	Label string // what a row is called in drop-downs and reports
+}
+
+// visible is the columns people see in reports: a random id means nothing
+// to anyone.
+func (t table) visible() []column {
+	var out []column
+	for _, c := range t.Cols {
+		if !c.Random {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// newID is the id of a new row in a table with id TEXT PRIMARY KEY. Numbers
+// would clash between machines that work apart, so ids are random. The
+// letter in front keeps it from ever reading as a number.
+func newID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return "r" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
 }
 
 func (t table) col(name string) *column {
@@ -182,8 +206,12 @@ func (d *data) readTable(t *table, stmt string) error {
 	t.Key = "rowid"
 	if len(keys) == 1 {
 		t.Key = keys[0]
-		if c := t.col(t.Key); strings.EqualFold(c.Type, "INTEGER") {
+		c := t.col(t.Key)
+		switch {
+		case strings.EqualFold(c.Type, "INTEGER"):
 			c.Auto, c.Required = true, false
+		case strings.EqualFold(c.Type, "TEXT") && strings.EqualFold(c.Name, "id"):
+			c.Auto, c.Random, c.Required = true, true, false
 		}
 	}
 	fks, err := d.db.Query(`SELECT "from", "table", "to" FROM pragma_foreign_key_list(?)`, t.Name)
@@ -440,6 +468,9 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 	if t == nil {
 		return
 	}
+	cols := t.visible()
+	view := *t
+	view.Cols = cols
 	form := r.URL.Query()
 	q, by, field, value := form.Get("q"), form.Get("by"), form.Get("f"), form.Get("v")
 
@@ -448,7 +479,7 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 	var args []any
 	if q != "" {
 		var any []string
-		for _, c := range t.Cols {
+		for _, c := range cols {
 			if k := c.kind(); k == "text" || k == "email" || k == "textarea" || k == "choice" {
 				any = append(any, quote(c.Name)+` LIKE ?`)
 				args = append(args, "%"+q+"%")
@@ -485,13 +516,13 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 		dir = " DESC"
 	}
 	names := []string{quote(t.Key) + ` AS "__key"`}
-	for _, c := range t.Cols {
+	for _, c := range cols {
 		names = append(names, quote(c.Name))
 	}
 	query := "SELECT " + strings.Join(names, ", ") + from + " ORDER BY " + quote(order) + dir
 
 	labels := map[string]map[string]string{}
-	for _, c := range t.Cols {
+	for _, c := range cols {
 		if c.Ref != nil {
 			_, labels[c.Name] = d.picks(tables, *c.Ref)
 		}
@@ -516,7 +547,7 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if form.Get("csv") == "1" {
-		d.writeCSV(w, *t, query, args, show)
+		d.writeCSV(w, view, query, args, show)
 		return
 	}
 	var total int64
@@ -550,7 +581,7 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 		return tableLink(t.Name) + "?" + v.Encode()
 	}
 	p := reportPage{Name: t.Name, Link: tableLink(t.Name), Q: q, By: by, Filter: filter, Total: total, CSV: link(map[string]string{"csv": "1", "page": ""})}
-	for _, c := range t.Cols {
+	for _, c := range cols {
 		h := head{Name: c.Name, Title: human(c.Name), Num: c.summed()}
 		flip := ""
 		if order == c.Name && !desc {
@@ -563,7 +594,7 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for rows.Next() {
-		vals := make([]any, len(t.Cols)+1)
+		vals := make([]any, len(cols)+1)
 		ptrs := make([]any, len(vals))
 		for i := range vals {
 			ptrs[i] = &vals[i]
@@ -573,7 +604,7 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out := rowOut{Link: tableLink(t.Name) + url.PathEscape(text(vals[0]))}
-		for i, c := range t.Cols {
+		for i, c := range cols {
 			out.Cells = append(out.Cells, show(c, vals[i+1]))
 		}
 		p.Rows = append(p.Rows, out)
@@ -585,7 +616,7 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 	if int64(pageNo+1)*pageRows < total {
 		p.Next = link(map[string]string{"page": strconv.Itoa(pageNo + 1)})
 	}
-	for _, c := range t.Cols {
+	for _, c := range cols {
 		var s cell
 		if c.summed() {
 			var sum sql.NullFloat64
@@ -776,6 +807,11 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 	var names, marks []string
 	var args []any
 	for _, c := range t.Cols {
+		if c.Random && id == "" {
+			names = append(names, quote(c.Name))
+			marks = append(marks, "?")
+			args = append(args, newID())
+		}
 		if c.Auto {
 			continue
 		}

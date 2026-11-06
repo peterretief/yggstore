@@ -149,7 +149,9 @@ will need snapshots, which aren't built for site data yet either.
 
 **Build order:**
 
-1. Random ids in the design and forms, with a way to move numbered rows over.
+1. Random ids in the design and forms, with a way to move numbered rows over
+   (built: change the ids and what refers to them to `TEXT` and import; `-import`
+   notes what's left to change).
 2. Entries and replay on one machine, with forms writing entries.
 3. The refused list.
 4. Sharing the log between your machines, encrypted.

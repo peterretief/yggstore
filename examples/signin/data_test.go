@@ -83,33 +83,46 @@ func TestData(t *testing.T) {
 
 	saved(dataBase+"clients/new", url.Values{"name": {"<b>Acme</b>"}, "email": {"a@example.org"}})
 	saved(dataBase+"clients/new", url.Values{"name": {"Zed"}})
+	id := func(table, where string) string {
+		t.Helper()
+		var s string
+		if err := d.db.QueryRow(`SELECT id FROM ` + table + ` WHERE ` + where).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	acme, zed := id("clients", `name LIKE '%Acme%'`), id("clients", `name = 'Zed'`)
+	if acme == zed || len(acme) < 20 || !strings.HasPrefix(acme, "r") {
+		t.Fatalf("the ids: %q %q", acme, zed)
+	}
 	if !strings.Contains(get(dataBase+"projects/new"), `&lt;b&gt;Acme&lt;/b&gt;</option>`) {
 		t.Fatal("the client isn't offered, escaped")
 	}
-	saved(dataBase+"projects/new", url.Values{"title": {"Site"}, "client_id": {"1"}, "status": {"open"}})
-	saved(dataBase+"invoices/new", url.Values{"number": {"1"}, "project_id": {"1"}, "amount": {"100.50"}, "paid": {"1"}})
-	saved(dataBase+"invoices/new", url.Values{"number": {"=2"}, "project_id": {"1"}, "amount": {"50"}})
+	saved(dataBase+"projects/new", url.Values{"title": {"Site"}, "client_id": {acme}, "status": {"open"}})
+	site := id("projects", `title = 'Site'`)
+	saved(dataBase+"invoices/new", url.Values{"number": {"1"}, "project_id": {site}, "amount": {"100.50"}, "paid": {"1"}})
+	saved(dataBase+"invoices/new", url.Values{"number": {"=2"}, "project_id": {site}, "amount": {"50"}})
 
 	// A date comes back as the date box wants it, and survives saving.
-	saved(dataBase+"projects/1", url.Values{"title": {"Site"}, "client_id": {"1"}, "status": {"open"}, "started": {"2026-10-01"}})
-	if p := get(dataBase + "projects/1"); !strings.Contains(p, `value="2026-10-01"`) {
+	saved(dataBase+"projects/"+site, url.Values{"title": {"Site"}, "client_id": {acme}, "status": {"open"}, "started": {"2026-10-01"}})
+	if p := get(dataBase + "projects/" + site); !strings.Contains(p, `value="2026-10-01"`) {
 		t.Fatalf("the date: %s", p)
 	}
-	saved(dataBase+"projects/1", url.Values{"title": {"Site 2"}, "client_id": {"1"}, "status": {"open"}, "started": {"2026-10-01"}})
+	saved(dataBase+"projects/"+site, url.Values{"title": {"Site 2"}, "client_id": {acme}, "status": {"open"}, "started": {"2026-10-01"}})
 	if p := get(dataBase + "projects/"); !strings.Contains(p, "<td>2026-10-01</td>") {
 		t.Fatalf("the date in the report: %s", p)
 	}
-	saved(dataBase+"projects/1", url.Values{"title": {"Site"}, "client_id": {"1"}, "status": {"open"}})
+	saved(dataBase+"projects/"+site, url.Values{"title": {"Site"}, "client_id": {acme}, "status": {"open"}})
 
 	// What the design refuses comes back on the form, with what was typed.
-	w := do("POST", dataBase+"invoices/new", url.Values{"number": {"1"}, "project_id": {"1"}, "amount": {"1"}}, true)
+	w := do("POST", dataBase+"invoices/new", url.Values{"number": {"1"}, "project_id": {site}, "amount": {"1"}}, true)
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "already a record") {
 		t.Fatalf("a repeat: %d %s", w.Code, w.Body)
 	}
 	if w := do("POST", dataBase+"projects/new", url.Values{"title": {"x"}, "client_id": {"99"}, "status": {"open"}}, true); w.Code != http.StatusBadRequest {
 		t.Fatalf("a client that isn't there: %d", w.Code)
 	}
-	if w := do("POST", dataBase+"projects/new", url.Values{"title": {"x"}, "client_id": {"1"}, "status": {"nonsense"}}, true); w.Code != http.StatusBadRequest {
+	if w := do("POST", dataBase+"projects/new", url.Values{"title": {"x"}, "client_id": {acme}, "status": {"nonsense"}}, true); w.Code != http.StatusBadRequest {
 		t.Fatalf("a status that isn't allowed: %d", w.Code)
 	}
 
@@ -124,11 +137,17 @@ func TestData(t *testing.T) {
 	if s := get(dataBase + "clients/?q=zed"); !strings.Contains(s, "Zed") || strings.Contains(s, "Acme") {
 		t.Fatalf("a search: %s", s)
 	}
-	if s := get(dataBase + "projects/?f=client_id&v=2"); strings.Contains(s, ">Site<") {
+	if s := get(dataBase + "projects/?f=client_id&v=" + zed); strings.Contains(s, ">Site<") {
 		t.Fatalf("a filter: %s", s)
 	}
 	if s := get(dataBase + "clients/?sort=" + url.QueryEscape(`name"; DROP TABLE clients;--`) + "&by=nope&f=nope"); !strings.Contains(s, "Zed") {
 		t.Fatalf("a bad sort: %s", s)
+	}
+	if strings.Contains(rep, site) && !strings.Contains(rep, "/"+site) {
+		t.Fatal("the report shows a random id as text")
+	}
+	if strings.Contains(get(dataBase+"clients/"), ">Id<") {
+		t.Fatal("the report has an Id column")
 	}
 	if c := get(dataBase + "invoices/?csv=1"); !strings.Contains(c, "'=2") || !strings.Contains(c, "Project,Amount") {
 		t.Fatalf("the csv: %s", c)
@@ -138,14 +157,14 @@ func TestData(t *testing.T) {
 	}
 
 	// A record shows what refers to it, and can't go while anything does.
-	if p := get(dataBase + "clients/1"); !strings.Contains(p, "Projects") || !strings.Contains(p, "new?client_id=1") {
+	if p := get(dataBase + "clients/" + acme); !strings.Contains(p, "Projects") || !strings.Contains(p, "new?client_id="+acme) {
 		t.Fatalf("the record: %s", p)
 	}
-	if w := do("POST", dataBase+"clients/1/delete", nil, true); w.Code != http.StatusConflict {
+	if w := do("POST", dataBase+"clients/"+acme+"/delete", nil, true); w.Code != http.StatusConflict {
 		t.Fatalf("deleting with projects: %d", w.Code)
 	}
-	saved(dataBase+"clients/2", url.Values{"name": {"Zed Ltd"}})
-	saved(dataBase+"clients/2/delete", nil)
+	saved(dataBase+"clients/"+zed, url.Values{"name": {"Zed Ltd"}})
+	saved(dataBase+"clients/"+zed+"/delete", nil)
 	if s := get(dataBase + "clients/"); strings.Contains(s, "Zed") {
 		t.Fatalf("after deleting: %s", s)
 	}

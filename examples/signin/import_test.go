@@ -101,3 +101,45 @@ func TestImport(t *testing.T) {
 		t.Fatal("left its working file")
 	}
 }
+
+func TestNumberedRowsMoveToRandomIds(t *testing.T) {
+	dir := t.TempDir()
+	path, file := filepath.Join(dir, "d.db"), filepath.Join(dir, "d.sql")
+	run := func(stmts string) string {
+		t.Helper()
+		os.WriteFile(file, []byte(stmts), 0o644)
+		var out bytes.Buffer
+		if err := importDesign(path, file, false, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	out := run(`CREATE TABLE clients (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+		CREATE TABLE jobs (id INTEGER PRIMARY KEY, title TEXT, client_id INTEGER REFERENCES clients(id));
+		INSERT INTO clients VALUES (1, 'Acme'), (2, 'Zed');
+		INSERT INTO jobs VALUES (7, 'Site', 2);`)
+	if !strings.Contains(out, "numbered rows in clients, jobs") {
+		t.Fatalf("no note: %s", out)
+	}
+	// Only half done is said too.
+	out = run(`CREATE TABLE clients (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+		CREATE TABLE jobs (id INTEGER PRIMARY KEY, title TEXT, client_id INTEGER REFERENCES clients(id));`)
+	if !strings.Contains(out, "jobs.client_id is INTEGER but clients.id is TEXT") {
+		t.Fatalf("no note: %s", out)
+	}
+	out = run(`CREATE TABLE clients (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+		CREATE TABLE jobs (id TEXT PRIMARY KEY, title TEXT, client_id TEXT REFERENCES clients(id));`)
+	if strings.Contains(out, "Note:") {
+		t.Fatalf("a note left: %s", out)
+	}
+	d, err := openData(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.db.Close()
+	var name, kind string
+	err = d.db.QueryRow(`SELECT c.name, typeof(j.client_id) FROM jobs j JOIN clients c ON c.id = j.client_id WHERE j.id = '7'`).Scan(&name, &kind)
+	if err != nil || name != "Zed" || kind != "text" {
+		t.Fatalf("the link: %q %q %v", name, kind, err)
+	}
+}

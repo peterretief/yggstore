@@ -302,5 +302,38 @@ func importDesign(path, file string, drop bool, out io.Writer) error {
 	if len(added)+len(changes)+len(lost) == 0 {
 		fmt.Fprintln(out, "The design already matches.")
 	}
+	tables, err := (&data{db}).design()
+	if err != nil {
+		return err
+	}
+	for _, s := range designNotes(tables) {
+		fmt.Fprintln(out, "Note:", s)
+	}
 	return nil
+}
+
+// designNotes says what in a design won't work with data on more than one
+// machine (docs/local-apps.md), which needs random ids, not numbers.
+func designNotes(tables []table) []string {
+	var out, numbered []string
+	for _, t := range tables {
+		if c := t.col(t.Key); c != nil && c.Auto && !c.Random {
+			numbered = append(numbered, t.Name)
+		}
+		for _, c := range t.Cols {
+			if c.Ref == nil {
+				continue
+			}
+			if p := find(tables, c.Ref.Table); p != nil {
+				if pc := p.col(c.Ref.Column); pc != nil && !strings.EqualFold(pc.Type, c.Type) {
+					out = append(out, fmt.Sprintf("%s.%s is %s but %s.%s is %s: make them the same", t.Name, c.Name, c.Type, p.Name, pc.Name, pc.Type))
+				}
+			}
+		}
+	}
+	if numbered != nil {
+		out = append(out, "numbered rows in "+strings.Join(numbered, ", ")+" can't be shared between machines: "+
+			"use id TEXT PRIMARY KEY, and TEXT for what refers to them, then import. Rows and links are kept")
+	}
+	return out
 }
