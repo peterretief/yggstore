@@ -47,6 +47,10 @@ func TestLocalAppThroughTheWebNode(t *testing.T) {
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r
 		w.Header().Set("Set-Cookie", "s=1; Secure; HttpOnly")
+		if r.Method == http.MethodPost {
+			io.Copy(w, r.Body)
+			return
+		}
 		io.WriteString(w, "hello from "+r.URL.Path)
 	}))
 	t.Cleanup(app.Close)
@@ -99,6 +103,14 @@ func TestLocalAppThroughTheWebNode(t *testing.T) {
 	if got.Host != "peter.example.org" || got.Header.Get("Cookie") != "s=1" || got.URL.RawQuery != "x=1" ||
 		got.Header.Get("X-Forwarded-For") != "192.0.2.5" || got.Header.Get("X-Forwarded-Proto") != "https" {
 		t.Fatalf("what the app saw: host %s, %v", got.Host, got.Header)
+	}
+	// A form's fields get there.
+	post := httptest.NewRequest(http.MethodPost, "http://peter.example.org/app/login", strings.NewReader("name=a&password=b"))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	pw := httptest.NewRecorder()
+	web.ServeHTTP(pw, post)
+	if pw.Body.String() != "name=a&password=b" {
+		t.Fatalf("a form: %d %q", pw.Code, pw.Body)
 	}
 	// Paths the site didn't list never leave the web node.
 	got = nil

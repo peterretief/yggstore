@@ -19,7 +19,7 @@ func TestSignIn(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 	db.Exec(`CREATE TABLE accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL);
 		CREATE TABLE sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL);`)
-	db.Exec(`INSERT INTO accounts VALUES ('alice', ?)`, hashPassword("correct horse"))
+	db.Exec(`INSERT INTO accounts VALUES ('alice@example.org', ?)`, hashPassword("correct horse"))
 	a := &app{db: db, tries: map[string][]time.Time{}}
 	h := a.routes()
 	do := func(method, path, ip, body string, c *http.Cookie) *httptest.ResponseRecorder {
@@ -34,7 +34,7 @@ func TestSignIn(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
-	form := func(pw string) string { return url.Values{"name": {"alice"}, "password": {pw}}.Encode() }
+	form := func(pw string) string { return url.Values{"email": {" Alice@Example.org "}, "password": {pw}}.Encode() }
 
 	if w := do("GET", base, "1.1.1.1", "", nil); w.Code != http.StatusSeeOther {
 		t.Fatalf("the private page, signed out: %d", w.Code)

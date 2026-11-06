@@ -2,8 +2,8 @@
 // sign-in and a private page, run on your own machine behind a published
 // site. Accounts are in a SQLite file beside it and never leave the machine.
 //
-//	go run ./examples/signin -add alice        # asks for a password
-//	go run ./examples/signin                   # listens on 127.0.0.1:3000
+//	go run ./examples/signin -add alice@example.org   # asks for a password
+//	go run ./examples/signin                          # listens on 127.0.0.1:3000
 //
 // The site's folder says which paths come here, in .yggstore.json:
 //
@@ -42,7 +42,7 @@ const (
 	base       = "/app/" // the path in .yggstore.json
 	sessionFor = 14 * 24 * time.Hour
 	rounds     = 600_000
-	maxTries   = 5 // wrong tries, per address and per name, in tryWindow
+	maxTries   = 5 // wrong tries, per address and per email, in tryWindow
 	tryWindow  = 15 * time.Minute
 )
 
@@ -55,7 +55,7 @@ type app struct {
 func main() {
 	addr := flag.String("addr", "127.0.0.1:3000", "where to listen: keep it on this machine")
 	dbPath := flag.String("db", "signin.db", "the accounts file")
-	add := flag.String("add", "", "add an account, or set its password, and stop")
+	add := flag.String("add", "", "add an account by its email, or set its password, and stop")
 	flag.Parse()
 
 	db, err := sql.Open("sqlite3", "file:"+*dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)")
@@ -139,7 +139,7 @@ func (a *app) loginPage(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) login(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	name, pw := strings.TrimSpace(r.PostFormValue("name")), r.PostFormValue("password")
+	name, pw := cleanEmail(r.PostFormValue("email")), r.PostFormValue("password")
 	ip := r.Header.Get("X-Forwarded-For")
 	if a.tooMany(ip) || a.tooMany("name:"+name) {
 		render(w, http.StatusTooManyRequests, loginPage, "Too many tries. Try again later.")
@@ -150,7 +150,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 	if ok := matches(hash, pw); err != nil || !ok { // checked either way, to take as long
 		a.wrong(ip)
 		a.wrong("name:" + name)
-		render(w, http.StatusUnauthorized, loginPage, "That name or password isn't right.")
+		render(w, http.StatusUnauthorized, loginPage, "That email or password isn't right.")
 		return
 	}
 	b := make([]byte, 32)
@@ -204,8 +204,16 @@ func (a *app) wrong(key string) {
 	a.tries[key] = append(a.tries[key], time.Now())
 }
 
-func addAccount(db *sql.DB, name string) error {
-	fmt.Print("Password: ")
+// cleanEmail is an email as accounts are kept: Alice@Example.org is
+// alice@example.org.
+func cleanEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+func addAccount(db *sql.DB, email string) error {
+	name := cleanEmail(email)
+	if !strings.Contains(name, "@") {
+		return errors.New("an account is an email address")
+	}
+	fmt.Print("Password (at least 10 characters): ")
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	pw := strings.TrimRight(line, "\r\n")
 	if err != nil && pw == "" {
@@ -258,7 +266,7 @@ button{padding:.5rem}.err{color:#b00020}</style>`
 var loginPage = template.Must(template.New("login").Parse(style + `<title>Sign in</title><h1>Sign in</h1>
 {{if .}}<p class="err">{{.}}</p>{{end}}
 <form method="post" action="` + base + `login">
-<label>Name <input name="name" autocomplete="username" required autofocus></label>
+<label>Email <input name="email" type="email" autocomplete="username" required autofocus></label>
 <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
 <button>Sign in</button></form>`))
 
