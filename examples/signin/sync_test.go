@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -259,7 +260,7 @@ func TestLogTakesInWhatWasThere(t *testing.T) {
 	if _, err := openSync(d, "desktop"); err != nil {
 		t.Fatal(err)
 	}
-	if n := value(t, d, `SELECT COUNT(*) FROM _sync_entries`); n != "2" {
+	if n := value(t, d, `SELECT COUNT(*) FROM _sync_entries WHERE kind = 'row'`); n != "2" {
 		t.Fatalf("taken in twice: %s", n)
 	}
 	// A restored copy carries on under the new machine's name.
@@ -272,6 +273,147 @@ func TestLogTakesInWhatWasThere(t *testing.T) {
 	}
 	if value(t, d, `SELECT seq FROM _sync_entries WHERE node = 'box'`) != "1" {
 		t.Fatal("the new machine's numbers")
+	}
+}
+
+// over joins two machines over HTTP, with one key.
+func over(t *testing.T, ds ...*data) []string {
+	t.Helper()
+	key := make([]byte, 32)
+	var urls []string
+	for _, d := range ds {
+		d.keep = &keeper{key: key, seen: map[string]string{}}
+		srv := httptest.NewServer(http.HandlerFunc(d.serveSync))
+		t.Cleanup(srv.Close)
+		urls = append(urls, srv.URL)
+	}
+	return urls
+}
+
+func TestSharingOverTheNetwork(t *testing.T) {
+	a, b := machine(t, "desktop"), machine(t, "box")
+	urls := over(t, a, b)
+	c := http.DefaultClient
+	put(t, a, "clients", "c1", map[string]any{"name": "Acme"})
+	put(t, b, "clients", "c2", map[string]any{"name": "Zed"})
+	if n, err := a.pull(c, urls[1]); err != nil || n == 0 {
+		t.Fatalf("%d %v", n, err)
+	}
+	if n, err := b.pull(c, urls[0]); err != nil || n == 0 {
+		t.Fatalf("%d %v", n, err)
+	}
+	same(t, a, b)
+	// Nothing new, nothing done.
+	if n, err := a.pull(c, urls[1]); err != nil || n != 0 {
+		t.Fatalf("%d %v", n, err)
+	}
+
+	// A machine with another key gets nothing, and says why.
+	stranger := machine(t, "stranger")
+	stranger.keep = &keeper{key: bytes.Repeat([]byte{1}, 32), seen: map[string]string{}}
+	if _, err := stranger.pull(c, urls[0]); err == nil {
+		t.Fatal("a stranger got in")
+	}
+	if value(t, stranger, `SELECT COUNT(*) FROM clients`) != "0" {
+		t.Fatal("a stranger got rows")
+	}
+	// An old request recorded and sent again is refused.
+	old, _ := json.Marshal(syncAsk{At: time.Now().Add(-time.Hour).UnixMilli(), ID: "x", Have: map[string]int64{}})
+	sealed, _ := seal(a.keep.key, "ask", old)
+	res, err := http.Post(urls[0], "application/octet-stream", bytes.NewReader(sealed))
+	if err != nil || res.StatusCode != http.StatusForbidden {
+		t.Fatalf("an old request: %v %v", res, err)
+	}
+	// An answer can't be passed off as a request.
+	if _, err := unseal(a.keep.key, "ask", must2(seal(a.keep.key, "answer", []byte("{}")))); err == nil {
+		t.Fatal("an answer opened as a request")
+	}
+}
+
+func must2(b []byte, err error) []byte {
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func TestAnEmptyMachineCatchesUp(t *testing.T) {
+	a := machine(t, "desktop")
+	put(t, a, "clients", "c1", map[string]any{"name": "Acme"})
+	if err := a.sync.write(entryAccount, "", "a@example.org", map[string]any{"hash": hashPassword("correct horse")}); err != nil {
+		t.Fatal(err)
+	}
+	// A new machine: an empty file, with no design.
+	path := filepath.Join(t.TempDir(), "new.db")
+	b, err := openData(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { b.db.Close() })
+	if b.sync, err = openSync(b, "box"); err != nil {
+		t.Fatal(err)
+	}
+	urls := over(t, a, b)
+	if _, err := b.pull(http.DefaultClient, urls[0]); err != nil {
+		t.Fatal(err)
+	}
+	same(t, a, b)
+	if value(t, b, `SELECT name FROM clients`) != "Acme" {
+		t.Fatal("no rows")
+	}
+	// Someone can sign in there, with no session carried over.
+	h := (&app{db: nil, data: b, tries: map[string][]time.Time{}})
+	var hash string
+	if err := h.accountsDB().QueryRow(`SELECT hash FROM ` + h.accounts() + ` WHERE name = 'a@example.org'`).Scan(&hash); err != nil || !matches(hash, "correct horse") {
+		t.Fatalf("the account: %v", err)
+	}
+	// A design change goes round, and the rows stay.
+	file := filepath.Join(t.TempDir(), "d.sql")
+	writeFile(t, file, strings.Replace(readFile(t, "design.sql"), "  email TEXT,", "  email TEXT,\n  phone TEXT,", 1))
+	if err := importDesign(a.path, file, false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.sync.noteDesign(); err != nil {
+		t.Fatal(err)
+	}
+	put(t, a, "clients", "c1", map[string]any{"phone": "123"})
+	if _, err := b.pull(http.DefaultClient, urls[0]); err != nil {
+		t.Fatal(err)
+	}
+	same(t, a, b)
+	if value(t, b, `SELECT phone FROM clients`) != "123" {
+		t.Fatal("the new column didn't arrive")
+	}
+	// Restarting with the same design adds nothing.
+	n := value(t, b, `SELECT COUNT(*) FROM _sync_entries WHERE kind = 'design'`)
+	if _, err := openSync(b, "box"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.sync.noteDesign(); err != nil {
+		t.Fatal(err)
+	}
+	if value(t, b, `SELECT COUNT(*) FROM _sync_entries WHERE kind = 'design'`) != n {
+		t.Fatal("the rebuilt table reads as a new design")
+	}
+}
+
+func TestMoreThanOneAnswer(t *testing.T) {
+	a := machine(t, "desktop")
+	l := a.sync
+	got, more, err := l.missing(map[string]int64{})
+	if err != nil || more {
+		t.Fatalf("%d %v %v", len(got), more, err)
+	}
+	var fake []entry
+	for i := int64(1); i <= syncMaxSend+10; i++ {
+		fake = append(fake, entry{Node: "z", Seq: i, T: i, Kind: entryRow, Table: "gone", Row: "r"})
+	}
+	if _, err := l.keepEntries(fake); err != nil {
+		t.Fatal(err)
+	}
+	got, more, err = l.missing(map[string]int64{})
+	if err != nil || !more || len(got) != syncMaxSend {
+		t.Fatalf("%d %v %v", len(got), more, err)
 	}
 }
 

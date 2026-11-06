@@ -33,6 +33,7 @@ CREATE INDEX IF NOT EXISTS _sync_order ON _sync_entries (t, node, seq);
 CREATE INDEX IF NOT EXISTS _sync_rows ON _sync_entries (tbl, row);
 CREATE TABLE IF NOT EXISTS _sync_refused (node TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (node, seq));
 CREATE TABLE IF NOT EXISTS _sync_deleted (tbl TEXT NOT NULL, row TEXT NOT NULL, PRIMARY KEY (tbl, row));
+CREATE TABLE IF NOT EXISTS _sync_accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS _sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`
 
 // Kinds of entry.
@@ -40,6 +41,8 @@ const (
 	entryRow     = "row"     // set these fields of this row, making it if need be
 	entryDelete  = "delete"  // remove this row for good
 	entryDismiss = "dismiss" // a person has dealt with a refused entry
+	entryAccount = "account" // who can sign in, and their password's hash
+	entryDesign  = "design"  // the tables' statements: see noteDesign
 )
 
 type entry struct {
@@ -84,7 +87,18 @@ func openSync(d *data, node string) (*syncLog, error) {
 		return nil, err
 	}
 	l := &syncLog{d: d, node: node}
-	return l, l.adopt(tables)
+	if err := l.adopt(tables); err != nil {
+		return nil, err
+	}
+	// A design already in the log is only replaced by an import.
+	if latest, _, err := l.latestDesign(); err != nil {
+		return nil, err
+	} else if latest == "" {
+		if err := l.noteDesign(); err != nil {
+			return nil, err
+		}
+	}
+	return l, nil
 }
 
 // parentsFirst orders tables so a row's parents are in the log before it.
@@ -185,6 +199,10 @@ func apply(tx *sql.Tx, tables []table, e entry) error {
 		_, err := tx.Exec(`DELETE FROM _sync_refused WHERE node = ? AND seq = ?`, e.Fields["node"], e.Fields["seq"])
 		return err
 	}
+	if e.Kind == entryAccount {
+		_, err := tx.Exec(`INSERT INTO _sync_accounts VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET hash = excluded.hash`, e.Row, e.Fields["hash"])
+		return err
+	}
 	t := find(tables, e.Table)
 	if t == nil {
 		return nil // a table the design no longer has
@@ -283,10 +301,16 @@ func readEntries(q interface {
 
 // merge takes entries from another machine, and replays if any were new.
 func (l *syncLog) merge(from []entry) (added int, err error) {
-	tables, err := l.d.design()
-	if err != nil {
-		return 0, err
+	if added, err = l.keepEntries(from); err != nil || added == 0 {
+		return added, err
 	}
+	if err := l.catchDesign(); err != nil {
+		return added, err
+	}
+	return added, l.rebuild()
+}
+
+func (l *syncLog) keepEntries(from []entry) (added int, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	tx, err := l.d.db.Begin()
@@ -306,12 +330,6 @@ func (l *syncLog) merge(from []entry) (added int, err error) {
 		n, _ := res.RowsAffected()
 		added += int(n)
 	}
-	if added == 0 {
-		return 0, nil
-	}
-	if err := replay(tx, tables); err != nil {
-		return 0, err
-	}
 	return added, tx.Commit()
 }
 
@@ -326,7 +344,7 @@ func replay(tx *sql.Tx, tables []table) error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`PRAGMA defer_foreign_keys = OFF; DELETE FROM _sync_refused; DELETE FROM _sync_deleted`); err != nil {
+	if _, err := tx.Exec(`PRAGMA defer_foreign_keys = OFF; DELETE FROM _sync_refused; DELETE FROM _sync_deleted; DELETE FROM _sync_accounts`); err != nil {
 		return err
 	}
 	entries, err := readEntries(tx, "")

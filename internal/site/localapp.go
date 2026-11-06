@@ -42,6 +42,7 @@ const (
 	// A site names at most this many machines besides its publisher.
 	maxLocalMachines = 3
 	localSkipFor     = time.Minute
+	localSync        = "/_sync" // ends the path a site's machines share data on
 )
 
 // visitor headers a request can't bring with it: only the web node sets them.
@@ -259,6 +260,10 @@ func tryNext(r *http.Request, err error) bool {
 
 // localApp passes a request to the first machine that answers for the site.
 func (w *Web) localApp(rw http.ResponseWriter, r *http.Request, site, owner string, machines []string, root string) {
+	if strings.HasSuffix(r.URL.Path, localSync) { // between machines, not for visitors
+		http.NotFound(rw, r)
+		return
+	}
 	addrs := w.localAddrs(owner, machines)
 	if len(addrs) == 0 {
 		localOffline(rw, root, site)
@@ -392,7 +397,9 @@ func (l *LocalRelay) Serve(w http.ResponseWriter, r *http.Request, caller string
 		w.Header().Set(localDown, "1")
 		http.Error(w, msg, code)
 	}
-	if !l.webNode(r.Context(), caller) {
+	// A site's own machines may not be web nodes. What they send each other
+	// is sealed, so any member may pass it.
+	if !strings.HasSuffix(rest, localSync) && !l.webNode(r.Context(), caller) {
 		down("only the group's web nodes", http.StatusForbidden)
 		return true
 	}

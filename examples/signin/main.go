@@ -68,9 +68,24 @@ func main() {
 	})
 	copyNow := flag.Bool("copy-now", false, "copy-to: make a copy now, and stop")
 	machine := flag.String("machine", "", "keep a log of the data's changes, under this machine's name")
+	keyPath := flag.String("sync-key", "", "the key your machines share")
+	newKey := flag.String("sync-newkey", "", "make a key your machines can share, and stop")
+	site := flag.String("site", "", "the site this program serves, for -sync-with")
+	var syncAddrs []string
+	flag.Func("sync-with", "another machine's node, as [ADDRESS]:7400 (can be repeated)", func(s string) error {
+		syncAddrs = append(syncAddrs, s)
+		return nil
+	})
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	flag.Parse()
 
+	if *newKey != "" {
+		if err := newSyncKey(*newKey); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("made", *newKey, "- copy it to your other machines by hand")
+		return
+	}
 	db, err := sql.Open("sqlite3", "file:"+*dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)")
 	if err != nil {
 		log.Fatal(err)
@@ -96,17 +111,13 @@ func main() {
 			if err == nil {
 				err = l.rebuild()
 			}
+			if err == nil {
+				err = l.noteDesign()
+			}
 			if err != nil {
 				log.Fatal(err)
 			}
 		}
-		return
-	}
-	if *add != "" {
-		if err := addAccount(db, *add); err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println("saved", *add)
 		return
 	}
 	sources := []source{{db, filepath.Base(*dbPath)}}
@@ -124,7 +135,21 @@ func main() {
 			if dataFile.sync, err = openSync(dataFile, name); err != nil {
 				log.Fatal(err)
 			}
+			if err := dataFile.sync.adoptAccounts(db); err != nil {
+				log.Fatal(err)
+			}
 		}
+	}
+	if *add != "" {
+		var l *syncLog
+		if dataFile != nil {
+			l = dataFile.sync
+		}
+		if err := addAccount(db, l, *add); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("saved", *add)
+		return
 	}
 	if *copyNow {
 		if *copyTo == "" {
@@ -138,6 +163,22 @@ func main() {
 	}
 	if host, _, err := net.SplitHostPort(*addr); err != nil || !isLocal(host) {
 		log.Fatalf("%s isn't on this machine only", *addr)
+	}
+	if *keyPath != "" {
+		if dataFile == nil || dataFile.sync == nil {
+			log.Fatal("-sync-key needs -data and -machine")
+		}
+		key, err := readSyncKey(*keyPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		dataFile.keep = &keeper{key: key, seen: map[string]string{}}
+		if len(syncAddrs) > 0 {
+			if *site == "" {
+				log.Fatal("-sync-with needs -site")
+			}
+			go dataFile.syncWith(*site, syncAddrs)
+		}
 	}
 	a := &app{db: db, data: dataFile, tries: map[string][]time.Time{}}
 	if *copyTo != "" {
@@ -162,6 +203,9 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET "+base+"me", a.me)
 	if a.data != nil {
 		a.data.routes(mux, a.signedIn)
+		if a.data.keep != nil {
+			mux.HandleFunc("POST "+syncPath, a.data.serveSync)
+		}
 	}
 	return mux
 }
@@ -228,7 +272,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var hash string
-	err := a.db.QueryRow(`SELECT hash FROM accounts WHERE name = ?`, name).Scan(&hash)
+	err := a.accountsDB().QueryRow(`SELECT hash FROM `+a.accounts()+` WHERE name = ?`, name).Scan(&hash)
 	if ok := matches(hash, pw); err != nil || !ok { // checked either way, to take as long
 		a.wrong(ip)
 		a.wrong("name:" + name)
@@ -290,7 +334,22 @@ func (a *app) wrong(key string) {
 // alice@example.org.
 func cleanEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
-func addAccount(db *sql.DB, email string) error {
+// With a log, accounts are in it, so they're the same on every machine.
+func (a *app) accountsDB() *sql.DB {
+	if a.data != nil && a.data.sync != nil {
+		return a.data.db
+	}
+	return a.db
+}
+
+func (a *app) accounts() string {
+	if a.data != nil && a.data.sync != nil {
+		return "_sync_accounts"
+	}
+	return "accounts"
+}
+
+func addAccount(db *sql.DB, l *syncLog, email string) error {
 	name := cleanEmail(email)
 	if !strings.Contains(name, "@") {
 		return errors.New("an account is an email address")
@@ -304,7 +363,11 @@ func addAccount(db *sql.DB, email string) error {
 	if len(pw) < 10 {
 		return errors.New("at least 10 characters")
 	}
-	_, err = db.Exec(`INSERT INTO accounts VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET hash = excluded.hash`, name, hashPassword(pw))
+	hash := hashPassword(pw)
+	if l != nil {
+		return l.write(entryAccount, "", name, map[string]any{"hash": hash})
+	}
+	_, err = db.Exec(`INSERT INTO accounts VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET hash = excluded.hash`, name, hash)
 	return err
 }
 

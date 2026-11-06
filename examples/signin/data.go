@@ -135,7 +135,9 @@ func tableLink(name string) string { return dataBase + url.PathEscape(name) + "/
 
 type data struct {
 	db   *sql.DB
+	path string
 	sync *syncLog // nil without -machine
+	keep *keeper  // nil without -sync-key
 }
 
 func openData(path string) (*data, error) {
@@ -143,7 +145,7 @@ func openData(path string) (*data, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &data{db: db}, nil
+	return &data{db: db, path: path}, nil
 }
 
 // design reads the file's tables, in name order.
@@ -310,11 +312,12 @@ type line struct {
 }
 
 type diagramPage struct {
-	Tables  []table
-	Refused int
-	W, H    int
-	Boxes   []box
-	Lines   []line
+	Tables   []table
+	Refused  int
+	Machines []string
+	W, H     int
+	Boxes    []box
+	Lines    []line
 }
 
 // levels is how many tables deep each table's parents go.
@@ -388,6 +391,7 @@ func (d *data) diagram(w http.ResponseWriter, r *http.Request) {
 	}
 	p := layout(tables)
 	p.Refused = d.refusedCount()
+	p.Machines = d.machines()
 	page(w, http.StatusOK, "diagram", p)
 }
 
@@ -926,6 +930,7 @@ svg rect{fill:var(--box);stroke:var(--line)}svg path{fill:none;stroke:var(--acce
 
 {{define "diagram"}}{{template "top"}}<title>Your data</title>
 <nav><a href="` + base + `">Home</a></nav><h1>Your data</h1>
+{{range .Machines}}<p>{{.}}</p>{{end}}
 {{if .Refused}}<p class="err"><a href="` + dataBase + `_refused">{{.Refused}} to look at</a>: saves that couldn't be merged.</p>{{end}}
 {{if .Tables}}<div class="scroll"><svg width="{{.W}}" height="{{.H}}" viewBox="0 0 {{.W}} {{.H}}" role="img" aria-label="Tables and how they relate">
 {{range .Lines}}<path d="{{.D}}"/><text class="end" x="{{.OneX}}" y="{{.OneY}}">1</text><text class="end" x="{{.ManyX}}" y="{{.ManyY}}">n</text>{{end}}

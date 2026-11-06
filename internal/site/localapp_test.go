@@ -113,6 +113,16 @@ func TestLocalAppThroughTheWebNode(t *testing.T) {
 	if pw.Body.String() != "name=a&password=b" {
 		t.Fatalf("a form: %d %q", pw.Code, pw.Body)
 	}
+	// What a site's machines say to each other isn't for visitors, and
+	// needs only membership at the node.
+	if ask("/app/_sync", nil).Code != http.StatusNotFound {
+		t.Fatal("visitors reached the sync path")
+	}
+	caller = "200::7"
+	if res, err := http.Get(node.URL + localBase + "peter.example.org/app/_sync"); err != nil || res.StatusCode != 200 {
+		t.Fatalf("a site's own machine: %v %v", res, err)
+	}
+	caller = "200::9"
 	// Paths the site didn't list never leave the web node.
 	got = nil
 	if ask("/app-secret", nil); got != nil {

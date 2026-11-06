@@ -114,8 +114,9 @@ Go, and the design file, diagram, forms and reports stay as they are.
 
 - **Your machines only.** Site data goes to every web node, which is wrong for
   private data. A local app has its own list of machines, chosen by you, and
-  entries travel between them over Yggdrasil, encrypted with a key only those
-  machines hold. A web node can pass requests to them but never holds the data.
+  entries travel between them over Yggdrasil, through the node on each machine
+  so no new port is needed, sealed with a key only those machines hold. Nodes
+  pass the sealed bytes on, and visitors can't reach that path at all.
 - **Row ids are random.** Two machines offline would both make client number 4,
   so a new row gets a random id. The design file says `id TEXT PRIMARY KEY`, and
   the form fills it in. This has to be settled before real data goes in:
@@ -142,6 +143,27 @@ Go, and the design file, diagram, forms and reports stay as they are.
 - **The daily copy stays.** Sync passes a mistake to every machine within
   minutes. The daily versions are how you go back.
 
+### Turning it on
+
+All the tables need random ids first; `-import` says what's left. Then, once:
+
+```
+./signin -sync-newkey sync.key      # copy this file to the other machine by hand
+```
+
+On each machine, naming the other's node:
+
+```
+./signin -addr 127.0.0.1:3741 -data clients.db -machine desktop \
+  -sync-key sync.key -site peter.withcare.co.za -sync-with '[ADDRESS]:7400'
+```
+
+A new machine can start from an empty data file: the design, rows and accounts
+all arrive. Each machine asks the others every 30 seconds, and the data page
+says when it was last in step. After this, the second machine's program can
+stay running, and the warning under [a second machine](#a-second-machine) no
+longer applies. Keep `sync.key` out of the site's folder.
+
 **What to know:** a machine can be behind, so someone may see an older answer
 until it catches up, and a save that looks done can be refused at the merge.
 Times come from each machine's clock, so a machine with a wrong clock can win
@@ -156,7 +178,8 @@ will need snapshots, which aren't built for site data yet either.
 2. Entries and replay on one machine, with forms writing entries (built:
    `-machine NAME`; the data file then holds its log, in `_sync_` tables).
 3. The refused list (built: `/app/data/_refused`).
-4. Sharing the log between your machines, encrypted.
+4. Sharing the log between your machines, encrypted (built, tested in Go;
+   see [turning it on](#turning-it-on)).
 5. The web node trying a second machine (built).
 6. Try it with the desktop and one box, by pulling the plug on each in turn.
 
@@ -185,8 +208,8 @@ no program running says so and the next is asked, and one that's off is tried
 last for a minute. A form is only sent on if it can't have reached a program,
 so nothing is saved twice.
 
-**Until the data syncs, keep the program on the second machine stopped.** Each
-machine has its own data file, so with both running, saves would land on
+**Unless the data syncs ([turning it on](#turning-it-on)), keep the program on
+the second machine stopped.** Each machine has its own data file, so with both running, saves would land on
 whichever answered and never meet. A stopped program costs nothing: the web node
 passes over it. If the publisher's machine dies, restore the latest copy on the
 second machine and start the program, and visitors reach it from then on.
