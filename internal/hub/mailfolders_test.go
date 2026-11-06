@@ -18,15 +18,22 @@ func TestPrefixFolder(t *testing.T) {
 	own := []string{"acme.com"}
 	for addr, want := range map[string]string{
 		"info@acme.com": "info", "SALES@Acme.com": "sales", "first.last@acme.com": "first.last",
-		"tommy@withcare.example": "", "sent@acme.com": "", "INBOX@acme.com": "", "trash@acme.com": "",
+		"tommy@example.org": "tommy", "someone@other.net": "", "sent@acme.com": "", "INBOX@acme.com": "", "trash@acme.com": "",
 		"../x@acme.com": "", "": "",
 	} {
-		if got := prefixFolder(msgTo(addr), own); got != want {
+		if got := prefixFolder(msgTo(addr), own, "example.org"); got != want {
 			t.Errorf("%q: %q, want %q", addr, got, want)
 		}
 	}
-	if got := prefixFolder([]byte("Subject: no address\r\n\r\nhi\r\n"), own); got != "" {
+	if got := prefixFolder([]byte("Subject: no address\r\n\r\nhi\r\n"), own, "example.org"); got != "" {
 		t.Errorf("no Delivered-To: %q", got)
+	}
+}
+
+func TestContactFormsGetAFolder(t *testing.T) {
+	raw := []byte("X-Yggstore-Contact-Form: acme.com; from 192.0.2.1\r\nFrom: form@acme.com\r\n\r\nhi\r\n")
+	if got := prefixFolder(raw, nil, ""); got != ContactFolder {
+		t.Fatalf("%q", got)
 	}
 }
 
@@ -42,11 +49,11 @@ func TestFileByPrefix(t *testing.T) {
 		return err == nil && slices.ContainsFunc(es, func(e mail.Entry) bool { return e.ID == id })
 	}
 	put("a")
-	if err := fileByPrefix(box, "a", msgTo("info@acme.com"), own); err != nil {
+	if err := fileByPrefix(box, "a", msgTo("info@acme.com"), own, ""); err != nil {
 		t.Fatal(err)
 	}
 	put("b")
-	fileByPrefix(box, "b", msgTo("info@acme.com"), own) // the same folder again
+	fileByPrefix(box, "b", msgTo("info@acme.com"), own, "") // the same folder again
 	if !in("info", "a") || !in("info", "b") {
 		t.Fatal("not filed under info")
 	}
@@ -54,7 +61,7 @@ func TestFileByPrefix(t *testing.T) {
 	for i := range maxPrefixFolders + 5 {
 		id := fmt.Sprintf("s%d", i)
 		put(id)
-		if err := fileByPrefix(box, id, msgTo(fmt.Sprintf("x%d@acme.com", i)), own); err != nil {
+		if err := fileByPrefix(box, id, msgTo(fmt.Sprintf("x%d@acme.com", i)), own, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -67,7 +74,7 @@ func TestFileByPrefix(t *testing.T) {
 	}
 	// An existing folder still takes mail past the limit.
 	put("c")
-	fileByPrefix(box, "c", msgTo("INFO@acme.com"), own)
+	fileByPrefix(box, "c", msgTo("INFO@acme.com"), own, "")
 	if !in("info", "c") {
 		t.Fatal("info should still take mail")
 	}

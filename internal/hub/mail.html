@@ -69,23 +69,30 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const when = ms => new Date(ms).toLocaleString();
 const size = n => n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " bytes";
-let st, open = "", folder = "INBOX", dom = "";
+let st, open = "", folder = "ALL", dom = "";
 // Domains: their address in the group and their own, a tab each. Mail
 // belongs to the domain it came to, or for Sent, the one it went from.
 const domains = () => [...new Set([(st.address || "").split("@")[1], ...(st.own_domains || [])].filter(Boolean))];
 const atDom = m => !dom || (((m.folder || "INBOX") === "Sent" ? m.from : m.to) || "").toLowerCase().includes("@" + dom);
-const here = f => st.messages.filter(m => (m.folder || "INBOX") === f && atDom(m));
+// All mail is everything but Sent and what's been thrown away.
+const here = f => st.messages.filter(m => {
+  const at = m.folder || "INBOX";
+  return (f === "ALL" ? at !== "Sent" && !hidden.includes(at) : at === f) && atDom(m);
+});
+const unread = m => !(m.flags || []).includes("\\Seen");
 // Folders: Inbox, Sent, Archives and their own; the rest are for mail programs.
 const hidden = ["Drafts", "Trash", "Junk"];
-const label = f => f === "INBOX" ? "Inbox" : f;
-const custom = f => !["INBOX", "Sent", "Archives", ...hidden].includes(f);
-const shownFolders = () => (st.folders || ["INBOX", "Sent"]).filter(f => !hidden.includes(f) && (!dom || !custom(f) || f === folder || here(f).length));
+const label = f => f === "ALL" ? "All mail" : f === "INBOX" ? "Unsorted" : f;
+const custom = f => !["ALL", "INBOX", "Sent", "Archives", ...hidden].includes(f);
+// No Inbox: All mail, then the folders, with Unsorted only when it has mail.
+const realFolders = () => (st.folders || ["INBOX", "Sent"]).filter(f => !hidden.includes(f) && (f !== "INBOX" || here(f).length) && (!dom || !custom(f) || f === folder || here(f).length));
+const shownFolders = () => ["ALL", ...realFolders().filter(f => f !== "Sent"), "Sent"];
 function tabs() {
   const ds = domains();
   $("doms").hidden = ds.length < 2;
-  $("doms").innerHTML = ["", ...ds].map(d => `<button data-dom="${esc(d)}" class="${d === dom ? "on" : ""}">${d ? esc(d) : "All mail"}</button>`).join("");
+  $("doms").innerHTML = ["", ...ds].map(d => `<button data-dom="${esc(d)}" class="${d === dom ? "on" : ""}">${d ? esc(d) : "All domains"}</button>`).join("");
   $("tabs").innerHTML = shownFolders().map(f => {
-    const n = here(f).length;
+    const n = f === "Sent" ? 0 : here(f).filter(unread).length;
     return `<button data-folder="${esc(f)}" class="${f === folder ? "on" : ""}">${esc(label(f))}${n ? ` <span class="count">${n}</span>` : ""}</button>`;
   }).join("") + `<button id="newFolder">New folder</button>`;
 }
@@ -103,7 +110,7 @@ function inbox() {
   if (!st.messages.length) return `<p class="sub">No mail yet. Mail to <b>${esc(st.address || "any address at " + own.join(" or "))}</b> comes in here.</p>`;
   const list = here(folder);
   if (!list.length) return `<p class="sub">Nothing in ${esc(label(folder))}.${custom(folder) ? ` <button class="plain" id="rmfolder">Remove this folder</button>` : ""}</p>`;
-  return list.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name"><b>${esc(m.subject || "(no subject)")}</b><br>
+  return list.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name">${unread(m) ? "<b>" : ""}${esc(m.subject || "(no subject)")}${unread(m) ? "</b>" : ""}${folder === "ALL" ? ` <span class="sub">· ${esc(label(m.folder || "INBOX"))}</span>` : ""}<br>
     <span class="sub">${folder === "Sent" ? "To " + esc(m.to) : esc(m.from)}</span>${m.error ? `<br><span class="err">${esc(m.error)}</span>` : ""}</span>
     <span class="when">${when(m.received)}</span></div>`).join("");
 }
@@ -140,8 +147,9 @@ async function show(id) {
     ${files ? `<div class="files">${files}</div>` : ""}
     <button id="reply">Reply</button>
     <button class="plain" id="del" data-id="${esc(m.id)}">Delete</button> <button class="plain" id="close">Close</button>
-    <select id="moveTo" data-id="${esc(m.id)}" aria-label="Move to a folder"><option value="">Move to…</option>${shownFolders().filter(f => f !== folder).map(f => `<option value="${esc(f)}">${esc(label(f))}</option>`).join("")}</select></div>`;
+    <select id="moveTo" data-id="${esc(m.id)}" aria-label="Move to a folder"><option value="">Move to…</option>${realFolders().filter(f => f !== m.folder && f !== "Sent").map(f => `<option value="${esc(f)}">${esc(label(f))}</option>`).join("")}</select></div>`;
   shown = m;
+  load(); // it's read now
   window.scrollTo(0, 0);
 }
 // Writing: from their own address only, within the box's limits.
@@ -169,7 +177,7 @@ async function load() {
   try { st = await (await fetch("?op=status", {cache: "no-store"})).json(); }
   catch (e) { $("err").textContent = "The box isn't answering."; return; }
   $("addr").innerHTML = st.address ? `<b>${esc(st.address)}</b> · ` : "";
-  if (st.folders && !st.folders.includes(folder)) folder = "INBOX";
+  if (st.folders && folder !== "ALL" && !st.folders.includes(folder)) folder = "ALL";
   $("inbox").innerHTML = inbox();
   tabs();
   $("tabs").hidden = !st.address && !(st.own_domains || []).length;
@@ -182,14 +190,14 @@ document.addEventListener("click", async ev => {
   const row = t.closest(".row[data-id]");
   if (row) return show(row.dataset.id);
   if (t.id === "close") return show("");
-  if (t.dataset.dom !== undefined) { dom = t.dataset.dom; folder = "INBOX"; $("done").hidden = true; show(""); $("inbox").innerHTML = inbox(); tabs(); return; }
+  if (t.dataset.dom !== undefined) { dom = t.dataset.dom; folder = "ALL"; $("done").hidden = true; show(""); $("inbox").innerHTML = inbox(); tabs(); return; }
   if (t.dataset.folder) { folder = t.dataset.folder; $("done").hidden = true; show(""); $("inbox").innerHTML = inbox(); tabs(); return; }
   if (t.id === "newFolder") {
     const name = prompt("Name of the new folder, such as a sender's name");
     if (name && name.trim() && await act("mkfolder", {folder: name.trim()})) { folder = name.trim(); await load(); }
     return;
   }
-  if (t.id === "rmfolder") { if (await act("rmfolder", {folder})) { folder = "INBOX"; await load(); } return; }
+  if (t.id === "rmfolder") { if (await act("rmfolder", {folder})) { folder = "ALL"; await load(); } return; }
   if (t.id === "write") return compose(null);
   if (t.id === "reply" && shown) return compose(shown);
   if (t.id === "cancel") { $("compose").hidden = true; return; }

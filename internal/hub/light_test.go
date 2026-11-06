@@ -545,6 +545,9 @@ func TestLightMail(t *testing.T) {
 	if body := text(b.do("GET", MailPath+"?op=message&id=m1", "")); !strings.Contains(body, "see attached") || !strings.Contains(body, "plan.html") {
 		t.Fatalf("message: %s", body)
 	}
+	if body := text(b.do("GET", MailPath+"?op=status", "")); !strings.Contains(body, `\\Seen`) {
+		t.Fatalf("not marked read after opening: %s", body)
+	}
 	r := b.do("GET", MailPath+"?op=attachment&id=m1&n=0", "")
 	if body := text(r); r.StatusCode != 200 || body != "<script>x</script>" || r.Header.Get("Content-Type") != "application/octet-stream" ||
 		!strings.HasPrefix(r.Header.Get("Content-Disposition"), "attachment") {

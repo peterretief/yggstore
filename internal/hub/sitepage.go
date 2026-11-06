@@ -142,6 +142,7 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 				fail(err)
 				return
 			}
+			box.MarkSeen(m.ID) // opened: no longer counted as unread
 			reply(m)
 		case "attachment":
 			n, _ := strconv.Atoi(r.URL.Query().Get("n"))

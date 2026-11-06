@@ -62,8 +62,9 @@ address at the domain then goes to one mailbox, your client's, on their
 mail page, and they can send from any address at it. A reply goes from the
 address the message came to. They can sign in with any address at the domain
 too. Mail is sorted by the address it came to: `info@` lands in a folder
-called info, made the first time, up to 20. New domains can land in spam at
-first.
+called info, made the first time, up to 20, and contact form messages in
+Contact forms. There's no Inbox on the page: All mail shows everything, with
+unread counts on each folder. New domains can land in spam at first.
 
 Then set the domain's nameservers at its registrar to those two.
 **Is it live?** in the row checks it.
