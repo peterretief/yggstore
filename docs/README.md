@@ -38,6 +38,7 @@ Plans and the reasons behind them. Each page says what's built and what isn't.
 | Page | Status |
 | --- | --- |
 | [Developers and their clients](developer-areas.md) | proposed |
+| [Local apps: a public site with a private part](local-apps.md) | being built |
 | [Accounts anyone can make](trial.md) | built |
 | [Site code and data](site-code.md) | mostly built |
 | [One login for the group](login.md) | first step built |
