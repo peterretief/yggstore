@@ -87,6 +87,8 @@ type Person struct {
 	// Sent is when each person they wrote to in the last day was sent
 	// to, from the mail page (see send.go).
 	Sent []int64 `json:"sent,omitempty"`
+	// pick is the site a website page request is about ("": their first).
+	pick string
 }
 
 // Switches are what the hub's owner turns on and off.

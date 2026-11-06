@@ -44,6 +44,8 @@ type sitePageState struct {
 	Trial    bool              `json:"trial,omitempty"` // tighter limits on sending
 	// OwnDomains are their own domains, which they may send from.
 	OwnDomains []string `json:"own_domains,omitempty"`
+	// SiteNames are all their sites; Site is the one asked for.
+	SiteNames []string `json:"site_names,omitempty"`
 	// Folders are their mailbox's folders.
 	Folders []string `json:"folders,omitempty"`
 }
@@ -69,6 +71,7 @@ func ownDomains(list []peers.Peer, self, person string) []string {
 func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 	ps := f.u.cfg.People
 	op := r.URL.Query().Get("op")
+	p.pick = r.URL.Query().Get("site") // which of their sites, if they have several
 	if op == "" && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -111,6 +114,7 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 					out.Site = &s
 				}
 			}
+			out.SiteNames = ps.SiteNames(p)
 			out.OwnDomains, out.Folders = ownDomains(list, ps.cfg.Self, p.Name), box.Folders()
 			if msgs, err := box.List(); err == nil {
 				out.Messages = msgs

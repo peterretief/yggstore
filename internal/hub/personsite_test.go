@@ -128,3 +128,26 @@ func TestSortMail(t *testing.T) {
 		t.Fatal("her code isn't on the box's state")
 	}
 }
+
+func TestPickASite(t *testing.T) {
+	ps := NewPeopleSites(PeopleSitesConfig{Logf: t.Logf})
+	ps.running["f"] = &personSite{name: "tommy.example.org", names: []string{"tommy.example.org", "acme.com"}}
+	p := Person{Folder: "f"}
+	if r := ps.site(p); r == nil || r.name != "tommy.example.org" {
+		t.Fatalf("no pick: %+v", r)
+	}
+	p.pick = "acme.com"
+	if r := ps.site(p); r == nil || r.name != "acme.com" {
+		t.Fatalf("picked: %+v", r)
+	}
+	if ps.running["f"].name != "tommy.example.org" {
+		t.Fatal("picking changed the runner")
+	}
+	p.pick = "someone-elses.com"
+	if r := ps.site(p); r != nil {
+		t.Fatalf("picked a site that isn't theirs: %+v", r)
+	}
+	if got := ps.SiteNames(Person{Folder: "f"}); len(got) != 2 {
+		t.Fatalf("names: %v", got)
+	}
+}

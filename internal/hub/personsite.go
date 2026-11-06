@@ -671,7 +671,26 @@ func Confirm(f *Forward, code string, now time.Time) error {
 func (ps *PeopleSites) site(p Person) *personSite {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	return ps.running[p.Folder]
+	r := ps.running[p.Folder]
+	if r == nil || p.pick == "" {
+		return r
+	}
+	if !slices.Contains(r.names, p.pick) {
+		return nil
+	}
+	one := *r // the same site runner, for the site they picked
+	one.name = p.pick
+	return &one
+}
+
+// SiteNames are all p's sites, their first name first.
+func (ps *PeopleSites) SiteNames(p Person) []string {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if r := ps.running[p.Folder]; r != nil {
+		return slices.Clone(r.names)
+	}
+	return nil
 }
 
 // SetContact turns person's contact form on or off: the web nodes take it,
