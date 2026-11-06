@@ -500,6 +500,11 @@ func (ps *PeopleSites) sortMail(ctx context.Context, keys map[string]*share.Iden
 		}
 		if moved {
 			ps.cfg.Logf("%s: a message (%s) is in their mailbox", p.Name, id)
+			if box, err := ps.Mailbox(p); err == nil {
+				if err := fileByPrefix(box, id, raw, ownDomains(list, ps.cfg.Self, p.Name)); err != nil {
+					ps.cfg.Logf("%s: sorting message %s into a folder: %v", p.Name, id, err)
+				}
+			}
 		}
 	}
 }
