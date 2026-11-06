@@ -132,7 +132,7 @@ func copyTree(src, dst string) error {
 		if err != nil || p == src {
 			return err
 		}
-		if n := e.Name(); n == DevDir || n == "node_modules" || n == ".git" {
+		if n := e.Name(); n == DevDir || n == "node_modules" || n == ".git" || n == LocalConfig {
 			if e.IsDir() {
 				return filepath.SkipDir
 			}
@@ -193,6 +193,9 @@ func (d *Dev) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	case ContactPath:
 		d.devContact(rw, r)
+		return
+	}
+	if d.devLocal(rw, r) {
 		return
 	}
 	r.Host = d.Name

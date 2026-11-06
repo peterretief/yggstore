@@ -105,7 +105,8 @@ func cmdSite(ctx context.Context, args []string) error {
 	fs.Usage = func() { fmt.Fprint(os.Stderr, siteUsage) }
 	fs.Parse(reorder(args[1:]))
 
-	pub := &site.Publisher{Dir: filepath.Join(yggstoreHome(), "sites"), Client: client.New(), Log: log.Printf}
+	pub := &site.Publisher{Dir: filepath.Join(yggstoreHome(), "sites"), Client: client.New(), Log: log.Printf,
+		LocalApps: site.LocalApps{Path: localAppsPath()}}
 	announcer := func() error {
 		token, err := msg.ReadToken(*tokenPath)
 		if err != nil {

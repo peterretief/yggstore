@@ -84,6 +84,9 @@ type Announcement struct {
 	// Code asks the web nodes to run the site's handlers: a request for
 	// /api/NAME runs api/NAME.wasm (see ApiPath).
 	Code bool `json:"code,omitempty"`
+	// Local are paths that go to a program on the publisher's machine
+	// (see localapp.go).
+	Local []string `json:"local,omitempty"`
 	// Preview is a version shown only to browsers that opened the preview
 	// link; PreviewKey is the link's key, hashed (PreviewKeyHash), so
 	// members reading the topic can't open it.

@@ -816,6 +816,7 @@ func (d *Dashboard) runWebsites(ctx context.Context) {
 		return
 	}
 	pub.Skip = websites.Skip
+	pub.LocalApps = site.LocalApps{Path: d.cfg.LocalApps}
 	service := d.siteService()
 	w := websites.New(websites.Config{
 		Dir:       filepath.Join(d.cfg.Outbox.Dir(), outbox.WebsitesDir),

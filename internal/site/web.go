@@ -91,6 +91,7 @@ type webEntry struct {
 	Contact   string             `json:"contact,omitempty"`   // the contact form's sharing code; "" if off
 	Uploaders []string           `json:"uploaders,omitempty"` // who may add photos and files
 	Code      bool               `json:"code,omitempty"`      // run its handlers (see ApiPath)
+	Local     []string           `json:"local,omitempty"`     // paths for the publisher's machine (localapp.go)
 	// Preview is the version shown with the preview key (its hash is
 	// PreviewKey); PreviewWant one announced and not fetched yet.
 	Preview     string             `json:"preview,omitempty"`
@@ -244,7 +245,7 @@ func (w *Web) handle(s msg.Stored) {
 		if a.Code && !e.Code && e.Serving != "" && !w.NoCode {
 			go w.warm(a.Site, filepath.Join(w.Dir, "sites", a.Site, e.Serving)) // code just turned on
 		}
-		e.Contact, e.Uploaders, e.Code = a.Contact, a.Uploaders, a.Code
+		e.Contact, e.Uploaders, e.Code, e.Local = a.Contact, a.Uploaders, a.Code, a.Local
 		switch {
 		case a.Preview == nil || a.PreviewKey == "":
 			e.Preview, e.PreviewWant, e.PreviewKey = "", nil, ""
@@ -537,10 +538,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		root, ok = w.roots[name]
 	}
 	var owner, contact, preview, previewKey string
-	var uploaders []string
+	var uploaders, local []string
 	code := false
 	if e := w.st.Sites[name]; ok && e != nil {
-		owner, contact, uploaders, code = e.Owner, e.Contact, e.Uploaders, e.Code
+		owner, contact, uploaders, code, local = e.Owner, e.Contact, e.Uploaders, e.Code, e.Local
 		preview, previewKey = e.Preview, e.PreviewKey
 	}
 	w.mu.Unlock()
@@ -553,6 +554,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == PreviewPath {
 		previewSwitch(rw, r, previewKey)
+		return
+	}
+	if localPrefix(local, cleanLocal(r.URL.Path)) != "" {
+		w.localApp(rw, r, name, owner, root)
 		return
 	}
 	if p := path.Clean("/" + r.URL.Path); p == "/"+SourceDir || strings.HasPrefix(p, "/"+SourceDir+"/") {

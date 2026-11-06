@@ -121,6 +121,9 @@ type Config struct {
 	// MailOut is the web node's mail relay settings (-mail-out), whose
 	// token sets a domain up for sending (domains.go).
 	MailOut string
+	// LocalApps is where this machine keeps where its sites' local paths
+	// go (site.LocalApps).
+	LocalApps string
 	// Version is this yggstore's, shown under My box.
 	Version string
 	// HubState, on a box, is its hub's state file, and HubPeople where the

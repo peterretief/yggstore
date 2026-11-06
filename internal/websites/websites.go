@@ -800,6 +800,10 @@ func scanSite(dir string) scan {
 			if e.IsDir() {
 				return filepath.SkipDir
 			}
+			// Not published, but changing it means publishing again.
+			if info, err := e.Info(); err == nil && name == site.LocalConfig {
+				sc.newest = max(sc.newest, info.ModTime().UnixNano())
+			}
 			return nil
 		}
 		info, err := e.Info()

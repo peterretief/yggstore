@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -34,6 +35,8 @@ type Publisher struct {
 	Log      func(string, ...any)
 	// Skip leaves files out of what is published (see files.PutOptions).
 	Skip func(rel string, dir bool) bool
+	// LocalApps records where a site's local paths go, on this machine.
+	LocalApps LocalApps
 }
 
 // Version is one stored version of a site.
@@ -54,6 +57,8 @@ type state struct {
 	Uploaders []string `json:"uploaders,omitempty"`
 	// Code: the web nodes run the site's handlers (api/NAME.wasm).
 	Code bool `json:"code,omitempty"`
+	// Local are its local app's paths (see localapp.go).
+	Local []string `json:"local,omitempty"`
 	// Preview is a version the web nodes show only to browsers that
 	// opened the preview link, with PreviewKey in it (see PreviewPath).
 	Preview    string `json:"preview,omitempty"`
@@ -136,6 +141,9 @@ func (p *Publisher) Versions(name string) ([]Version, error) {
 // Unchanged content makes no new version; it is announced again, so web
 // nodes that missed it catch up.
 func (p *Publisher) Publish(ctx context.Context, name, folder string, online []peers.Peer) (Version, int, error) {
+	if err := p.readLocal(name, folder); err != nil {
+		return Version{}, 0, err
+	}
 	m, reused, same, err := p.store(ctx, name, folder, online)
 	if err != nil {
 		return Version{}, 0, err
@@ -265,9 +273,10 @@ func (p *Publisher) store(ctx context.Context, name, folder string, online []pee
 	if _, err := os.Stat(filepath.Join(folder, "index.html")); err != nil {
 		p.logf("note: %s has no index.html, so its home page will be empty", folder)
 	}
-	// A folder's local web node (yggstore site dev) is never published.
+	// A folder's local web node (yggstore site dev) and where its local
+	// apps listen are never published.
 	opts := files.PutOptions{Log: p.Log, Skip: func(rel string, dir bool) bool {
-		if first, _, _ := strings.Cut(filepath.ToSlash(rel), "/"); first == DevDir {
+		if first, _, _ := strings.Cut(filepath.ToSlash(rel), "/"); first == DevDir || first == LocalConfig {
 			return true
 		}
 		return p.Skip != nil && p.Skip(rel, dir)
@@ -472,9 +481,39 @@ func (p *Publisher) announceCurrent(ctx context.Context, name string, vs []Versi
 // Contact is the sharing code a site's contact form goes to; "" if off.
 func (p *Publisher) Contact(name string) string { return p.readState(name).Contact }
 
+// readLocal takes the site's local app paths from its folder.
+func (p *Publisher) readLocal(name, folder string) error {
+	// Only a machine's own publisher has local apps: a person's site on a
+	// box must not reach programs on the box.
+	var apps map[string]string
+	if p.LocalApps.Path != "" {
+		var err error
+		if apps, err = ReadLocalConfig(folder); err != nil {
+			return err
+		}
+	}
+	var paths []string
+	for x := range apps {
+		paths = append(paths, x)
+	}
+	sort.Strings(paths)
+	if err := p.LocalApps.Set(name, apps); err != nil {
+		return err
+	}
+	s := p.readState(name)
+	if slices.Equal(s.Local, paths) {
+		return nil
+	}
+	s.Local = paths
+	if err := os.MkdirAll(p.siteDir(name), 0o700); err != nil {
+		return err
+	}
+	return p.writeState(name, s)
+}
+
 func (p *Publisher) announce(ctx context.Context, name string, m manifest.Manifest) (Version, error) {
 	s := p.readState(name)
-	a := Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders, Code: s.Code}
+	a := Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders, Code: s.Code, Local: s.Local}
 	if s.Preview != "" && s.PreviewKey != "" && s.Preview != m.FileID {
 		if pm, err := p.version(name, s.Preview); err == nil {
 			a.Preview, a.PreviewKey = &pm, PreviewKeyHash(s.PreviewKey)

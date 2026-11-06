@@ -366,3 +366,17 @@ func TestPreviewFolder(t *testing.T) {
 		t.Fatal("the link file stayed after going live")
 	}
 }
+
+func TestLocalConfigChangeCounts(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("x"), 0o644)
+	before := scanSite(dir)
+	cfg := filepath.Join(dir, site.LocalConfig)
+	os.WriteFile(cfg, []byte("{}"), 0o644)
+	later := time.Now().Add(time.Hour)
+	os.Chtimes(cfg, later, later)
+	after := scanSite(dir)
+	if after.newest <= before.newest || after.files != before.files {
+		t.Fatalf("%+v then %+v", before, after)
+	}
+}

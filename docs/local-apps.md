@@ -26,8 +26,8 @@ visitor --https--> web node --- /, /css, /images   served from the group
 
 1. Run your Go program on your machine, on a local port. (The relay only
    speaks HTTP, so another language would work, but Go is what's supported.)
-2. Add `yggstore.json` to the site's folder. It's read when publishing and
-   isn't served:
+2. Add a hidden `.yggstore.json` to the site's folder. It's read when
+   publishing and isn't published:
 
    ```json
    { "local": { "/app/": "http://127.0.0.1:3000" } }
@@ -52,9 +52,9 @@ visitor --https--> web node --- /, /css, /images   served from the group
 
 ## Sign-in, the first use
 
-A small Go program comes as a starting point, with `/app/login`,
-`/app/logout` and `/app/me`: one file to build and run, using the Go SQLite
-library yggstore already has. Accounts are in a SQLite file on your machine,
+[`examples/signin`](../examples/signin/main.go) is a starting point, with
+`/app/login`, `/app/logout` and `/app/me`: one file to build and run, using
+the Go SQLite library yggstore already has. Accounts are in a SQLite file on your machine,
 passwords are hashed, wrong tries are limited, and the session is a
 `Secure`, `HttpOnly` cookie for the site's own address. Your own programs
 can use it, or replace it.
@@ -74,11 +74,15 @@ This is the part most easily got wrong, and the starting point shows how.
   must treat every request as hostile.
 - **One machine is one point of failure.** Running the program on a second
   machine, with its data kept in step, is for later.
-- **Limits:** 10 MB a request and 30 seconds an answer to begin with.
+- **Limits:** 10 MB a request, 30 seconds an answer and 5 local paths a site
+  to begin with.
+- **Sites on a box don't get this.** Only a machine's own publisher reads
+  `.yggstore.json`, and a local path's program must be on that machine:
+  a person's site can't reach programs on the box it lives on.
 
 ## Build order
 
-1. Local paths in `yggstore.json`, passed to the web nodes when publishing.
+1. Local paths in `.yggstore.json`, passed to the web nodes when publishing.
 2. The web node's forwarding, and the relay on the node, with the offline
    page.
 3. The sign-in starting point, with a private page.

@@ -1,0 +1,267 @@
+// Command signin is a starting point for a local app (docs/local-apps.md):
+// sign-in and a private page, run on your own machine behind a published
+// site. Accounts are in a SQLite file beside it and never leave the machine.
+//
+//	go run ./examples/signin -add alice        # asks for a password
+//	go run ./examples/signin                   # listens on 127.0.0.1:3000
+//
+// The site's folder says which paths come here, in .yggstore.json:
+//
+//	{ "local": { "/app/": "http://127.0.0.1:3000" } }
+//
+// Anything private has to come from here, after session says who's asking:
+// a published page is public, whatever a form in front of it says.
+package main
+
+import (
+	"bufio"
+	"crypto/pbkdf2"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"database/sql"
+	"encoding/hex"
+	"errors"
+	"flag"
+	"fmt"
+	"html/template"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	_ "github.com/ncruces/go-sqlite3/driver"
+	_ "github.com/ncruces/go-sqlite3/embed"
+)
+
+const (
+	cookieName = "session"
+	base       = "/app/" // the path in .yggstore.json
+	sessionFor = 14 * 24 * time.Hour
+	rounds     = 600_000
+	maxTries   = 5 // wrong tries, per address and per name, in tryWindow
+	tryWindow  = 15 * time.Minute
+)
+
+type app struct {
+	db    *sql.DB
+	mu    sync.Mutex
+	tries map[string][]time.Time
+}
+
+func main() {
+	addr := flag.String("addr", "127.0.0.1:3000", "where to listen: keep it on this machine")
+	dbPath := flag.String("db", "signin.db", "the accounts file")
+	add := flag.String("add", "", "add an account, or set its password, and stop")
+	flag.Parse()
+
+	db, err := sql.Open("sqlite3", "file:"+*dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL);
+		CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL);`); err != nil {
+		log.Fatal(err)
+	}
+	if *add != "" {
+		if err := addAccount(db, *add); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("saved", *add)
+		return
+	}
+	if host, _, err := net.SplitHostPort(*addr); err != nil || !isLocal(host) {
+		log.Fatalf("%s isn't on this machine only", *addr)
+	}
+	a := &app{db: db, tries: map[string][]time.Time{}}
+	srv := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
+	log.Printf("listening on %s", *addr)
+	log.Fatal(srv.ListenAndServe())
+}
+
+func isLocal(host string) bool {
+	ip := net.ParseIP(host)
+	return host == "localhost" || ip != nil && ip.IsLoopback()
+}
+
+func (a *app) routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+base+"{$}", a.private)
+	mux.HandleFunc("GET "+base+"login", a.loginPage)
+	mux.HandleFunc("POST "+base+"login", a.login)
+	mux.HandleFunc("POST "+base+"logout", a.logout)
+	mux.HandleFunc("GET "+base+"me", a.me)
+	return mux
+}
+
+// session is who's asking: "" if nobody signed in.
+func (a *app) session(r *http.Request) string {
+	c, err := r.Cookie(cookieName)
+	if err != nil {
+		return ""
+	}
+	var name string
+	err = a.db.QueryRow(`SELECT name FROM sessions WHERE token = ? AND ends > ?`, hashToken(c.Value), time.Now().Unix()).Scan(&name)
+	if err != nil {
+		return ""
+	}
+	return name
+}
+
+// private is your private page: replace it with your own. Every handler
+// with something private in it starts like this one.
+func (a *app) private(w http.ResponseWriter, r *http.Request) {
+	name := a.session(r)
+	if name == "" {
+		http.Redirect(w, r, base+"login", http.StatusSeeOther)
+		return
+	}
+	render(w, http.StatusOK, privatePage, name)
+}
+
+func (a *app) me(w http.ResponseWriter, r *http.Request) {
+	name := a.session(r)
+	if name == "" {
+		http.Error(w, "not signed in", http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	fmt.Fprintln(w, name)
+}
+
+func (a *app) loginPage(w http.ResponseWriter, r *http.Request) {
+	render(w, http.StatusOK, loginPage, "")
+}
+
+func (a *app) login(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	name, pw := strings.TrimSpace(r.PostFormValue("name")), r.PostFormValue("password")
+	ip := r.Header.Get("X-Forwarded-For")
+	if a.tooMany(ip) || a.tooMany("name:"+name) {
+		render(w, http.StatusTooManyRequests, loginPage, "Too many tries. Try again later.")
+		return
+	}
+	var hash string
+	err := a.db.QueryRow(`SELECT hash FROM accounts WHERE name = ?`, name).Scan(&hash)
+	if ok := matches(hash, pw); err != nil || !ok { // checked either way, to take as long
+		a.wrong(ip)
+		a.wrong("name:" + name)
+		render(w, http.StatusUnauthorized, loginPage, "That name or password isn't right.")
+		return
+	}
+	b := make([]byte, 32)
+	rand.Read(b)
+	token := hex.EncodeToString(b)
+	ends := time.Now().Add(sessionFor)
+	a.db.Exec(`DELETE FROM sessions WHERE ends <= ?`, time.Now().Unix())
+	if _, err := a.db.Exec(`INSERT INTO sessions VALUES (?, ?, ?)`, hashToken(token), name, ends.Unix()); err != nil {
+		http.Error(w, "something went wrong", http.StatusInternalServerError)
+		return
+	}
+	setCookie(w, r, token, ends)
+	http.Redirect(w, r, base, http.StatusSeeOther)
+}
+
+func (a *app) logout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie(cookieName); err == nil {
+		a.db.Exec(`DELETE FROM sessions WHERE token = ?`, hashToken(c.Value))
+	}
+	setCookie(w, r, "", time.Unix(1, 0))
+	http.Redirect(w, r, base+"login", http.StatusSeeOther)
+}
+
+// setCookie keeps the session to this site's local paths. Secure, except
+// in yggstore site dev, which isn't https.
+func setCookie(w http.ResponseWriter, r *http.Request, value string, ends time.Time) {
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: value, Path: base, Expires: ends, HttpOnly: true,
+		SameSite: http.SameSiteLaxMode, Secure: r.Header.Get("X-Forwarded-Proto") == "https"})
+}
+
+func (a *app) tooMany(key string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var recent []time.Time
+	for _, t := range a.tries[key] {
+		if time.Since(t) < tryWindow {
+			recent = append(recent, t)
+		}
+	}
+	if len(recent) == 0 {
+		delete(a.tries, key)
+		return false
+	}
+	a.tries[key] = recent
+	return len(recent) >= maxTries
+}
+
+func (a *app) wrong(key string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.tries[key] = append(a.tries[key], time.Now())
+}
+
+func addAccount(db *sql.DB, name string) error {
+	fmt.Print("Password: ")
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	pw := strings.TrimRight(line, "\r\n")
+	if err != nil && pw == "" {
+		return err
+	}
+	if len(pw) < 10 {
+		return errors.New("at least 10 characters")
+	}
+	_, err = db.Exec(`INSERT INTO accounts VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET hash = excluded.hash`, name, hashPassword(pw))
+	return err
+}
+
+func hashToken(t string) string {
+	s := sha256.Sum256([]byte(t))
+	return hex.EncodeToString(s[:])
+}
+
+func derive(pw string, salt []byte) []byte {
+	k, _ := pbkdf2.Key(sha256.New, pw, salt, rounds, 32)
+	return k
+}
+
+func hashPassword(pw string) string {
+	salt := make([]byte, 16)
+	rand.Read(salt)
+	return hex.EncodeToString(salt) + "$" + hex.EncodeToString(derive(pw, salt))
+}
+
+// matches always does the work, even for an account that isn't there.
+func matches(hash, pw string) bool {
+	s, k, _ := strings.Cut(hash, "$")
+	salt, err1 := hex.DecodeString(s)
+	want, err2 := hex.DecodeString(k)
+	got := derive(pw, salt)
+	return err1 == nil && err2 == nil && len(want) > 0 && subtle.ConstantTimeCompare(got, want) == 1
+}
+
+func render(w http.ResponseWriter, code int, t *template.Template, data string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(code)
+	t.Execute(w, data)
+}
+
+const style = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:24rem;margin:3rem auto;padding:0 1rem}
+label,input,button{display:block;width:100%;box-sizing:border-box}input{padding:.5rem;margin:.25rem 0 1rem}
+button{padding:.5rem}.err{color:#b00020}</style>`
+
+var loginPage = template.Must(template.New("login").Parse(style + `<title>Sign in</title><h1>Sign in</h1>
+{{if .}}<p class="err">{{.}}</p>{{end}}
+<form method="post" action="` + base + `login">
+<label>Name <input name="name" autocomplete="username" required autofocus></label>
+<label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+<button>Sign in</button></form>`))
+
+var privatePage = template.Must(template.New("private").Parse(style + `<title>Private</title><h1>Hello, {{.}}</h1>
+<p>Only people signed in see this page. It came from your own machine.</p>
+<form method="post" action="` + base + `logout"><button>Sign out</button></form>`))

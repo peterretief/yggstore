@@ -81,6 +81,9 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
 // version is set by release builds (-ldflags "-X main.version=v1.2.3").
 var version = "dev"
 
+// localAppsPath is where a machine keeps where its sites' local paths go.
+func localAppsPath() string { return filepath.Join(yggstoreHome(), "local-apps.json") }
+
 // versionString is the release, or for other builds the commit they were
 // built from, if Go recorded it.
 func versionString() string {
@@ -486,6 +489,8 @@ func cmdServe(ctx context.Context, args []string) error {
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
 		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), SiteData: siteData, Version: versionString(),
+		LocalApp: &site.LocalRelay{Apps: site.LocalApps{Path: localAppsPath()}, Self: ip.String(), Log: log.Printf,
+			IsWebNode: func(ctx context.Context, caller string) bool { return isWebNode(ctx, client.New(), *peersPath, caller) }},
 		Join: func(caller string, req invite.Request) (invite.Response, error) {
 			own := ""
 			if id, err := share.Load(*keyPath); err == nil {
@@ -771,7 +776,7 @@ func cmdDashboard(ctx context.Context, args []string) error {
 		MailDir: *mailbox, NamesPath: filepath.Join(yggstoreHome(), "names.json"), ApproveNames: *approveNames, WalletDir: filepath.Join(yggstoreHome(), "ygg"),
 		SitesDir: filepath.Join(yggstoreHome(), "sites"), Home: yggstoreHome(), MePath: filepath.Join(yggstoreHome(), "me.name"), Version: versionString(),
 		CloudflareToken: filepath.Join(yggstoreHome(), "cloudflare-api.token"), TunnelToken: filepath.Join(yggstoreHome(), "group-sites.token"),
-		MailOut: filepath.Join(yggstoreHome(), "mail-out.json")}
+		MailOut: filepath.Join(yggstoreHome(), "mail-out.json"), LocalApps: localAppsPath()}
 	serveAddr := *listen
 	if *remote {
 		_, port, err := net.SplitHostPort(*listen)
