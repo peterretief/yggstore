@@ -28,6 +28,8 @@ textarea { width: 100%; min-height: 12em; padding: 8px 10px; border: 1px solid v
 .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 18px; align-items: center; }
 .tabs button { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
 .tabs button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tabs .count { font-size: 12px; margin-left: 4px; padding: 0 6px; border-radius: 9px; background: var(--line); color: var(--text); }
+.tabs button.on .count { background: rgba(255, 255, 255, .25); color: #fff; }
 #done { margin-top: 12px; padding: 10px 14px; border: 1px solid var(--ok); border-radius: 8px; color: var(--ok); }
 select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
 input { width: 100%; max-width: 22em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
@@ -75,7 +77,7 @@ const shownFolders = () => (st.folders || ["INBOX", "Sent"]).filter(f => !hidden
 function tabs() {
   $("tabs").innerHTML = shownFolders().map(f => {
     const n = st.messages.filter(m => (m.folder || "INBOX") === f).length;
-    return `<button data-folder="${esc(f)}" class="${f === folder ? "on" : ""}">${esc(label(f))}${n ? " " + n : ""}</button>`;
+    return `<button data-folder="${esc(f)}" class="${f === folder ? "on" : ""}">${esc(label(f))}${n ? ` <span class="count">${n}</span>` : ""}</button>`;
   }).join("") + `<button id="newFolder">New folder</button>`;
 }
 async function act(op, body) {
