@@ -87,6 +87,8 @@ type Announcement struct {
 	// Local are paths that go to a program on the publisher's machine
 	// (see localapp.go).
 	Local []string `json:"local,omitempty"`
+	// LocalMachines may answer those paths when the publisher doesn't.
+	LocalMachines []string `json:"local_machines,omitempty"`
 	// Preview is a version shown only to browsers that opened the preview
 	// link; PreviewKey is the link's key, hashed (PreviewKeyHash), so
 	// members reading the topic can't open it.

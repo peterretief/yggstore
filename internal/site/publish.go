@@ -58,7 +58,8 @@ type state struct {
 	// Code: the web nodes run the site's handlers (api/NAME.wasm).
 	Code bool `json:"code,omitempty"`
 	// Local are its local app's paths (see localapp.go).
-	Local []string `json:"local,omitempty"`
+	Local         []string `json:"local,omitempty"`
+	LocalMachines []string `json:"local_machines,omitempty"`
 	// Preview is a version the web nodes show only to browsers that
 	// opened the preview link, with PreviewKey in it (see PreviewPath).
 	Preview    string `json:"preview,omitempty"`
@@ -486,9 +487,13 @@ func (p *Publisher) readLocal(name, folder string) error {
 	// Only a machine's own publisher has local apps: a person's site on a
 	// box must not reach programs on the box.
 	var apps map[string]string
+	var machines []string
 	if p.LocalApps.Path != "" {
 		var err error
 		if apps, err = ReadLocalConfig(folder); err != nil {
+			return err
+		}
+		if machines, err = ReadLocalMachines(folder); err != nil {
 			return err
 		}
 	}
@@ -501,10 +506,10 @@ func (p *Publisher) readLocal(name, folder string) error {
 		return err
 	}
 	s := p.readState(name)
-	if slices.Equal(s.Local, paths) {
+	if slices.Equal(s.Local, paths) && slices.Equal(s.LocalMachines, machines) {
 		return nil
 	}
-	s.Local = paths
+	s.Local, s.LocalMachines = paths, machines
 	if err := os.MkdirAll(p.siteDir(name), 0o700); err != nil {
 		return err
 	}
@@ -513,7 +518,7 @@ func (p *Publisher) readLocal(name, folder string) error {
 
 func (p *Publisher) announce(ctx context.Context, name string, m manifest.Manifest) (Version, error) {
 	s := p.readState(name)
-	a := Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders, Code: s.Code, Local: s.Local}
+	a := Announcement{Site: name, Stub: &m, Contact: s.Contact, Uploaders: s.Uploaders, Code: s.Code, Local: s.Local, LocalMachines: s.LocalMachines}
 	if s.Preview != "" && s.PreviewKey != "" && s.Preview != m.FileID {
 		if pm, err := p.version(name, s.Preview); err == nil {
 			a.Preview, a.PreviewKey = &pm, PreviewKeyHash(s.PreviewKey)

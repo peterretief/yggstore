@@ -87,11 +87,11 @@ This is the part most easily got wrong, and the starting point shows how.
   outbox's `files/`, the starting point makes a clean copy of its data each
   day, which the group stores encrypted, keeping earlier days as versions.
   The recovery copy carries what's needed to get it back, so losing the
-  machine loses a day of data at most. Getting the local part running again
-  takes more: the web nodes send it to the site's publisher, so an admin has
-  to move the site to the new machine, and `.yggstore.json` has to be put
-  back there (`-copy-also` keeps it with the daily copy, as `SITE.yggstore.json`). If the lost machine is the admin's, nobody can yet. Running it on
-  a second machine is [planned](#your-data-on-more-than-one-machine).
+  machine loses a day of data at most. To carry on from another machine, name it
+  beforehand ([a second machine](#a-second-machine)). Otherwise an admin has to
+  move the site there, and if the lost machine is the admin's, nobody can yet.
+  `-copy-also` keeps `.yggstore.json` with the daily copy, as
+  `SITE.yggstore.json`.
 - **Limits:** 10 MB a request, 30 seconds an answer and 5 local paths a site
   to begin with.
 - **Sites on a box don't get this.** Only a machine's own publisher reads
@@ -135,9 +135,10 @@ Go, and the design file, diagram, forms and reports stay as they are.
 - **The design travels with the log.** An import is an entry as well, so every
   machine changes its tables at the same point in the order. Otherwise an entry
   could arrive for a column one machine doesn't have yet.
-- **Which machine answers:** the site names several machines for its local
-  paths, and the web node tries the next if one doesn't answer, so a visitor
-  needn't notice. The "back soon" page shows only when none answers.
+- **Which machine answers:** the site names other machines for its local paths
+  and the web node tries the next if one doesn't answer, so a visitor needn't
+  notice. The "back soon" page shows only when none answers. (Built: see
+  [a second machine](#a-second-machine).)
 - **The daily copy stays.** Sync passes a mistake to every machine within
   minutes. The daily versions are how you go back.
 
@@ -155,12 +156,41 @@ will need snapshots, which aren't built for site data yet either.
 2. Entries and replay on one machine, with forms writing entries.
 3. The refused list.
 4. Sharing the log between your machines, encrypted.
-5. The web node trying a second machine.
+5. The web node trying a second machine (built).
 6. Try it with the desktop and one box, by pulling the plug on each in turn.
 
 **Still to decide:** whether a client's account works on every machine from the
 start, and how a new machine is added safely (it needs the key, so probably by
 hand at first, as a new box is).
+
+## A second machine
+
+A site can name machines that answer its local paths when the publisher
+doesn't, with no admin needed at the time. In `.yggstore.json`:
+
+```json
+{ "local": { "/app/": "http://127.0.0.1:3741" }, "machines": ["localbox-004"] }
+```
+
+On that machine, say where the path goes, as the user its node runs as
+(`sudo -H` for a box's root node):
+
+```
+sudo -H yggstore site local peter.withcare.co.za /app/ http://127.0.0.1:3741
+```
+
+The web node asks the publisher first, then the others in order. A machine with
+no program running says so and the next is asked, and one that's off is tried
+last for a minute. A form is only sent on if it can't have reached a program,
+so nothing is saved twice.
+
+**Until the data syncs, keep the program on the second machine stopped.** Each
+machine has its own data file, so with both running, saves would land on
+whichever answered and never meet. A stopped program costs nothing: the web node
+passes over it. If the publisher's machine dies, restore the latest copy on the
+second machine and start the program, and visitors reach it from then on.
+Before starting the publisher's machine again, take the data back to it:
+it's asked first, and would answer from its older file.
 
 ## Build order
 

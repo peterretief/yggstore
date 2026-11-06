@@ -3,6 +3,7 @@ package site
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -198,5 +199,107 @@ func TestDevServesBothHalves(t *testing.T) {
 	app.Close()
 	if w := ask("/app/me"); w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("the program stopped: %d", w.Code)
+	}
+}
+
+func TestLocalAppOnASecondMachine(t *testing.T) {
+	// A machine: its program, and its node. Requests count what reached it.
+	type machine struct {
+		app, node *httptest.Server
+		apps      LocalApps
+		hits      int
+	}
+	start := func(name string) *machine {
+		m := &machine{apps: LocalApps{Path: filepath.Join(t.TempDir(), "l.json")}}
+		m.app = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			m.hits++
+			b, _ := io.ReadAll(r.Body)
+			io.WriteString(w, name+" "+string(b))
+		}))
+		t.Cleanup(m.app.Close)
+		if err := m.apps.Add("a.example.org", "/app/", m.app.URL); err != nil {
+			t.Fatal(err)
+		}
+		relay := &LocalRelay{Apps: m.apps, Self: "200::9"}
+		m.node = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !relay.Serve(w, r, "200::9") {
+				http.NotFound(w, r)
+			}
+		}))
+		t.Cleanup(m.node.Close)
+		return m
+	}
+	one, two := start("one"), start("two")
+	list := []peers.Peer{
+		{Name: "desktop", Addr: strings.TrimPrefix(one.node.URL, "http://")},
+		{Name: "box", Addr: strings.TrimPrefix(two.node.URL, "http://")},
+	}
+	root := t.TempDir()
+	web := &Web{Dir: t.TempDir(), Peers: func() []peers.Peer { return list }, Log: t.Logf}
+	web.st = webState{Sites: map[string]*webEntry{"a.example.org": {Owner: list[0].IP(), Serving: "v1",
+		Local: []string{"/app/"}, Machines: []string{"box", "not-a-member"}}}}
+	web.roots = map[string]string{"a.example.org": root}
+	ask := func(method, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "http://a.example.org/app/x", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		web.ServeHTTP(w, r)
+		return w
+	}
+	if w := ask("GET", ""); w.Body.String() != "one " {
+		t.Fatalf("the publisher comes first: %d %s", w.Code, w.Body)
+	}
+	// The program stopped on the publisher: the node says so, and a form
+	// goes to the next machine, whole.
+	one.app.Close()
+	if w := ask("POST", "name=a"); w.Body.String() != "two name=a" {
+		t.Fatalf("the program stopped: %d %s", w.Code, w.Body)
+	}
+	// The publisher's machine off: the same.
+	one.node.Close()
+	if w := ask("POST", "name=b"); w.Body.String() != "two name=b" {
+		t.Fatalf("the machine off: %d %s", w.Code, w.Body)
+	}
+	if web.localAddrs(list[0].IP(), []string{"box"})[0] != list[1].Addr {
+		t.Fatal("a machine that's off should be tried last")
+	}
+	// The second machine standing by, its program off: back soon.
+	two.app.Close()
+	if w := ask("GET", ""); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("nobody answering: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestLocalFormIsNotSentTwice(t *testing.T) {
+	// Reached a program and then failed: it may have saved, so not again.
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
+	if tryNext(r, io.ErrUnexpectedEOF) {
+		t.Fatal("a form that may have reached a program")
+	}
+	if !tryNext(httptest.NewRequest(http.MethodGet, "/", nil), io.ErrUnexpectedEOF) {
+		t.Fatal("a page can be asked for again")
+	}
+	if !tryNext(r, errLocalRefused) || !tryNext(r, &net.OpError{Op: "dial", Err: io.EOF}) {
+		t.Fatal("a form that reached no program can go on")
+	}
+}
+
+func TestLocalMachinesConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, LocalConfig)
+	os.WriteFile(cfg, []byte(`{"local":{"/app/":"http://127.0.0.1:3000"},"machines":["box-1"]}`), 0o600)
+	own := &Publisher{Dir: t.TempDir(), LocalApps: LocalApps{Path: filepath.Join(t.TempDir(), "l.json")}}
+	if err := own.readLocal("a.example.org", dir); err != nil {
+		t.Fatal(err)
+	}
+	if s := own.readState("a.example.org"); len(s.LocalMachines) != 1 || s.LocalMachines[0] != "box-1" {
+		t.Fatalf("%v", s.LocalMachines)
+	}
+	os.WriteFile(cfg, []byte(`{"machines":["a b"]}`), 0o600)
+	if _, err := ReadLocalMachines(dir); err == nil {
+		t.Fatal("took a bad name")
+	}
+	var l LocalApps
+	if err := l.Add("a.example.org", "/app/", "http://evil.example:3000"); err == nil {
+		t.Fatal("took an address on another machine")
 	}
 }

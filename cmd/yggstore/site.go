@@ -30,6 +30,8 @@ const siteUsage = `yggstore site: static websites hosted on the group
                                                 defaults to the folder's name); with a
                                                 Cloudflare API token it also adds the
                                                 site's tunnel route and DNS (and www.)
+  yggstore site local DOMAIN [PATH ADDRESS]     on a second machine: send a site's local path
+                                                to a program here (no PATH: stop)
   yggstore site dev FOLDER [-name DOMAIN] [-port 8484]
                                                 serve FOLDER on this machine as the web nodes
                                                 would once published (Markdown, /api/ code and
@@ -158,6 +160,21 @@ func cmdSite(ctx context.Context, args []string) error {
 		if routed && !*noWait {
 			waitPublic(ctx, domain)
 		}
+	case "local":
+		if fs.NArg() != 1 && fs.NArg() != 3 {
+			return errors.New("usage: yggstore site local DOMAIN [PATH ADDRESS]")
+		}
+		domain := site.Normalise(arg(0))
+		if err := site.ValidName(domain); err != nil {
+			return err
+		}
+		if fs.NArg() == 1 {
+			return pub.LocalApps.Set(domain, nil)
+		}
+		if err := pub.LocalApps.Add(domain, arg(1), arg(2)); err != nil {
+			return err
+		}
+		fmt.Printf("%s%s now goes to %s when this machine is asked.\n", domain, arg(1), arg(2))
 	case "dev":
 		if fs.NArg() != 1 {
 			return errors.New("usage: yggstore site dev FOLDER [-name DOMAIN] [-port 8484]")

@@ -66,12 +66,14 @@ type Web struct {
 	Others     func(ctx context.Context) []string
 	DataClient *http.Client
 
-	code  handlers
-	data  dataSites
-	mu    sync.Mutex
-	st    webState
-	roots map[string]string // site → folder being served
-	limit limiter
+	code      handlers
+	data      dataSites
+	mu        sync.Mutex
+	localMu   sync.Mutex
+	localSkip map[string]time.Time // machines that didn't answer lately (localapp.go)
+	st        webState
+	roots     map[string]string // site → folder being served
+	limit     limiter
 }
 
 type webState struct {
@@ -92,6 +94,7 @@ type webEntry struct {
 	Uploaders []string           `json:"uploaders,omitempty"` // who may add photos and files
 	Code      bool               `json:"code,omitempty"`      // run its handlers (see ApiPath)
 	Local     []string           `json:"local,omitempty"`     // paths for the publisher's machine (localapp.go)
+	Machines  []string           `json:"machines,omitempty"`  // others that may answer them
 	// Preview is the version shown with the preview key (its hash is
 	// PreviewKey); PreviewWant one announced and not fetched yet.
 	Preview     string             `json:"preview,omitempty"`
@@ -245,7 +248,7 @@ func (w *Web) handle(s msg.Stored) {
 		if a.Code && !e.Code && e.Serving != "" && !w.NoCode {
 			go w.warm(a.Site, filepath.Join(w.Dir, "sites", a.Site, e.Serving)) // code just turned on
 		}
-		e.Contact, e.Uploaders, e.Code, e.Local = a.Contact, a.Uploaders, a.Code, a.Local
+		e.Contact, e.Uploaders, e.Code, e.Local, e.Machines = a.Contact, a.Uploaders, a.Code, a.Local, a.LocalMachines
 		switch {
 		case a.Preview == nil || a.PreviewKey == "":
 			e.Preview, e.PreviewWant, e.PreviewKey = "", nil, ""
@@ -538,10 +541,10 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		root, ok = w.roots[name]
 	}
 	var owner, contact, preview, previewKey string
-	var uploaders, local []string
+	var uploaders, local, machines []string
 	code := false
 	if e := w.st.Sites[name]; ok && e != nil {
-		owner, contact, uploaders, code, local = e.Owner, e.Contact, e.Uploaders, e.Code, e.Local
+		owner, contact, uploaders, code, local, machines = e.Owner, e.Contact, e.Uploaders, e.Code, e.Local, e.Machines
 		preview, previewKey = e.Preview, e.PreviewKey
 	}
 	w.mu.Unlock()
@@ -557,7 +560,7 @@ func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if localPrefix(local, cleanLocal(r.URL.Path)) != "" {
-		w.localApp(rw, r, name, owner, root)
+		w.localApp(rw, r, name, owner, machines, root)
 		return
 	}
 	if p := path.Clean("/" + r.URL.Path); p == "/"+SourceDir || strings.HasPrefix(p, "/"+SourceDir+"/") {

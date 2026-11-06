@@ -1,11 +1,13 @@
 package site
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -13,11 +15,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
+	"github.com/peterretief/yggstore/internal/peers"
 )
 
 // Local apps (docs/local-apps.md): a site's pages are published to the
@@ -34,6 +39,9 @@ const (
 	maxLocalBody  = 10 << 20
 	localTimeout  = 30 * time.Second
 	OfflinePage   = "_offline.html"
+	// A site names at most this many machines besides its publisher.
+	maxLocalMachines = 3
+	localSkipFor     = time.Minute
 )
 
 // visitor headers a request can't bring with it: only the web node sets them.
@@ -67,6 +75,34 @@ func ReadLocalConfig(folder string) (map[string]string, error) {
 		}
 	}
 	return c.Local, nil
+}
+
+var machineName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// ReadLocalMachines reads the machines, by name, that may answer the site's
+// local paths when its publisher doesn't.
+func ReadLocalMachines(folder string) ([]string, error) {
+	b, err := os.ReadFile(filepath.Join(folder, LocalConfig))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var c struct {
+		Machines []string `json:"machines"`
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, fmt.Errorf("%s: %w", LocalConfig, err)
+	}
+	if len(c.Machines) > maxLocalMachines {
+		return nil, fmt.Errorf("%s: at most %d machines", LocalConfig, maxLocalMachines)
+	}
+	for _, m := range c.Machines {
+		if !machineName.MatchString(m) {
+			return nil, fmt.Errorf("%s: %q isn't a machine's name", LocalConfig, m)
+		}
+	}
+	return c.Machines, nil
 }
 
 func validLocal(p, to string) error {
@@ -114,6 +150,20 @@ func (l LocalApps) Set(site string, paths map[string]string) error {
 	return atomicfile.Replace(l.Path, append(b, '\n'), 0o600)
 }
 
+// Add records one path on a machine that isn't the site's publisher, for
+// yggstore site local.
+func (l LocalApps) Add(site, p, to string) error {
+	if err := validLocal(p, to); err != nil {
+		return err
+	}
+	paths := l.load()[site]
+	if paths == nil {
+		paths = map[string]string{}
+	}
+	paths[p] = to
+	return l.Set(site, paths)
+}
+
 // cleanLocal is a request's path as local paths are matched against it.
 func cleanLocal(p string) string {
 	c := path.Clean("/" + p)
@@ -134,22 +184,115 @@ func localPrefix(paths []string, p string) string {
 	return best
 }
 
-// localApp passes a request to the site's publisher's node.
-func (w *Web) localApp(rw http.ResponseWriter, r *http.Request, site, owner, root string) {
-	var addr string
-	for _, p := range w.Peers() {
-		if p.IP() == owner && addr == "" {
-			addr = p.Addr
+// localAddrs are the node addresses that may answer a site's local paths:
+// the publisher's, then the machines it named, those that didn't answer
+// lately last.
+func (w *Web) localAddrs(owner string, machines []string) []string {
+	var out []string
+	add := func(match func(peers.Peer) bool) {
+		for _, p := range w.Peers() {
+			if match(p) {
+				if !slices.Contains(out, p.Addr) {
+					out = append(out, p.Addr)
+				}
+				return
+			}
 		}
 	}
-	if addr == "" {
+	add(func(p peers.Peer) bool { return p.IP() == owner })
+	for _, m := range machines {
+		add(func(p peers.Peer) bool { return p.Name == m })
+	}
+	w.localMu.Lock()
+	defer w.localMu.Unlock()
+	slices.SortStableFunc(out, func(a, b string) int {
+		late := func(x string) int {
+			if time.Now().Before(w.localSkip[x]) {
+				return 1
+			}
+			return 0
+		}
+		return late(a) - late(b)
+	})
+	return out
+}
+
+// localTried notes how a machine did, so visitors don't each wait for one
+// that's off.
+func (w *Web) localTried(addr string, ok bool) {
+	w.localMu.Lock()
+	defer w.localMu.Unlock()
+	if ok {
+		delete(w.localSkip, addr)
+		return
+	}
+	if w.localSkip == nil {
+		w.localSkip = map[string]time.Time{}
+	}
+	w.localSkip[addr] = time.Now().Add(localSkipFor)
+}
+
+// localTransport is the web node's own, or one that gives up on a machine
+// that's off soon enough to try the next.
+func (w *Web) localTransport() http.RoundTripper {
+	if w.Client.HTTP != nil && w.Client.HTTP.Transport != nil {
+		return w.Client.HTTP.Transport
+	}
+	return localDial
+}
+
+var localDial = func() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: 4 * time.Second}).DialContext
+	return t
+}()
+
+var errLocalRefused = errors.New("the node has no program answering")
+
+// tryNext says whether a failed request can go to the next machine: never
+// if it may have reached a program and changed something.
+func tryNext(r *http.Request, err error) bool {
+	var op *net.OpError
+	return r.Method == http.MethodGet || r.Method == http.MethodHead || errors.Is(err, errLocalRefused) ||
+		errors.As(err, &op) && op.Op == "dial"
+}
+
+// localApp passes a request to the first machine that answers for the site.
+func (w *Web) localApp(rw http.ResponseWriter, r *http.Request, site, owner string, machines []string, root string) {
+	addrs := w.localAddrs(owner, machines)
+	if len(addrs) == 0 {
 		localOffline(rw, root, site)
 		return
 	}
+	// Kept, to send again if a machine doesn't answer.
+	body, err := io.ReadAll(http.MaxBytesReader(rw, r.Body, maxLocalBody))
+	if err != nil {
+		http.Error(rw, "too big", http.StatusRequestEntityTooLarge)
+		return
+	}
 	ip := visitor(r)
-	r.Body = http.MaxBytesReader(rw, r.Body, maxLocalBody)
+	for _, addr := range addrs {
+		failed := w.localTry(rw, r, body, site, addr, ip)
+		w.localTried(addr, failed == nil)
+		if failed == nil {
+			return
+		}
+		w.logf("web: %s's local app at %s: %v", site, addr, failed)
+		if !tryNext(r, failed) {
+			break
+		}
+	}
+	localOffline(rw, root, site)
+}
+
+// localTry passes the request to one machine. On an error nothing has been
+// written to rw.
+func (w *Web) localTry(rw http.ResponseWriter, r *http.Request, body []byte, site, addr, ip string) error {
 	ctx, cancel := context.WithTimeout(r.Context(), localTimeout)
 	defer cancel()
+	out := r.Clone(ctx)
+	out.Body = io.NopCloser(bytes.NewReader(body))
+	var failed error
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL.Scheme, pr.Out.URL.Host = "http", addr
@@ -163,19 +306,17 @@ func (w *Web) localApp(rw http.ResponseWriter, r *http.Request, site, owner, roo
 			pr.Out.Header.Set("X-Yggstore-Site", site)
 			pr.Out.Header.Set("X-Yggstore-Visitor", ip)
 		},
-		Transport: w.Client.HTTP.Transport,
+		Transport: w.localTransport(),
 		ModifyResponse: func(res *http.Response) error {
 			if res.Header.Get(localDown) != "" {
-				return fmt.Errorf("the node says %s", res.Status)
+				return fmt.Errorf("%w: %s", errLocalRefused, res.Status)
 			}
 			return nil
 		},
-		ErrorHandler: func(rw http.ResponseWriter, r *http.Request, err error) {
-			w.logf("web: %s's local app: %v", site, err)
-			localOffline(rw, root, site)
-		},
+		ErrorHandler: func(_ http.ResponseWriter, _ *http.Request, err error) { failed = err },
 	}
-	proxy.ServeHTTP(rw, r.WithContext(ctx))
+	proxy.ServeHTTP(rw, out)
+	return failed
 }
 
 // localOffline answers when the publisher's machine doesn't: the site's
