@@ -30,7 +30,7 @@ func TestCopy(t *testing.T) {
 		}
 		return n
 	}
-	if err := copyAll(src, out); err != nil {
+	if err := copyAll(src, nil, out); err != nil {
 		t.Fatal(err)
 	}
 	if read() != 1 {
@@ -38,7 +38,7 @@ func TestCopy(t *testing.T) {
 	}
 	// The next copy replaces one the outbox hasn't taken.
 	db.Exec(`INSERT INTO a VALUES ('two')`)
-	if err := copyAll(src, out); err != nil {
+	if err := copyAll(src, nil, out); err != nil {
 		t.Fatal(err)
 	}
 	if read() != 2 {
@@ -58,5 +58,30 @@ func TestCopy(t *testing.T) {
 	os.Rename(filepath.Join(out, "d.db"), filepath.Join(out, "d.db.ystub"))
 	if unstored(src, out) != "" || time.Since(lastCopy(src, out)) > time.Minute {
 		t.Fatal("the stub wasn't counted")
+	}
+}
+
+func TestCopyAlso(t *testing.T) {
+	dir := t.TempDir()
+	site := filepath.Join(dir, "peter.example.org")
+	os.Mkdir(site, 0o755)
+	cfg, design := filepath.Join(site, ".yggstore.json"), filepath.Join(dir, "design.sql")
+	os.WriteFile(cfg, []byte("{}"), 0o644)
+	os.WriteFile(design, []byte("-- d"), 0o644)
+	out := filepath.Join(dir, "out")
+	if err := copyAll(nil, []string{cfg, design}, out); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(out)
+	if len(entries) != 2 || entries[0].Name() != "design.sql" || entries[1].Name() != "peter.example.org.yggstore.json" {
+		t.Fatalf("%v", entries)
+	}
+	// One missing file is said, and the rest are still copied.
+	os.Remove(filepath.Join(out, "design.sql"))
+	if err := copyAll(nil, []string{filepath.Join(dir, "gone"), design}, out); err == nil {
+		t.Fatal("a missing file went unsaid")
+	}
+	if _, err := os.Stat(filepath.Join(out, "design.sql")); err != nil {
+		t.Fatal(err)
 	}
 }

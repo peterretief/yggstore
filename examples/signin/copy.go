@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -14,7 +15,8 @@ import (
 // into a folder in the yggstore outbox (-copy-to outfiles/files/local-apps).
 // The outbox stores it encrypted across the group and keeps earlier days as
 // versions, and the recovery copy carries what's needed to get it back:
-// drop its .ystub in restore/.
+// drop its .ystub in restore/. -copy-also adds the files that go with the
+// data: its design, and the site's .yggstore.json.
 
 const copyEvery = 23 * time.Hour // a little under a day, so it doesn't drift
 
@@ -42,10 +44,45 @@ func copyDB(s source, dir string) error {
 	return os.Rename(tmp, filepath.Join(dir, s.name))
 }
 
-func copyAll(sources []source, dir string) error {
+// copyName is what a file's copy is called. The outbox leaves hidden files
+// alone, so a site's .yggstore.json goes in as SITE.yggstore.json.
+func copyName(path string) string {
+	name := filepath.Base(path)
+	if rest, hidden := strings.CutPrefix(name, "."); hidden {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return rest
+		}
+		return filepath.Base(filepath.Dir(abs)) + "." + rest
+	}
+	return name
+}
+
+// copyFile copies a file that goes with the data, such as its design.
+func copyFile(path, dir string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	name := copyName(path)
+	tmp := filepath.Join(dir, "."+name+".tmp")
+	defer os.Remove(tmp)
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dir, name))
+}
+
+func copyAll(sources []source, also []string, dir string) error {
 	var errs []error
 	for _, s := range sources {
 		errs = append(errs, copyDB(s, dir))
+	}
+	for _, f := range also {
+		errs = append(errs, copyFile(f, dir))
 	}
 	return errors.Join(errs...)
 }
@@ -75,14 +112,14 @@ func unstored(sources []source, dir string) string {
 
 // keepCopies makes a copy whenever the last is a day old, checking hourly,
 // so a machine that was off catches up when it's back.
-func keepCopies(sources []source, dir string) {
+func keepCopies(sources []source, also []string, dir string) {
 	last := lastCopy(sources, dir)
 	for {
 		if time.Since(last) >= copyEvery {
 			if n := unstored(sources, dir); n != "" {
 				log.Printf("the last copy of %s is still in %s: is the dashboard running?", n, dir)
 			}
-			if err := copyAll(sources, dir); err != nil {
+			if err := copyAll(sources, also, dir); err != nil {
 				log.Printf("copying the data: %v", err)
 			} else {
 				last = time.Now()

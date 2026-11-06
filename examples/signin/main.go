@@ -61,6 +61,11 @@ func main() {
 	dataPath := flag.String("data", "", "a data file to show, with its diagram, forms and reports")
 	design := flag.String("import", "", "make the data file match this .sql file, and stop")
 	copyTo := flag.String("copy-to", "", "a folder in the yggstore outbox for a daily copy of the data")
+	var copyAlso []string
+	flag.Func("copy-also", "copy-to: a file to copy too, such as the design or the site's .yggstore.json (can be repeated)", func(s string) error {
+		copyAlso = append(copyAlso, s)
+		return nil
+	})
 	copyNow := flag.Bool("copy-now", false, "copy-to: make a copy now, and stop")
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	flag.Parse()
@@ -102,7 +107,7 @@ func main() {
 		if *copyTo == "" {
 			log.Fatal("-copy-now needs -copy-to")
 		}
-		if err := copyAll(sources, *copyTo); err != nil {
+		if err := copyAll(sources, copyAlso, *copyTo); err != nil {
 			log.Fatal(err)
 		}
 		fmt.Println("copied to", *copyTo)
@@ -113,7 +118,7 @@ func main() {
 	}
 	a := &app{db: db, data: dataFile, tries: map[string][]time.Time{}}
 	if *copyTo != "" {
-		go keepCopies(sources, *copyTo)
+		go keepCopies(sources, copyAlso, *copyTo)
 	}
 	srv := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("listening on %s", *addr)

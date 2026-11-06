@@ -87,14 +87,78 @@ This is the part most easily got wrong, and the starting point shows how.
   outbox's `files/`, the starting point makes a clean copy of its data each
   day, which the group stores encrypted, keeping earlier days as versions.
   The recovery copy carries what's needed to get it back, so losing the
-  machine loses a day at most. The local part stays down until you restore it
-  elsewhere. Running the program on a second machine, with its data kept in
-  step, is for later.
+  machine loses a day of data at most. Getting the local part running again
+  takes more: the web nodes send it to the site's publisher, so an admin has
+  to move the site to the new machine, and `.yggstore.json` has to be put
+  back there (`-copy-also` keeps it with the daily copy, as `SITE.yggstore.json`). If the lost machine is the admin's, nobody can yet. Running it on
+  a second machine is [planned](#your-data-on-more-than-one-machine).
 - **Limits:** 10 MB a request, 30 seconds an answer and 5 local paths a site
   to begin with.
 - **Sites on a box don't get this.** Only a machine's own publisher reads
   `.yggstore.json`, and a local path's program must be on that machine:
   a person's site can't reach programs on the box it lives on.
+
+## Your data on more than one machine
+
+Status: approved 2026-11-06. Nothing is built.
+
+Today a local app's data is on one machine. This plan lets you run the program
+on two or more machines of your own, each working by itself when the others
+can't be reached, and catching up when they can. So the private part of a site
+stays up with one machine off.
+
+It reuses how [site data](site-code.md) works: every write is an entry in a log
+kept for good, the machines share their logs, and each one builds its tables by
+replaying the entries in one order (time, machine, number). It stays SQLite and
+Go, and the design file, diagram, forms and reports stay as they are.
+
+- **Your machines only.** Site data goes to every web node, which is wrong for
+  private data. A local app has its own list of machines, chosen by you, and
+  entries travel between them over Yggdrasil, encrypted with a key only those
+  machines hold. A web node can pass requests to them but never holds the data.
+- **Row ids are random.** Two machines offline would both make client number 4,
+  so a new row gets a random id. The design file says `id TEXT PRIMARY KEY`, and
+  the form fills it in. This has to be settled before real data goes in:
+  data with numbered rows would have to be moved over.
+- **Forms write entries.** Saving a form adds an entry (this table, this row,
+  these fields) instead of changing the table. No SQL has to be written for it,
+  as a site's `entries.sql` does: the design says what each table holds.
+- **Two edits to one record:** the later one wins, field by field, so edits to
+  different fields both stay. A deleted row stays deleted.
+- **Rules are checked at replay.** The design's rules (`UNIQUE`, `CHECK`, foreign
+  keys) apply the same way on every machine, so an entry that breaks one after
+  the merge is refused everywhere. For example, two machines each take the same
+  invoice number. A refused entry is listed on a page with what it tried to do,
+  so a person can put it right. It's never just dropped.
+- **Sign-in too.** Accounts and sessions are entries like any others. Wrong tries
+  stay counted per machine.
+- **The design travels with the log.** An import is an entry as well, so every
+  machine changes its tables at the same point in the order. Otherwise an entry
+  could arrive for a column one machine doesn't have yet.
+- **Which machine answers:** the site names several machines for its local
+  paths, and the web node tries the next if one doesn't answer, so a visitor
+  needn't notice. The "back soon" page shows only when none answers.
+- **The daily copy stays.** Sync passes a mistake to every machine within
+  minutes. The daily versions are how you go back.
+
+**What to know:** a machine can be behind, so someone may see an older answer
+until it catches up, and a save that looks done can be refused at the merge.
+Times come from each machine's clock, so a machine with a wrong clock can win
+when it shouldn't. The log only grows, and replaying gets slower with it, so it
+will need snapshots, which aren't built for site data yet either.
+
+**Build order:**
+
+1. Random ids in the design and forms, with a way to move numbered rows over.
+2. Entries and replay on one machine, with forms writing entries.
+3. The refused list.
+4. Sharing the log between your machines, encrypted.
+5. The web node trying a second machine.
+6. Try it with the desktop and one box, by pulling the plug on each in turn.
+
+**Still to decide:** whether a client's account works on every machine from the
+start, and how a new machine is added safely (it needs the key, so probably by
+hand at first, as a new box is).
 
 ## Build order
 
