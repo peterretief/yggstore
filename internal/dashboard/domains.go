@@ -235,6 +235,7 @@ func (d *Dashboard) handleTakeMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendErr := d.enableSending(ctx, pn.Name)
+	reportErr := d.dmarcReports(ctx, list, pn.Name)
 	d.namesMu.Lock()
 	defer d.namesMu.Unlock()
 	f := d.loadNames()
@@ -243,6 +244,9 @@ func (d *Dashboard) handleTakeMail(w http.ResponseWriter, r *http.Request) {
 	}
 	if sendErr == nil && !contains(f.SendDomains, pn.Name) {
 		f.SendDomains = append(f.SendDomains, pn.Name)
+	}
+	if reportErr == nil && !contains(f.ReportDomains, pn.Name) {
+		f.ReportDomains = append(f.ReportDomains, pn.Name)
 	}
 	if err := d.saveNames(f); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -255,7 +259,33 @@ func (d *Dashboard) handleTakeMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.event("ok", fmt.Sprintf("%s can send from %s; Cloudflare's records can take 15 minutes", pn.Person, pn.Name))
+	if reportErr != nil {
+		d.event("warn", fmt.Sprintf("%s's DMARC reports aren't set up: %v", pn.Name, reportErr))
+		writeJSONResp(w, map[string]string{"warning": "Its mail is set up, but its DMARC reports aren't: " + reportErr.Error()})
+		return
+	}
 	writeJSONResp(w, map[string]string{})
+}
+
+// dmarcReports sends a domain's DMARC reports to the admin's address.
+func (d *Dashboard) dmarcReports(ctx context.Context, list []peers.Peer, domain string) error {
+	if d.dmarcReportsFn != nil {
+		return d.dmarcReportsFn(ctx, domain)
+	}
+	group, addr := peers.GroupDomain(list), ""
+	for _, p := range list {
+		if p.Admin && len(p.Names) > 0 && addr == "" {
+			addr = peers.MailAddress(p.Names[0])
+		}
+	}
+	if group == "" || addr == "" {
+		return errors.New("the group's admin has no address for the reports")
+	}
+	api, err := os.ReadFile(d.cfg.CloudflareToken)
+	if err != nil {
+		return fmt.Errorf("the Cloudflare API token: %w", err)
+	}
+	return site.DMARCReports(ctx, string(api), domain, group, addr)
 }
 
 // enableSending sets a domain up for sending, with the token the web nodes

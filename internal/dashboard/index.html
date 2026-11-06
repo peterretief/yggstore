@@ -1424,7 +1424,7 @@ async function refreshNames() {
         ? `<button data-decide="${esc(c.name)}" data-node="${esc(c.node)}" data-ok="1">Approve</button> <button class="del" data-decide="${esc(c.name)}" data-node="${esc(c.node)}">Decline</button>`
         : `<span class="pill ${c.status === "approved" ? "ok" : "bad"}">${esc(c.status)}</span>`}</td></tr>`).join("");
     const given = n.given.map(g => `<tr><td>${esc(mail(g.name))}</td><td class="sub">${g.person ? `${esc(g.person)}, on ${esc(g.node)}` : esc(g.node)}</td>
-      <td>${g.own ? (g.mail && g.send ? `<span class="pill ok">its mail comes here</span> ` : `<button data-takemail="${esc(g.name)}">${g.mail ? "Set up sending" : "Take its mail too"}</button> `) : ""}<button class="del" data-unname="${esc(g.name)}">Take back</button></td></tr>`).join("");
+      <td>${g.own ? (g.mail && g.send && g.report ? `<span class="pill ok">its mail comes here</span> ` : `<button data-takemail="${esc(g.name)}">${g.mail ? "Finish its mail setup" : "Take its mail too"}</button> `) : ""}<button class="del" data-unname="${esc(g.name)}">Take back</button></td></tr>`).join("");
     html += `<h3 style="font-size:13px;margin:16px 0 4px">Requests</h3>
       ${req ? `<table>${req}</table>` : `<div class="sub">No one has asked for a name.</div>`}
       <h3 style="font-size:13px;margin:16px 0 4px">Names given</h3>

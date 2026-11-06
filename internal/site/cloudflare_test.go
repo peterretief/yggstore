@@ -262,3 +262,50 @@ func TestEnableSending(t *testing.T) {
 		t.Fatalf("posted %v", posted)
 	}
 }
+
+func TestDMARCReports(t *testing.T) {
+	txt := map[string][]map[string]string{"_dmarc.acme.com": {{"id": "r1", "content": `"v=DMARC1; p=reject;"`}}}
+	var patched, made []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		ok := func(v any) { json.NewEncoder(w).Encode(map[string]any{"success": true, "result": v}) }
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/zones"):
+			n := r.URL.Query().Get("name")
+			ok([]map[string]string{{"id": "z-" + n, "name": n}})
+		case r.Method == http.MethodGet:
+			ok(append([]map[string]string{}, txt[r.URL.Query().Get("name")]...))
+		case r.Method == http.MethodPatch:
+			var b map[string]string
+			json.NewDecoder(r.Body).Decode(&b)
+			patched = append(patched, r.URL.Path+" "+b["content"])
+			txt["_dmarc.acme.com"][0]["content"] = b["content"]
+			ok(map[string]any{})
+		case r.Method == http.MethodPost:
+			var b map[string]any
+			json.NewDecoder(r.Body).Decode(&b)
+			made = append(made, r.URL.Path+" "+b["name"].(string))
+			txt[b["name"].(string)] = []map[string]string{{"id": "n", "content": b["content"].(string)}}
+			ok(map[string]any{})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	cf := &Cloudflare{APIToken: "t", Base: srv.URL}
+	for range 2 { // the second time changes nothing
+		if err := cf.DMARCReports(context.Background(), "acme.com", "example.org", "peter@example.org"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(patched) != 1 || !strings.HasSuffix(patched[0], `/r1 "v=DMARC1; p=reject; rua=mailto:peter@example.org"`) {
+		t.Fatalf("patched %v", patched)
+	}
+	if len(made) != 1 || !strings.Contains(made[0], "z-example.org") || !strings.HasSuffix(made[0], " acme.com._report._dmarc.example.org") {
+		t.Fatalf("made %v", made)
+	}
+	// Reports going somewhere already are left alone.
+	txt["_dmarc.other.com"] = []map[string]string{{"id": "r2", "content": `"v=DMARC1; p=none; rua=mailto:x@other.com"`}}
+	patched = nil
+	if err := cf.DMARCReports(context.Background(), "other.com", "example.org", "peter@example.org"); err != nil || len(patched) != 0 {
+		t.Fatalf("%v %v", err, patched)
+	}
+}

@@ -240,6 +240,7 @@ type Dashboard struct {
 	addDomainFn     func(ctx context.Context, domain string) ([]string, error) // tests stand in for Cloudflare
 	takeMailFn      func(ctx context.Context, domain string) error
 	enableSendingFn func(ctx context.Context, domain string) error
+	dmarcReportsFn  func(ctx context.Context, domain string) error
 	cfg             Config
 	mu              sync.Mutex
 	websites        *websites.Watcher // the outbox's websites/ folder, once started

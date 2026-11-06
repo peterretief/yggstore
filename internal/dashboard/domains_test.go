@@ -136,6 +136,7 @@ func TestTakeMailOnlyForOwnDomains(t *testing.T) {
 	}
 	var took []string
 	admin.takeMailFn = func(_ context.Context, domain string) error { took = append(took, domain); return nil }
+	admin.dmarcReportsFn = func(context.Context, string) error { return nil }
 	if w := do(member, post("/api/names/take-mail", strings.NewReader(`{"Name":"acme.com"}`))); w.Code != http.StatusForbidden {
 		t.Fatalf("a member: %d", w.Code)
 	}
@@ -157,7 +158,7 @@ func TestTakeMailOnlyForOwnDomains(t *testing.T) {
 	json.Unmarshal(do(admin, r).Body.Bytes(), &st)
 	found := false
 	for _, g := range st.Given {
-		found = found || (g.Name == "acme.com" && g.Own && g.Mail && g.Send)
+		found = found || (g.Name == "acme.com" && g.Own && g.Mail && g.Send && g.Report)
 	}
 	if !found {
 		t.Fatalf("not shown as taken: %+v", st.Given)

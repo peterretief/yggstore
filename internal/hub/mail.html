@@ -25,6 +25,11 @@ h1 { font-size: 26px; margin: 0 0 6px; }
 .ok { color: var(--ok); font-weight: 600; }
 textarea { width: 100%; min-height: 12em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
 #compose input { max-width: none; margin-bottom: 8px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 18px; align-items: center; }
+.tabs button { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+.tabs button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+#done { margin-top: 12px; padding: 10px 14px; border: 1px solid var(--ok); border-radius: 8px; color: var(--ok); }
+select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
 input { width: 100%; max-width: 22em; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
 button { padding: 6px 12px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 button:disabled { opacity: .5; cursor: default; }
@@ -39,7 +44,8 @@ a { color: var(--accent); }
 <main>
   <h1>Your mail</h1>
   <div class="sub"><span id="addr"></span><a href="/files">Your files</a> · <a href="/files/site">Your website</a></div>
-  <p id="writeBox" hidden><button id="write">Write</button> <span class="ok" id="sent"></span></p>
+  <p id="writeBox" hidden><button id="write">Write</button></p>
+  <div id="done" role="status" hidden></div>
   <div class="card" id="compose" hidden><h2 id="cTitle">New message</h2>
     <input id="wFrom" type="text" placeholder="From" hidden>
     <input id="wTo" type="text" placeholder="To: their email address (more, separated by commas)" autocomplete="email">
@@ -48,6 +54,7 @@ a { color: var(--accent); }
     <p><button id="send">Send</button> <button class="plain" id="cancel">Cancel</button></p>
     <div class="sub" id="limits"></div><div class="err" id="wErr"></div></div>
   <div id="open"></div>
+  <div class="tabs" id="tabs"></div>
   <div class="card" id="inbox"><span class="sub">Loading…</span></div>
   <div class="card" id="fwdCard" hidden><h2>Forward to your email</h2><div id="fwd"></div></div>
   <div class="err" id="err"></div>
@@ -59,7 +66,18 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const when = ms => new Date(ms).toLocaleString();
 const size = n => n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + " MB" : n >= 1024 ? Math.round(n / 1024) + " KB" : n + " bytes";
-let st, open = "";
+let st, open = "", folder = "INBOX";
+// Folders: Inbox, Sent, Archives and their own; the rest are for mail programs.
+const hidden = ["Drafts", "Trash", "Junk"];
+const label = f => f === "INBOX" ? "Inbox" : f;
+const custom = f => !["INBOX", "Sent", "Archives", ...hidden].includes(f);
+const shownFolders = () => (st.folders || ["INBOX", "Sent"]).filter(f => !hidden.includes(f));
+function tabs() {
+  $("tabs").innerHTML = shownFolders().map(f => {
+    const n = st.messages.filter(m => (m.folder || "INBOX") === f).length;
+    return `<button data-folder="${esc(f)}" class="${f === folder ? "on" : ""}">${esc(label(f))}${n ? " " + n : ""}</button>`;
+  }).join("") + `<button id="newFolder">New folder</button>`;
+}
 async function act(op, body) {
   $("err").textContent = "";
   const r = await fetch("?op=" + op, {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"}, body: JSON.stringify(body || {})});
@@ -72,8 +90,10 @@ function inbox() {
   if (!st.address && !own.length) return `<h2>No email address yet</h2><p class="sub">The box's owner can ask the group for a name for you, such as
     <b>yourname@${esc(st.domain || "the-group.org")}</b>. Once the group's admin approves it, your mail comes in here.</p>`;
   if (!st.messages.length) return `<p class="sub">No mail yet. Mail to <b>${esc(st.address || "any address at " + own.join(" or "))}</b> comes in here.</p>`;
-  return st.messages.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name"><b>${esc(m.subject || "(no subject)")}</b><br>
-    <span class="sub">${esc(m.from)}</span>${m.error ? `<br><span class="err">${esc(m.error)}</span>` : ""}</span>
+  const list = st.messages.filter(m => (m.folder || "INBOX") === folder);
+  if (!list.length) return `<p class="sub">Nothing in ${esc(label(folder))}.${custom(folder) ? ` <button class="plain" id="rmfolder">Remove this folder</button>` : ""}</p>`;
+  return list.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name"><b>${esc(m.subject || "(no subject)")}</b><br>
+    <span class="sub">${folder === "Sent" ? "To " + esc(m.to) : esc(m.from)}</span>${m.error ? `<br><span class="err">${esc(m.error)}</span>` : ""}</span>
     <span class="when">${when(m.received)}</span></div>`).join("");
 }
 function fwdCard() {
@@ -108,7 +128,8 @@ async function show(id) {
     <pre>${esc(m.text)}</pre>
     ${files ? `<div class="files">${files}</div>` : ""}
     <button id="reply">Reply</button>
-    <button class="plain" id="del" data-id="${esc(m.id)}">Delete</button> <button class="plain" id="close">Close</button></div>`;
+    <button class="plain" id="del" data-id="${esc(m.id)}">Delete</button> <button class="plain" id="close">Close</button>
+    <select id="moveTo" data-id="${esc(m.id)}" aria-label="Move to a folder"><option value="">Move to…</option>${shownFolders().filter(f => f !== folder).map(f => `<option value="${esc(f)}">${esc(label(f))}</option>`).join("")}</select></div>`;
   shown = m;
   window.scrollTo(0, 0);
 }
@@ -135,7 +156,10 @@ async function load() {
   try { st = await (await fetch("?op=status", {cache: "no-store"})).json(); }
   catch (e) { $("err").textContent = "The box isn't answering."; return; }
   $("addr").innerHTML = st.address ? `<b>${esc(st.address)}</b> · ` : "";
+  if (st.folders && !st.folders.includes(folder)) folder = "INBOX";
   $("inbox").innerHTML = inbox();
+  tabs();
+  $("tabs").hidden = !st.address && !(st.own_domains || []).length;
   $("fwdCard").hidden = $("note").hidden = !st.address;
   $("writeBox").hidden = !st.address && !(st.own_domains || []).length;
   if (!document.activeElement || !["to", "code"].includes(document.activeElement.id)) $("fwd").innerHTML = fwdCard();
@@ -145,6 +169,13 @@ document.addEventListener("click", async ev => {
   const row = t.closest(".row[data-id]");
   if (row) return show(row.dataset.id);
   if (t.id === "close") return show("");
+  if (t.dataset.folder) { folder = t.dataset.folder; $("done").hidden = true; show(""); $("inbox").innerHTML = inbox(); tabs(); return; }
+  if (t.id === "newFolder") {
+    const name = prompt("Name of the new folder, such as a sender's name");
+    if (name && name.trim() && await act("mkfolder", {folder: name.trim()})) { folder = name.trim(); await load(); }
+    return;
+  }
+  if (t.id === "rmfolder") { if (await act("rmfolder", {folder})) { folder = "INBOX"; await load(); } return; }
   if (t.id === "write") return compose(null);
   if (t.id === "reply" && shown) return compose(shown);
   if (t.id === "cancel") { $("compose").hidden = true; return; }
@@ -155,14 +186,21 @@ document.addEventListener("click", async ev => {
     t.disabled = false;
     if (!r.ok) { $("wErr").textContent = (await r.text()).trim(); return; }
     $("compose").hidden = true;
-    $("sent").textContent = "Sent.";
-    setTimeout(() => { $("sent").textContent = ""; }, 5000);
+    $("done").hidden = false;
+    $("done").textContent = `Sent to ${$("wTo").value} from ${$("wFrom").value || st.address}.`;
+    folder = "Sent";
+    show("");
+    await load();
+    window.scrollTo(0, 0);
   }
   if (t.id === "del" && confirm("Delete this message?")) { if (await act("delete", {id: t.dataset.id})) show(""); }
   if (t.id === "fwdGo") act("forward", {to: $("to").value});
   if (t.id === "resend") act("forward", {to: t.dataset.to});
   if (t.id === "confirm") act("confirm", {code: $("code").value});
   if (t.id === "unfwd") act("unforward");
+});
+document.addEventListener("change", async ev => {
+  if (ev.target.id === "moveTo" && ev.target.value && await act("move", {id: ev.target.dataset.id, folder: ev.target.value})) show("");
 });
 load();
 setInterval(load, 15000);

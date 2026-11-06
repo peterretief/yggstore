@@ -550,6 +550,29 @@ func TestLightMail(t *testing.T) {
 		!strings.HasPrefix(r.Header.Get("Content-Disposition"), "attachment") {
 		t.Fatalf("attachment: %d %q %v", r.StatusCode, body, r.Header)
 	}
+	// Folders: made, moved into, and shown with the message; only an empty
+	// one of their own goes.
+	if r := b.do("POST", MailPath+"?op=mkfolder", `{"folder":"From Ben"}`); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("mkfolder: %d %s", r.StatusCode, text(r))
+	}
+	if r := b.do("POST", MailPath+"?op=move", `{"id":"m1","folder":"From Ben"}`); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("move: %d %s", r.StatusCode, text(r))
+	}
+	if body := text(b.do("GET", MailPath+"?op=status", "")); !strings.Contains(body, `"folder":"From Ben"`) || !strings.Contains(body, `"folders":["INBOX","Sent"`) {
+		t.Fatalf("status after moving: %s", body)
+	}
+	if r := b.do("POST", MailPath+"?op=rmfolder", `{"folder":"From Ben"}`); r.StatusCode == http.StatusNoContent {
+		t.Fatal("removed a folder with mail in it")
+	}
+	if r := b.do("POST", MailPath+"?op=move", `{"id":"m1","folder":"No such folder"}`); r.StatusCode == http.StatusNoContent {
+		t.Fatal("moved to a folder that isn't there")
+	}
+	if r := b.do("POST", MailPath+"?op=move", `{"id":"m1","folder":"INBOX"}`); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("back: %d", r.StatusCode)
+	}
+	if r := b.do("POST", MailPath+"?op=rmfolder", `{"folder":"From Ben"}`); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("rmfolder: %d %s", r.StatusCode, text(r))
+	}
 	if r := g.browser(t, "").do("GET", MailPath+"?op=status", ""); r.StatusCode == 200 {
 		t.Fatal("mail without signing in")
 	}

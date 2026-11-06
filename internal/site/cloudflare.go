@@ -216,6 +216,58 @@ func enableSending(ctx context.Context, finder, sender *Cloudflare, domain strin
 	return sender.call(ctx, "POST", "/zones/"+zone+"/email/sending/subdomains", map[string]string{"name": domain}, nil)
 }
 
+// DMARCReports sends domain's DMARC reports to addr, at the group's domain:
+// it adds rua to the domain's DMARC record, and the record in the group's
+// zone that lets another domain's reports come there.
+func DMARCReports(ctx context.Context, apiToken, domain, group, addr string) error {
+	return (&Cloudflare{APIToken: strings.TrimSpace(apiToken)}).DMARCReports(ctx, domain, group, addr)
+}
+
+// DMARCReports is the package's DMARCReports, on c.
+func (c *Cloudflare) DMARCReports(ctx context.Context, domain, group, addr string) error {
+	type record struct {
+		ID      string `json:"id"`
+		Content string `json:"content"`
+	}
+	find := func(zone, name string) ([]record, error) {
+		var out []record
+		err := c.call(ctx, "GET", "/zones/"+zone+"/dns_records?type=TXT&name="+url.QueryEscape(name), nil, &out)
+		return out, err
+	}
+	groupZone, _, err := c.Zone(ctx, group)
+	if err != nil {
+		return err
+	}
+	allow := domain + "._report._dmarc." + group
+	have, err := find(groupZone, allow)
+	if err != nil {
+		return err
+	}
+	if len(have) == 0 {
+		body := map[string]any{"type": "TXT", "name": allow, "content": `"v=DMARC1"`, "ttl": 1}
+		if err := c.call(ctx, "POST", "/zones/"+groupZone+"/dns_records", body, nil); err != nil {
+			return err
+		}
+	}
+	zone, _, err := c.Zone(ctx, domain)
+	if err != nil {
+		return err
+	}
+	have, err = find(zone, "_dmarc."+domain)
+	if err != nil {
+		return err
+	}
+	if len(have) == 0 {
+		body := map[string]any{"type": "TXT", "name": "_dmarc." + domain, "content": `"v=DMARC1; p=reject; rua=mailto:` + addr + `"`, "ttl": 1}
+		return c.call(ctx, "POST", "/zones/"+zone+"/dns_records", body, nil)
+	}
+	text := strings.TrimRight(strings.Trim(have[0].Content, `"`), "; ")
+	if strings.Contains(text, "rua=") {
+		return nil // reports go somewhere already
+	}
+	return c.call(ctx, "PATCH", "/zones/"+zone+"/dns_records/"+have[0].ID, map[string]string{"content": `"` + text + "; rua=mailto:" + addr + `"`}, nil)
+}
+
 // Route makes host reach the web nodes through the tunnel. It changes
 // nothing if host already has a DNS record that points elsewhere, so a
 // site still served from somewhere else isn't taken over by accident. It

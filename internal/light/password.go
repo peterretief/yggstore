@@ -46,9 +46,12 @@ type PasswordRequest struct {
 
 var errWrongPassword = errors.New("That address and password don't match.")
 
-// byLogin finds whose a login is: a group address, or name@box.
+// byLogin finds whose a login is: a group address, name@box, the address
+// they signed up with, or any address at a domain of their own.
 func (s *Store) byLogin(list []peers.Peer, login string) (found, bool) {
 	login = strings.ToLower(strings.TrimSpace(login))
+	_, atDomain, _ := strings.Cut(login, "@")
+	ownBox, ownName, isOwn := peers.OwnDomain(list, atDomain)
 	s.lock()
 	defer s.mu.Unlock()
 	for box, ps := range s.st.Boxes {
@@ -63,6 +66,9 @@ func (s *Store) byLogin(list []peers.Peer, login string) (found, bool) {
 				continue
 			}
 			if strings.EqualFold(login, p.Name+"@"+box) || (p.Email != "" && strings.EqualFold(login, p.Email)) {
+				return found{Box: box, Person: p}, true
+			}
+			if isOwn && ownBox.IP() == node && strings.EqualFold(ownName.Person, p.Name) {
 				return found{Box: box, Person: p}, true
 			}
 			if pn, ok := peers.PersonNameOf(list, node, p.Name); ok && strings.EqualFold(login, peers.MailAddress(pn.Name)) {

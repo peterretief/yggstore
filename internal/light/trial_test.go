@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/peterretief/yggstore/internal/password"
 	"github.com/peterretief/yggstore/internal/peers"
 )
 
@@ -135,5 +137,25 @@ func TestSignupsPaused(t *testing.T) {
 	rl.ServeHTTP(w, r)
 	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "paused") || asked {
 		t.Fatalf("paused: %d %q, box asked %v", w.Code, w.Body, asked)
+	}
+}
+
+func TestSignInAtOwnDomain(t *testing.T) {
+	list := []peers.Peer{{Name: "desktop", Addr: "[201::1]:7400", Admin: true, Domain: "example.org"},
+		{Name: "box", Addr: "[200::2]:7400", PeopleNames: []peers.PersonName{
+			{Name: "tommy.example.org", Person: "tommy", Code: "ys1t"},
+			{Name: "acme.com", Person: "tommy", Code: "ys1t", Site: true}}}}
+	s := &Store{Dir: filepath.Join(t.TempDir(), "light"), Peers: func() []peers.Peer { return list }, Log: t.Logf}
+	pw := password.Chosen("long enough pw", time.Now())
+	s.SetPeople("box", []Person{{Name: "tommy", Web: true, Password: &pw}, {Name: "kath", Web: true, Password: &pw}})
+	for _, login := range []string{"tommy@example.org", "tommy@acme.com", "Info@ACME.com"} {
+		if f, ok := s.byLogin(list, login); !ok || f.Person.Name != "tommy" {
+			t.Errorf("%s: %v %+v", login, ok, f)
+		}
+	}
+	for _, login := range []string{"kath@other.com", "tommy@other.com"} {
+		if f, ok := s.byLogin(list, login); ok {
+			t.Errorf("%s signed in as %s", login, f.Person.Name)
+		}
 	}
 }

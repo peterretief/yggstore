@@ -60,7 +60,8 @@ added, so anything else stops until it's copied over.
 For the domain's mail, ask the admin to press **Take its mail too**. Every
 address at the domain then goes to one mailbox, your client's, on their
 mail page, and they can send from any address at it. A reply goes from the
-address the message came to. New domains can land in spam at first.
+address the message came to. They can sign in with any address at the domain
+too, and sort their mail into folders. New domains can land in spam at first.
 
 Then set the domain's nameservers at its registrar to those two.
 **Is it live?** in the row checks it.

@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/peterretief/yggstore/internal/mail"
@@ -43,6 +44,8 @@ type sitePageState struct {
 	Trial    bool              `json:"trial,omitempty"` // tighter limits on sending
 	// OwnDomains are their own domains, which they may send from.
 	OwnDomains []string `json:"own_domains,omitempty"`
+	// Folders are their mailbox's folders.
+	Folders []string `json:"folders,omitempty"`
 }
 
 type forwardState struct {
@@ -108,7 +111,7 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 					out.Site = &s
 				}
 			}
-			out.OwnDomains = ownDomains(list, ps.cfg.Self, p.Name)
+			out.OwnDomains, out.Folders = ownDomains(list, ps.cfg.Self, p.Name), box.Folders()
 			if msgs, err := box.List(); err == nil {
 				out.Messages = msgs
 			}
@@ -183,11 +186,12 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 		return
 	}
 	var req struct {
-		On   bool     `json:"on"`
-		ID   string   `json:"id"`
-		To   string   `json:"to"`
-		Code string   `json:"code"`
-		List []string `json:"list"`
+		On     bool     `json:"on"`
+		ID     string   `json:"id"`
+		To     string   `json:"to"`
+		Code   string   `json:"code"`
+		List   []string `json:"list"`
+		Folder string   `json:"folder"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -208,6 +212,12 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 		err = ps.SetUploaders(ctx, p, req.List)
 	case "delete":
 		err = box.Delete(ctx, f.u.cfg.Client, req.ID)
+	case "mkfolder":
+		err = box.CreateFolder(strings.TrimSpace(req.Folder))
+	case "rmfolder":
+		err = box.DeleteFolder(req.Folder)
+	case "move":
+		err = box.Move(req.ID, req.Folder)
 	case "forward":
 		if !named {
 			err = errors.New("you need a name in the group first: your mail is forwarded from it")
@@ -236,7 +246,7 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 		fail(err)
 		return
 	}
-	if op != "delete" {
+	if op != "delete" && op != "move" {
 		f.u.cfg.Logf("hub: %s: %s on their website page", p.Name, op)
 	}
 	w.WriteHeader(http.StatusNoContent)

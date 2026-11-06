@@ -71,7 +71,8 @@ Someone on a box with a [domain of their own](host-a-client.md) has one
 mailbox for it: every address at the domain comes to them, and they can send
 from any address at it. **Take its mail too** under **Names** on the admin's
 dashboard sets it up, and changes nothing if the domain's mail already goes
-somewhere else. It needs the relay's token to have Email Sending: Edit.
+somewhere else. It needs the relay's token to have Email Sending: Edit. The
+domain's DMARC reports come to the admin's address.
 
 ## Set up mail for a domain
 
