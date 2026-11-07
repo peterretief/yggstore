@@ -53,8 +53,9 @@ visitor --https--> web node --- /, /css, /images   served from the group
 ## Working on it, then going live
 
 In [YGGSITES](cli-cheatsheet.md#websites-yggsites), a site with a private part
-keeps it in the site's hidden `.app/` folder: `design.sql`, and `live`, which
-says where the live copy runs. Neither is published.
+keeps it in the site's `app/` folder, which is never published: `design.sql`,
+`live`, which says where the live copy runs, and the site's own copy of the Go
+program, made from `examples/signin` with a `go.mod` of its own.
 
 - `./sites dev SITE` runs the pages and a development copy of the program on
   localhost. It has its own test data and accounts in `.dev/SITE`, a sign-in of
