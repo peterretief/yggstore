@@ -76,6 +76,7 @@ func main() {
 		syncAddrs = append(syncAddrs, s)
 		return nil
 	})
+	check := flag.Bool("check", false, "import: only say what it would do")
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	flag.Parse()
 
@@ -98,6 +99,12 @@ func main() {
 	if *design != "" {
 		if *dataPath == "" {
 			log.Fatal("-import needs -data, the data file")
+		}
+		if *check {
+			if err := checkDesign(*dataPath, *design, os.Stdout); err != nil {
+				log.Fatal(err)
+			}
+			return
 		}
 		if err := importDesign(*dataPath, *design, *drop, os.Stdout); err != nil {
 			log.Fatal(err)

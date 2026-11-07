@@ -143,3 +143,41 @@ func TestNumberedRowsMoveToRandomIds(t *testing.T) {
 		t.Fatalf("the link: %q %q %v", name, kind, err)
 	}
 }
+
+func TestCheckChangesNothing(t *testing.T) {
+	dir := t.TempDir()
+	path, file := filepath.Join(dir, "d.db"), filepath.Join(dir, "d.sql")
+	os.WriteFile(file, []byte(`CREATE TABLE a (id TEXT PRIMARY KEY, x TEXT, y TEXT); INSERT INTO a VALUES ('1', 'x', 'y');`), 0o644)
+	if err := importDesign(path, file, false, new(bytes.Buffer)); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	os.WriteFile(file, []byte(`CREATE TABLE a (id TEXT PRIMARY KEY, x TEXT, z TEXT); CREATE TABLE b (id TEXT PRIMARY KEY);`), 0o644)
+	var out bytes.Buffer
+	if err := checkDesign(path, file, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Added table b", "added z", "removed y", "Nothing was changed"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("no %q in %s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "Kept a copy") {
+		t.Fatal(out.String())
+	}
+	if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
+		t.Fatal("the data file changed")
+	}
+	if m, _ := filepath.Glob(path + ".before-import-*"); len(m) != 0 {
+		t.Fatal("left a copy")
+	}
+	// Rows that wouldn't fit are found.
+	os.WriteFile(file, []byte(`CREATE TABLE a (id TEXT PRIMARY KEY, x TEXT, y TEXT, must TEXT NOT NULL);`), 0o644)
+	if err := checkDesign(path, file, new(bytes.Buffer)); err == nil {
+		t.Fatal("a required column the rows don't have")
+	}
+	// A new data file has nothing to copy.
+	if err := checkDesign(filepath.Join(dir, "none.db"), file, new(bytes.Buffer)); err != nil {
+		t.Fatal(err)
+	}
+}

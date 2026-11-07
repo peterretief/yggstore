@@ -32,7 +32,7 @@ const siteUsage = `yggstore site: static websites hosted on the group
                                                 site's tunnel route and DNS (and www.)
   yggstore site local DOMAIN [PATH ADDRESS]     on a second machine: send a site's local path
                                                 to a program here (no PATH: stop)
-  yggstore site dev FOLDER [-name DOMAIN] [-port 8484]
+  yggstore site dev FOLDER [-name DOMAIN] [-port 8484] [-local PATH=ADDRESS]
                                                 serve FOLDER on this machine as the web nodes
                                                 would once published (Markdown, /api/ code and
                                                 its data, 404 page), rebuilt and reloaded as
@@ -100,6 +100,11 @@ func cmdSite(ctx context.Context, args []string) error {
 	noWait := fs.Bool("no-wait", false, "don't wait for the web nodes and the public address")
 	keyPath := fs.String("sharing-key", filepath.Join(yggstoreHome(), "sharing.key"), "your sharing key (contact)")
 	devPort := fs.Int("port", 8484, "site dev: the port to serve on, on this machine only")
+	var devLocal []string
+	fs.Func("local", "site dev: send a local path to a program here, as PATH=ADDRESS (can be repeated)", func(s string) error {
+		devLocal = append(devLocal, s)
+		return nil
+	})
 	box := fs.String("box", "", "site init: the dashboard of the box that publishes the site")
 	build := fs.String("build", "", "site init: the command that builds the site, run before each push")
 	output := fs.String("output", "", "site init: the folder the build writes (default: the project itself)")
@@ -191,6 +196,11 @@ func cmdSite(ctx context.Context, args []string) error {
 			domain = "site.localhost"
 		}
 		d := &site.Dev{Folder: folder, Name: domain, Log: log.Printf}
+		for _, spec := range devLocal {
+			if err := d.UseLocal(spec); err != nil {
+				return err
+			}
+		}
 		if err := d.Start(); err != nil {
 			return err
 		}

@@ -444,13 +444,32 @@ func (l *LocalRelay) Serve(w http.ResponseWriter, r *http.Request, caller string
 	return true
 }
 
+// UseLocal sends a local path, given as PATH=ADDRESS, to a program.
+func (d *Dev) UseLocal(spec string) error {
+	p, to, ok := strings.Cut(spec, "=")
+	if !ok {
+		return fmt.Errorf("%q isn't PATH=ADDRESS", spec)
+	}
+	if err := validLocal(p, to); err != nil {
+		return err
+	}
+	if d.Local == nil {
+		d.Local = map[string]string{}
+	}
+	d.Local[p] = to
+	return nil
+}
+
 // devLocal passes a request under one of the folder's local paths straight
 // to its program, as the relay would (but not as https, which it isn't).
 func (d *Dev) devLocal(rw http.ResponseWriter, r *http.Request) bool {
-	apps, err := ReadLocalConfig(d.Folder)
-	if err != nil {
-		d.Log("%v", err)
-		return false
+	apps := d.Local
+	if apps == nil {
+		var err error
+		if apps, err = ReadLocalConfig(d.Folder); err != nil {
+			d.Log("%v", err)
+			return false
+		}
 	}
 	var paths []string
 	for x := range apps {

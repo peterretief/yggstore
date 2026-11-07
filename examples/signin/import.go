@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -71,6 +73,39 @@ func quoteAll(names []string) string {
 		out[i] = quote(n)
 	}
 	return strings.Join(out, ", ")
+}
+
+// checkDesign says what an import would do, by doing it to a copy, so rows
+// that wouldn't fit are found too. The data file isn't touched.
+func checkDesign(path, file string, out io.Writer) error {
+	dir, err := os.MkdirTemp("", "design-check-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	trial := filepath.Join(dir, "check.db")
+	if _, err := os.Stat(path); err == nil {
+		db, err := sql.Open("sqlite3", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
+		if err != nil {
+			return err
+		}
+		_, err = db.Exec(`VACUUM INTO ?`, trial)
+		db.Close()
+		if err != nil {
+			return err
+		}
+	}
+	var said bytes.Buffer
+	if err := importDesign(trial, file, true, &said); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "Nothing was changed. Importing would do this:")
+	for _, line := range strings.Split(strings.TrimSpace(said.String()), "\n") {
+		if !strings.HasPrefix(line, "Kept a copy") {
+			fmt.Fprintln(out, " ", line)
+		}
+	}
+	return nil
 }
 
 func importDesign(path, file string, drop bool, out io.Writer) error {

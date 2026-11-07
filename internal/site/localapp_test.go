@@ -203,6 +203,20 @@ func TestDevServesBothHalves(t *testing.T) {
 	if w := ask("/app/me"); w.Body.String() != "private /app/me" || proto != "" {
 		t.Fatalf("%d %s, proto %q", w.Code, w.Body, proto)
 	}
+	// A development copy of the program takes the place of the live one.
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "development") }))
+	t.Cleanup(other.Close)
+	if err := d.UseLocal("/app/=" + other.URL); err != nil {
+		t.Fatal(err)
+	}
+	if w := ask("/app/me"); w.Body.String() != "development" {
+		t.Fatalf("%s", w.Body)
+	}
+	d.Local = nil
+	if err := d.UseLocal("/app/=http://evil.example:80"); err == nil {
+		t.Fatal("took an address on another machine")
+	}
+	d.Local = nil
 	if w := ask("/" + LocalConfig); w.Code != http.StatusNotFound {
 		t.Fatalf("the settings were served: %d %s", w.Code, w.Body)
 	}

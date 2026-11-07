@@ -50,6 +50,24 @@ visitor --https--> web node --- /, /css, /images   served from the group
 - **Your machine off:** the web node answers with the site's `_offline.html`,
   or a short "back soon" page. The rest of the site carries on.
 
+## Working on it, then going live
+
+In [YGGSITES](cli-cheatsheet.md#websites-yggsites), a site with a private part
+keeps it in the site's hidden `.app/` folder: `design.sql`, and `live`, which
+says where the live copy runs. Neither is published.
+
+- `./sites dev SITE` runs the pages and a development copy of the program on
+  localhost. It has its own test data and accounts in `.dev/SITE`, a sign-in of
+  `dev@example.org`, and no log, so it can't reach the live data or other
+  machines. Nothing passes between the two by itself.
+- `./sites deploy SITE` shows what would change in the pages and in the data,
+  by trying the design on a copy, and asks. Then it publishes the pages, installs
+  the program on each machine and imports the design. Removing anything needs
+  `--drop`.
+
+`-import FILE -check` on its own shows what an import would do, and changes
+nothing.
+
 ## Sign-in, the first use
 
 [`examples/signin`](../examples/signin/main.go) is a starting point, with

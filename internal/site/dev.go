@@ -27,6 +27,9 @@ type Dev struct {
 	Folder string
 	Name   string // the site's domain, for {{site}} and the pages' links
 	Log    func(string, ...any)
+	// Local, if set, is used for the site's local paths in place of its
+	// LocalConfig: a development copy of the program, not the live one.
+	Local map[string]string
 
 	web     *Web
 	mu      sync.Mutex
