@@ -157,7 +157,7 @@ func TestCheckChangesNothing(t *testing.T) {
 	if err := checkDesign(path, file, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Added table b", "added z", "removed y", "Nothing was changed"} {
+	for _, want := range []string{"Added table b", "added z", "removed y", "nothing has changed yet"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("no %q in %s", want, out.String())
 		}

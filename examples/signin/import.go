@@ -99,7 +99,7 @@ func checkDesign(path, file string, out io.Writer) error {
 	if err := importDesign(trial, file, true, &said); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, "Nothing was changed. Importing would do this:")
+	fmt.Fprintln(out, "A preview: nothing has changed yet. Importing would do this:")
 	for _, line := range strings.Split(strings.TrimSpace(said.String()), "\n") {
 		if !strings.HasPrefix(line, "Kept a copy") {
 			fmt.Fprintln(out, " ", line)
