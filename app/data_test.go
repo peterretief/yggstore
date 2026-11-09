@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"database/sql"
@@ -19,7 +19,7 @@ func TestData(t *testing.T) {
 
 func testData(t *testing.T, logged bool) {
 	dir := t.TempDir()
-	if err := importDesign(filepath.Join(dir, "d.db"), "design.sql", false, io.Discard); err != nil {
+	if err := importDesign(filepath.Join(dir, "d.db"), "testdata/sample.sql", false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	d, err := openData(filepath.Join(dir, "d.db"))
@@ -35,6 +35,11 @@ func testData(t *testing.T, logged bool) {
 	db, _ := sql.Open("sqlite3", "file:"+filepath.Join(dir, "s.db"))
 	t.Cleanup(func() { db.Close() })
 	db.Exec(`CREATE TABLE sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL)`)
+	db.Exec(`CREATE TABLE accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin')`)
+	db.Exec(`INSERT INTO accounts VALUES ('a@example.org', 'x', 'admin')`)
+	if logged {
+		d.db.Exec(`INSERT INTO _sync_accounts VALUES ('a@example.org', 'x', 'admin')`)
+	}
 	db.Exec(`INSERT INTO sessions VALUES (?, 'a@example.org', ?)`, hashToken("t"), time.Now().Add(time.Hour).Unix())
 	h := (&app{db: db, data: d, tries: map[string][]time.Time{}}).routes()
 	do := func(method, path string, form url.Values, in bool) *httptest.ResponseRecorder {

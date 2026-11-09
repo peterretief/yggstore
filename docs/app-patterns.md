@@ -1,6 +1,6 @@
 # Apps on yggstore: patterns for developers
 
-Status: approved 2026-11-09; step 1 built in Peter's site (not yet deployed).
+Status: approved 2026-11-09. Built: steps 1 to 3 (rules and staff, the package); not built: views as reports, yggstore site dev/deploy, the template repo.
 
 A developer in the group builds a site with a private part for a client: people
 sign in, see what's theirs, fill in forms, read reports, get documents. Today
@@ -88,6 +88,12 @@ column can be given to clients, and shows each client only their rows. A view
 without one is for admins and staff.
 
 ## 3. Shared parts, imported, not copied
+
+Built 2026-11-09: `github.com/peterretief/yggstore/app` ([api.go](../app/api.go)).
+Peter's site and the learning example both use it; each keeps only its
+`main.go` (`app.Main()`), its `design.sql`, and its own pages. While working
+on one machine a site's `go.mod` points the package at the local yggstore
+folder (`replace`), so a change reaches it at the next build.
 
 The private part becomes a Go package, `yggstore/app`, which a developer's own
 `main.go` imports: sign-in, people, groups, roles, documents, forms, reports,

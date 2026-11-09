@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"database/sql"
@@ -58,8 +58,12 @@ func copyName(path string) string {
 	return name
 }
 
-// copyFile copies a file that goes with the data, such as its design.
+// copyFile copies a file that goes with the data, such as its design. A
+// folder, such as the documents, goes in file by file (copyFolder).
 func copyFile(path, dir string) error {
+	if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+		return copyFolder(path, dir)
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -112,10 +116,13 @@ func unstored(sources []source, dir string) string {
 
 // keepCopies makes a copy whenever the last is a day old, checking hourly,
 // so a machine that was off catches up when it's back.
+// After a nudge, it waits a minute for more changes, then copies everything.
 func keepCopies(sources []source, also []string, dir string) {
 	last := lastCopy(sources, dir)
+	nudged := false
 	for {
-		if time.Since(last) >= copyEvery {
+		if nudged || time.Since(last) >= copyEvery {
+			nudged = false
 			if n := unstored(sources, dir); n != "" {
 				log.Printf("the last copy of %s is still in %s: is the dashboard running?", n, dir)
 			}
@@ -126,6 +133,60 @@ func keepCopies(sources []source, also []string, dir string) {
 				log.Printf("copied the data to %s", dir)
 			}
 		}
-		time.Sleep(time.Hour)
+		select {
+		case <-time.After(time.Hour):
+		case <-copySoon:
+			time.Sleep(time.Minute)
+			nudged = true
+		}
+	}
+}
+
+// copyFolder copies a folder, such as the documents, one file at a time into
+// a folder of the same name, so the outbox stores each on its own. A file
+// goes again only when it's newer than what was stored (the outbox replaces
+// each with a .ystub, which keeps the time it was stored), so unchanged files
+// cost nothing, and a replaced one becomes a new version.
+func copyFolder(path, dir string) error {
+	out := filepath.Join(dir, copyName(path))
+	if err := os.MkdirAll(out, 0o700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !e.Type().IsRegular() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		stored := time.Time{}
+		for _, n := range []string{e.Name(), e.Name() + ".ystub"} {
+			if fi, err := os.Stat(filepath.Join(out, n)); err == nil && fi.ModTime().After(stored) {
+				stored = fi.ModTime()
+			}
+		}
+		if !info.ModTime().After(stored) {
+			continue
+		}
+		if err := copyFile(filepath.Join(path, e.Name()), out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copySoon asks for a copy within a minute or so, after a change worth
+// keeping straight away, such as an upload.
+var copySoon = make(chan struct{}, 1)
+
+func nudgeCopy() {
+	select {
+	case copySoon <- struct{}{}:
+	default:
 	}
 }

@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -33,7 +33,7 @@ CREATE INDEX IF NOT EXISTS _sync_order ON _sync_entries (t, node, seq);
 CREATE INDEX IF NOT EXISTS _sync_rows ON _sync_entries (tbl, row);
 CREATE TABLE IF NOT EXISTS _sync_refused (node TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (node, seq));
 CREATE TABLE IF NOT EXISTS _sync_deleted (tbl TEXT NOT NULL, row TEXT NOT NULL, PRIMARY KEY (tbl, row));
-CREATE TABLE IF NOT EXISTS _sync_accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS _sync_accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin');
 CREATE TABLE IF NOT EXISTS _sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`
 
 // Kinds of entry.
@@ -83,6 +83,7 @@ func openSync(d *data, node string) (*syncLog, error) {
 	if _, err := d.db.Exec(syncTables); err != nil {
 		return nil, err
 	}
+	d.db.Exec(`ALTER TABLE _sync_accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'`) // a file from before roles
 	if _, err := d.db.Exec(`INSERT INTO _sync_state VALUES ('machine', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, node); err != nil {
 		return nil, err
 	}
@@ -200,7 +201,16 @@ func apply(tx *sql.Tx, tables []table, e entry) error {
 		return err
 	}
 	if e.Kind == entryAccount {
-		_, err := tx.Exec(`INSERT INTO _sync_accounts VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET hash = excluded.hash`, e.Row, e.Fields["hash"])
+		if removed, _ := e.Fields["removed"].(bool); removed {
+			_, err := tx.Exec(`DELETE FROM _sync_accounts WHERE name = ?`, e.Row)
+			return err
+		}
+		role, _ := e.Fields["role"].(string)
+		if role == "" {
+			role = roleAdmin // an entry from before roles
+		}
+		_, err := tx.Exec(`INSERT INTO _sync_accounts (name, hash, role) VALUES (?, ?, ?)
+			ON CONFLICT (name) DO UPDATE SET hash = excluded.hash, role = excluded.role`, e.Row, e.Fields["hash"], role)
 		return err
 	}
 	t := find(tables, e.Table)
@@ -495,7 +505,7 @@ func (d *data) refusedPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "something went wrong", http.StatusInternalServerError)
 		return
 	}
-	page(w, http.StatusOK, "refused", list)
+	page(w, r, http.StatusOK, "refused", list)
 }
 
 func (d *data) dismiss(w http.ResponseWriter, r *http.Request) {

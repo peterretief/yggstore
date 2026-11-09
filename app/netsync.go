@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"bytes"
@@ -275,7 +275,7 @@ func (d *data) machines() []string {
 // how they came to be written.
 func (l *syncLog) designNow() (stmts, hash string, err error) {
 	rows, err := l.d.db.Query(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL
-		AND name NOT LIKE 'sqlite%' AND name NOT LIKE '\_sync%' ESCAPE '\' ORDER BY type = 'table' DESC, name`)
+		AND name NOT LIKE 'sqlite%' AND name NOT LIKE '\_%' ESCAPE '\' ORDER BY type = 'table' DESC, name`)
 	if err != nil {
 		return "", "", err
 	}
@@ -346,14 +346,14 @@ func (l *syncLog) catchDesign() error {
 
 // adoptAccounts puts accounts made before the log into it.
 func (l *syncLog) adoptAccounts(accounts *sql.DB) error {
-	rows, err := accounts.Query(`SELECT name, hash FROM accounts`)
+	rows, err := accounts.Query(`SELECT name, hash, role FROM accounts`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var name, hash string
-		if err := rows.Scan(&name, &hash); err != nil {
+		var name, hash, role string
+		if err := rows.Scan(&name, &hash, &role); err != nil {
 			return err
 		}
 		var n int
@@ -361,7 +361,7 @@ func (l *syncLog) adoptAccounts(accounts *sql.DB) error {
 			return err
 		}
 		if n == 0 {
-			if err := l.write(entryAccount, "", name, map[string]any{"hash": hash}); err != nil {
+			if err := l.write(entryAccount, "", name, map[string]any{"hash": hash, "role": role}); err != nil {
 				return err
 			}
 		}

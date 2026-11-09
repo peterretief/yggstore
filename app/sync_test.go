@@ -1,7 +1,8 @@
-package main
+package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -18,7 +19,7 @@ import (
 func machine(t *testing.T, name string) *data {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "d.db")
-	if err := importDesign(path, "design.sql", false, io.Discard); err != nil {
+	if err := importDesign(path, "testdata/sample.sql", false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	d, err := openData(path)
@@ -239,7 +240,7 @@ func TestTimeNeverGoesBack(t *testing.T) {
 
 func TestLogTakesInWhatWasThere(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "d.db")
-	if err := importDesign(path, "design.sql", false, io.Discard); err != nil {
+	if err := importDesign(path, "testdata/sample.sql", false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	d, _ := openData(path)
@@ -369,7 +370,7 @@ func TestAnEmptyMachineCatchesUp(t *testing.T) {
 	}
 	// A design change goes round, and the rows stay.
 	file := filepath.Join(t.TempDir(), "d.sql")
-	writeFile(t, file, strings.Replace(readFile(t, "design.sql"), "  email TEXT,", "  email TEXT,\n  phone TEXT,", 1))
+	writeFile(t, file, strings.Replace(readFile(t, "testdata/sample.sql"), "  email TEXT,", "  email TEXT,\n  phone TEXT,", 1))
 	if err := importDesign(a.path, file, false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +433,7 @@ func TestImportKeepsTheLog(t *testing.T) {
 	put(t, d, "clients", "c1", map[string]any{"name": "Acme", "email": "a@example.org"})
 	path := value(t, d, `SELECT file FROM pragma_database_list WHERE name = 'main'`)
 	file := filepath.Join(t.TempDir(), "d.sql")
-	writeFile(t, file, strings.Replace(readFile(t, "design.sql"), "  email TEXT,", "  email TEXT,\n  phone TEXT,", 1))
+	writeFile(t, file, strings.Replace(readFile(t, "testdata/sample.sql"), "  email TEXT,", "  email TEXT,\n  phone TEXT,", 1))
 	if err := importDesign(path, file, false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +461,12 @@ func TestRefusedPage(t *testing.T) {
 	put(t, b, "invoices", "i2", map[string]any{"number": "1", "project_id": "p1", "amount": "20"})
 	meet(t, a, b)
 	mux := http.NewServeMux()
-	a.routes(mux, func(h http.HandlerFunc) http.HandlerFunc { return h })
+	admin := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			h(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, person{Name: "a@example.org", Admin: true})))
+		}
+	}
+	a.routes(mux, admin, admin)
 	do := func(method, path string, f url.Values) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(f.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")

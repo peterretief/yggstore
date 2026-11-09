@@ -55,7 +55,8 @@ visitor --https--> web node --- /, /css, /images   served from the group
 In [YGGSITES](cli-cheatsheet.md#websites-yggsites), a site with a private part
 keeps it in the site's `app/` folder, which is never published: `design.sql`,
 `live`, which says where the live copy runs, and the site's own copy of the Go
-program, made from `examples/signin` with a `go.mod` of its own.
+program: a few lines on yggstore's [app package](../app/api.go), and any pages
+of its own beside them.
 
 - `./sites dev SITE` runs the pages and a development copy of the program on
   localhost. It has its own test data and accounts in `.dev/SITE`, a sign-in of
@@ -71,7 +72,7 @@ nothing.
 
 ## Sign-in, the first use
 
-[`examples/signin`](../examples/signin/main.go) is a starting point, with
+The [app package](../app/api.go) (with [`examples/signin`](../examples/signin/main.go) the smallest use of it) is the starting point, with
 `/app/login`, `/app/logout` and `/app/me`: one file to build and run, using
 the Go SQLite library yggstore already has. Accounts are in a SQLite file on your machine,
 passwords are hashed, wrong tries are limited, and the session is a

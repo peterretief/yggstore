@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"crypto/rand"
@@ -7,6 +7,8 @@ import (
 	"encoding/csv"
 	"fmt"
 	"html/template"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -46,13 +48,19 @@ type column struct {
 	Random     bool // Auto, and a random id: see newID
 	Ref        *ref
 	Choices    []string
+	HasDefault bool            // the design gives it a value when it's left out
+	Hide       map[string]bool // roles it's hidden from (permissions.go)
+	Label      string          // how it's named to people, if not by its name
+	Help       string          // a line under its field in forms
 }
 
 type table struct {
-	Name  string
-	Cols  []column
-	Key   string // what identifies a row
-	Label string // what a row is called in drop-downs and reports
+	Name     string
+	Cols     []column
+	Key      string   // what identifies a row
+	Label    string   // what a row is called in drop-downs and reports
+	Rules    []rule   // who may do what (permissions.go)
+	Problems []string // rules that couldn't be read
 }
 
 // visible is the columns people see in reports: a random id means nothing
@@ -74,6 +82,108 @@ func newID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return "r" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
+}
+
+// loginColumn, in a table's design, is the email of the account a row belongs
+// to. What's linked to that row by foreign keys belongs to them too.
+const loginColumn = "login"
+
+// scope is what limits a table to a client's own rows, and whether they can
+// see the table at all: not if it has no way back to a login column.
+func scope(tables []table, t table, p person) (cond string, args []any, ok bool) {
+	return scopeBy(tables, t, p, loginColumn)
+}
+
+// scopeBy limits a table to the rows that reach a column naming this person
+// (by): in the row, in a row it refers to (and so on up), or in a row of
+// another table that refers to it, such as a course's teachers in
+// course_teachers.
+func scopeBy(tables []table, t table, p person, by string) (string, []any, bool) {
+	return scopeFrom(tables, t, p, by, map[string]bool{})
+}
+
+func scopeFrom(tables []table, t table, p person, by string, seen map[string]bool) (string, []any, bool) {
+	if p.Name == "" || seen[t.Name] {
+		return "", nil, false
+	}
+	seen[t.Name] = true
+	if t.col(by) != nil {
+		return "lower(" + quote(by) + ") = ?", []any{cleanEmail(p.Name)}, true
+	}
+	for _, c := range t.Cols {
+		if c.Ref == nil {
+			continue
+		}
+		parent := find(tables, c.Ref.Table)
+		if parent == nil {
+			continue
+		}
+		if cond, args, ok := scopeFrom(tables, *parent, p, by, seen); ok {
+			return quote(c.Name) + " IN (SELECT " + quote(c.Ref.Column) + " FROM " + quote(parent.Name) + " WHERE " + cond + ")", args, true
+		}
+	}
+	// A table that links people to this one: its rows naming them.
+	for _, o := range tables {
+		if o.col(by) == nil {
+			continue
+		}
+		for _, c := range o.Cols {
+			if c.Ref != nil && c.Ref.Table == t.Name {
+				return quote(c.Ref.Column) + " IN (SELECT " + quote(c.Name) + " FROM " + quote(o.Name) + " WHERE lower(" + quote(by) + ") = ?)", []any{cleanEmail(p.Name)}, true
+			}
+		}
+	}
+	return "", nil, false
+}
+
+// allowed says whether a person may do an action (read, write or delete) to
+// a row as it is, and, for a write, to the row as it would be with the
+// changes: so nobody moves a row into or out of what's theirs. id "" is a
+// new row.
+func (d *data) allowed(tables []table, t table, p person, action, id string, changes map[string]any) bool {
+	cond, args, ok := t.rowsFor(tables, p, action)
+	if !ok {
+		return false
+	}
+	if cond == "" {
+		return true
+	}
+	values := map[string]any{}
+	if id != "" {
+		var n int
+		if d.db.QueryRow("SELECT COUNT(*) FROM "+quote(t.Name)+" WHERE "+quote(t.Key)+" = ? AND "+cond, append([]any{id}, args...)...).Scan(&n); n != 1 {
+			return false
+		}
+		if changes == nil {
+			return true
+		}
+		tx, err := d.db.Begin()
+		if err != nil {
+			return false
+		}
+		rows, err := readRows(tx, t, "WHERE "+quote(t.Key)+" = ?", id)
+		tx.Rollback()
+		if err != nil || len(rows) != 1 {
+			return false
+		}
+		values = rows[0]
+	}
+	for k, v := range changes {
+		values[k] = v
+	}
+	if _, ok := values[t.Key]; !ok {
+		values[t.Key] = id
+	}
+	// The row as it would be, as a one-row table the same condition can read.
+	var cols []string
+	var vals []any
+	for _, c := range t.Cols {
+		cols = append(cols, "? AS "+quote(c.Name))
+		vals = append(vals, values[c.Name])
+	}
+	var n int
+	d.db.QueryRow("SELECT COUNT(*) FROM (SELECT "+strings.Join(cols, ", ")+") WHERE "+cond, append(vals, args...)...).Scan(&n)
+	return n == 1
 }
 
 func (t table) col(name string) *column {
@@ -108,7 +218,7 @@ func (c column) kind() string {
 		return "decimal"
 	case has("LONGTEXT"):
 		return "textarea"
-	case strings.Contains(strings.ToLower(c.Name), "email"):
+	case strings.Contains(strings.ToLower(c.Name), "email") || strings.EqualFold(c.Name, loginColumn):
 		return "email"
 	}
 	return "text"
@@ -150,7 +260,7 @@ func openData(path string) (*data, error) {
 
 // design reads the file's tables, in name order.
 func (d *data) design() ([]table, error) {
-	rows, err := d.db.Query(`SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite%' AND name NOT LIKE '\_sync%' ESCAPE '\' ORDER BY name`)
+	rows, err := d.db.Query(`SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite%' AND name NOT LIKE '\_%' ESCAPE '\' ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +312,7 @@ func (d *data) readTable(t *table, stmt string) error {
 			return err
 		}
 		c.Required = notNull && !dflt.Valid
+		c.HasDefault = dflt.Valid
 		if pk > 0 {
 			keys = append(keys, c.Name)
 		}
@@ -242,10 +353,15 @@ func (d *data) readTable(t *table, stmt string) error {
 			}
 		}
 	}
+	// A row is called by its first short text, or failing that its first
+	// long text, in the order the design gives them.
+	readRules(t, stmt) // first: a column hidden from anyone can't name a row
 	t.Label = t.Key
-	for _, c := range t.Cols {
-		if k := c.kind(); (k == "text" || k == "email") && !c.Auto {
-			t.Label = c.Name
+	for _, kinds := range [][]string{{"text", "email"}, {"textarea"}} {
+		if i := slices.IndexFunc(t.Cols, func(c column) bool {
+			return slices.Contains(kinds, c.kind()) && !c.Auto && c.Ref == nil && len(c.Hide) == 0
+		}); i >= 0 {
+			t.Label = t.Cols[i].Name
 			break
 		}
 	}
@@ -275,13 +391,16 @@ func (d *data) tableFor(w http.ResponseWriter, r *http.Request) ([]table, *table
 	return tables, t
 }
 
-func (d *data) routes(mux *http.ServeMux, in func(http.HandlerFunc) http.HandlerFunc) {
+// routes keeps seeing to people signed in, and changing to admins. What a
+// client may see is limited in the handlers, by scope.
+func (d *data) routes(mux *http.ServeMux, in, admin func(http.HandlerFunc) http.HandlerFunc) {
 	mux.HandleFunc("GET "+dataBase+"{$}", in(d.diagram))
 	if d.sync != nil {
-		mux.HandleFunc("GET "+dataBase+"_refused", in(d.refusedPage))
-		mux.HandleFunc("POST "+dataBase+"_refused", in(d.dismiss))
+		mux.HandleFunc("GET "+dataBase+"_refused", admin(d.refusedPage))
+		mux.HandleFunc("POST "+dataBase+"_refused", admin(d.dismiss))
 	}
 	mux.HandleFunc("GET "+dataBase+"{table}/{$}", in(d.report))
+	// Signed in is all a route asks: each handler then asks table.access.
 	mux.HandleFunc("GET "+dataBase+"{table}/new", in(d.form))
 	mux.HandleFunc("POST "+dataBase+"{table}/new", in(d.save))
 	mux.HandleFunc("GET "+dataBase+"{table}/{id}", in(d.form))
@@ -389,10 +508,20 @@ func (d *data) diagram(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "something went wrong", http.StatusInternalServerError)
 		return
 	}
+	if who := viewer(r); !who.Admin {
+		var mine []table
+		for _, t := range tables {
+			if t.access(who).Read {
+				mine = append(mine, t)
+			}
+		}
+		page(w, r, http.StatusOK, "mine", mine)
+		return
+	}
 	p := layout(tables)
 	p.Refused = d.refusedCount()
 	p.Machines = d.machines()
-	page(w, http.StatusOK, "diagram", p)
+	page(w, r, http.StatusOK, "diagram", p)
 }
 
 // Reports.
@@ -420,6 +549,7 @@ type group struct {
 
 type reportPage struct {
 	Name, Link, Q, By, Filter string
+	Admin                     bool
 	Total                     int64
 	Heads                     []head
 	Rows                      []rowOut
@@ -433,11 +563,24 @@ type reportPage struct {
 
 // picks are a table's rows as a foreign key offers them: value to label.
 func (d *data) picks(tables []table, r ref) ([][2]string, map[string]string) {
+	return d.picksFor(tables, r, person{Admin: true})
+}
+
+// picksFor is picks, of only the rows who may read: what their drop-downs
+// offer.
+func (d *data) picksFor(tables []table, r ref, who person) ([][2]string, map[string]string) {
 	p := find(tables, r.Table)
 	if p == nil {
 		return nil, nil
 	}
-	rows, err := d.db.Query(fmt.Sprintf(`SELECT %s, %s FROM %s ORDER BY 2 LIMIT %d`, quote(r.Column), quote(p.Label), quote(r.Table), maxPick))
+	cond, args, ok := p.rows(tables, who)
+	if !ok {
+		return nil, nil
+	}
+	if cond != "" {
+		cond = " WHERE " + cond
+	}
+	rows, err := d.db.Query(fmt.Sprintf(`SELECT %s, %s FROM %s%s ORDER BY 2 LIMIT %d`, quote(r.Column), quote(p.Label), quote(r.Table), cond, maxPick), args...)
 	if err != nil {
 		return nil, nil
 	}
@@ -488,6 +631,14 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 	if t == nil {
 		return
 	}
+	who := viewer(r)
+	acc := t.access(who)
+	if !acc.Read {
+		http.NotFound(w, r)
+		return
+	}
+	full := *t
+	*t = t.forViewer(who) // from here on, only what this person may see
 	cols := t.visible()
 	view := *t
 	view.Cols = cols
@@ -513,12 +664,19 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 	if c := t.col(field); c != nil {
 		where = append(where, quote(field)+" = ?")
 		args = append(args, value)
-		filter = human(field) + ": " + value
-		if c.Ref != nil {
+		filter = c.title() + ": " + value
+		if p := find(tables, c.Ref.Table); c.Ref != nil && p != nil && p.allRows(tables, who) {
 			if _, labels := d.picks(tables, *c.Ref); labels[value] != "" {
-				filter = human(field) + ": " + labels[value]
+				filter = c.title() + ": " + labels[value]
 			}
 		}
+	}
+	if limit, limitArgs, ok := full.rows(tables, who); !ok {
+		http.NotFound(w, r)
+		return
+	} else if limit != "" {
+		where = append(where, limit)
+		args = append(args, limitArgs...)
 	}
 	cond := ""
 	if where != nil {
@@ -561,7 +719,9 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 			if l := labels[c.Name][s]; l != "" {
 				out.Text = l
 			}
-			out.Link = tableLink(c.Ref.Table) + url.PathEscape(s)
+			if p := find(tables, c.Ref.Table); p != nil && canSee(tables, *p, who) {
+				out.Link = tableLink(c.Ref.Table) + url.PathEscape(s)
+			}
 		}
 		return out
 	}
@@ -600,9 +760,9 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 		}
 		return tableLink(t.Name) + "?" + v.Encode()
 	}
-	p := reportPage{Name: t.Name, Link: tableLink(t.Name), Q: q, By: by, Filter: filter, Total: total, CSV: link(map[string]string{"csv": "1", "page": ""})}
+	p := reportPage{Admin: acc.Write, Name: t.Name, Link: tableLink(t.Name), Q: q, By: by, Filter: filter, Total: total, CSV: link(map[string]string{"csv": "1", "page": ""})}
 	for _, c := range cols {
-		h := head{Name: c.Name, Title: human(c.Name), Num: c.summed()}
+		h := head{Name: c.Name, Title: c.title(), Num: c.summed()}
 		flip := ""
 		if order == c.Name && !desc {
 			flip = "1"
@@ -610,7 +770,7 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 		h.Link = link(map[string]string{"sort": c.Name, "desc": flip, "page": ""})
 		p.Heads = append(p.Heads, h)
 		if c.Ref != nil || c.Choices != nil || c.kind() == "checkbox" {
-			p.GroupBy = append(p.GroupBy, head{Name: c.Name, Title: human(c.Name), Link: link(map[string]string{"by": c.Name})})
+			p.GroupBy = append(p.GroupBy, head{Name: c.Name, Title: c.title(), Link: link(map[string]string{"by": c.Name})})
 		}
 	}
 	for rows.Next() {
@@ -646,10 +806,15 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 		}
 		p.Sums = append(p.Sums, s)
 	}
-	if c := t.col(by); c != nil {
-		d.groups(&p, *t, *c, from, args, show)
+	if c := view.col(by); c != nil {
+		d.groups(&p, view, *c, from, args, show)
 	}
-	page(w, http.StatusOK, "report", p)
+	page(w, r, http.StatusOK, "report", p)
+}
+
+func canSee(tables []table, t table, p person) bool {
+	_, _, ok := t.rows(tables, p)
+	return ok
 }
 
 // groups adds the report's totals for each value of a column.
@@ -731,9 +896,9 @@ func (d *data) writeCSV(w http.ResponseWriter, t table, query string, args []any
 // Forms.
 
 type field struct {
-	Name, Title, Kind, Value string
-	Required                 bool
-	Options                  [][2]string
+	Name, Title, Kind, Value, Help string
+	Required                       bool
+	Options                        [][2]string
 }
 
 type child struct {
@@ -744,19 +909,42 @@ type child struct {
 type formPage struct {
 	Name, Link, Action, Delete, Error string
 	Fields                            []field
+	Shown                             [][2]string // a client's view: title, value
 	Children                          []child
 }
 
-func (d *data) fields(tables []table, t table, values func(string) string) []field {
+// shown is a record as a client reads it. Nothing else is offered, so a
+// drop-down can't list other people's records.
+func (d *data) shown(tables []table, t table, got map[string]string) [][2]string {
+	var out [][2]string
+	for _, c := range t.Cols {
+		if c.Auto {
+			continue
+		}
+		s := got[c.Name]
+		switch {
+		case c.kind() == "checkbox" && s != "":
+			s = map[bool]string{true: "Yes", false: "No"}[s != "0"]
+		case c.Ref != nil:
+			if _, labels := d.picks(tables, *c.Ref); labels[s] != "" {
+				s = labels[s]
+			}
+		}
+		out = append(out, [2]string{c.title(), s})
+	}
+	return out
+}
+
+func (d *data) fields(tables []table, t table, who person, values func(string) string) []field {
 	var out []field
 	for _, c := range t.Cols {
 		if c.Auto {
 			continue
 		}
-		f := field{Name: c.Name, Title: human(c.Name), Kind: c.kind(), Value: values(c.Name), Required: c.Required}
+		f := field{Name: c.Name, Title: c.title(), Help: c.Help, Kind: c.kind(), Value: values(c.Name), Required: c.Required}
 		switch f.Kind {
 		case "ref":
-			f.Options, _ = d.picks(tables, *c.Ref)
+			f.Options, _ = d.picksFor(tables, *c.Ref, who)
 		case "choice":
 			for _, x := range c.Choices {
 				f.Options = append(f.Options, [2]string{x, x})
@@ -773,10 +961,18 @@ func (d *data) form(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	who := viewer(r)
+	acc := t.access(who)
+	full := *t
+	*t = t.forViewer(who)
 	p := formPage{Name: t.Name, Link: tableLink(t.Name), Action: tableLink(t.Name) + "new"}
 	if id == "" {
-		p.Fields = d.fields(tables, *t, r.URL.Query().Get) // a link may fill some in
-		page(w, http.StatusOK, "form", p)
+		if !acc.Write {
+			http.Error(w, "you can't add to this", http.StatusForbidden)
+			return
+		}
+		p.Fields = d.fields(tables, *t, viewer(r), r.URL.Query().Get) // a link may fill some in
+		page(w, r, http.StatusOK, "form", p)
 		return
 	}
 	vals := make([]any, len(t.Cols))
@@ -786,7 +982,15 @@ func (d *data) form(w http.ResponseWriter, r *http.Request) {
 		ptrs[i] = &vals[i]
 		names = append(names, quote(c.Name))
 	}
-	err := d.db.QueryRow("SELECT "+strings.Join(names, ", ")+" FROM "+quote(t.Name)+" WHERE "+quote(t.Key)+" = ?", id).Scan(ptrs...)
+	where, args := quote(t.Key)+" = ?", []any{id}
+	if limit, limitArgs, ok := full.rows(tables, who); !ok {
+		http.NotFound(w, r)
+		return
+	} else if limit != "" {
+		where += " AND " + limit
+		args = append(args, limitArgs...)
+	}
+	err := d.db.QueryRow("SELECT "+strings.Join(names, ", ")+" FROM "+quote(t.Name)+" WHERE "+where, args...).Scan(ptrs...)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -795,9 +999,17 @@ func (d *data) form(w http.ResponseWriter, r *http.Request) {
 	for i, c := range t.Cols {
 		got[c.Name] = text(vals[i])
 	}
-	p.Fields = d.fields(tables, *t, func(n string) string { return got[n] })
-	p.Action = tableLink(t.Name) + url.PathEscape(id)
-	p.Delete = p.Action + "/delete"
+	canWrite := acc.Write && d.allowed(tables, full, who, "write", id, nil)
+	if canWrite {
+		p.Fields = d.fields(tables, *t, viewer(r), func(n string) string { return got[n] })
+		p.Action = tableLink(t.Name) + url.PathEscape(id)
+	}
+	if acc.Delete && d.allowed(tables, full, who, "delete", id, nil) {
+		p.Delete = tableLink(t.Name) + url.PathEscape(id) + "/delete"
+	}
+	if !canWrite {
+		p.Shown = d.shown(tables, *t, got)
+	}
 	for _, o := range tables {
 		for _, c := range o.Cols {
 			if c.Ref == nil || c.Ref.Table != t.Name {
@@ -808,13 +1020,22 @@ func (d *data) form(w http.ResponseWriter, r *http.Request) {
 				v = id
 			}
 			k := child{Table: o.Name, Title: human(o.Name)}
-			d.db.QueryRow("SELECT COUNT(*) FROM "+quote(o.Name)+" WHERE "+quote(c.Name)+" = ?", v).Scan(&k.Count)
+			count, countArgs := quote(c.Name)+" = ?", []any{v}
+			if limit, limitArgs, ok := o.rows(tables, who); !ok {
+				continue
+			} else if limit != "" {
+				count += " AND " + limit
+				countArgs = append(countArgs, limitArgs...)
+			}
+			d.db.QueryRow("SELECT COUNT(*) FROM "+quote(o.Name)+" WHERE "+count, countArgs...).Scan(&k.Count)
 			k.Link = tableLink(o.Name) + "?" + url.Values{"f": {c.Name}, "v": {v}}.Encode()
-			k.Add = tableLink(o.Name) + "new?" + url.Values{c.Name: {v}}.Encode()
+			if o.access(who).Write {
+				k.Add = tableLink(o.Name) + "new?" + url.Values{c.Name: {v}}.Encode()
+			}
 			p.Children = append(p.Children, k)
 		}
 	}
-	page(w, http.StatusOK, "form", p)
+	page(w, r, http.StatusOK, "form", p)
 }
 
 func (d *data) save(w http.ResponseWriter, r *http.Request) {
@@ -822,6 +1043,13 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 	if t == nil {
 		return
 	}
+	who := viewer(r)
+	if !t.access(who).Write {
+		http.Error(w, "you can't change this", http.StatusForbidden)
+		return
+	}
+	full := *t
+	*t = t.forViewer(who) // a column they can't see stays as it is
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	id := r.PathValue("id")
 	var names, marks []string
@@ -841,11 +1069,17 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 			v = map[bool]int{true: 1, false: 0}[s != ""]
 		} else if s != "" {
 			v = s
+		} else if id == "" && c.HasDefault {
+			continue // left blank on a new row: the design's default
 		}
 		names = append(names, quote(c.Name))
 		marks = append(marks, "?")
 		args = append(args, v)
 		fields[c.Name] = v
+	}
+	if !d.allowed(tables, full, who, "write", id, fields) {
+		http.Error(w, "you can't change this", http.StatusForbidden)
+		return
 	}
 	var err error
 	if d.sync != nil {
@@ -861,8 +1095,8 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		p := formPage{Name: t.Name, Link: tableLink(t.Name), Action: r.URL.Path, Error: plainError(err),
-			Fields: d.fields(tables, *t, r.PostFormValue)}
-		page(w, http.StatusBadRequest, "form", p)
+			Fields: d.fields(tables, *t, viewer(r), r.PostFormValue)}
+		page(w, r, http.StatusBadRequest, "form", p)
 		return
 	}
 	http.Redirect(w, r, tableLink(t.Name), http.StatusSeeOther)
@@ -874,6 +1108,10 @@ func (d *data) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	if !t.access(viewer(r)).Delete || !d.allowed(tables, *t, viewer(r), "delete", id, nil) {
+		http.Error(w, "you can't delete this", http.StatusForbidden)
+		return
+	}
 	var err error
 	if d.sync != nil {
 		err = d.sync.write(entryDelete, t.Name, id, nil)
@@ -882,8 +1120,8 @@ func (d *data) remove(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		p := formPage{Name: t.Name, Link: tableLink(t.Name), Action: tableLink(t.Name) + url.PathEscape(id), Error: plainError(err),
-			Fields: d.fields(tables, *t, r.PostFormValue)}
-		page(w, http.StatusConflict, "message", p)
+			Fields: d.fields(tables, *t, viewer(r), r.PostFormValue)}
+		page(w, r, http.StatusConflict, "message", p)
 		return
 	}
 	http.Redirect(w, r, tableLink(t.Name), http.StatusSeeOther)
@@ -904,16 +1142,41 @@ func plainError(err error) string {
 	return "That couldn't be saved."
 }
 
-func page(w http.ResponseWriter, code int, name string, p any) {
+type menuItem struct {
+	Title, Href, Icon string
+	On                bool
+}
+
+type menu struct {
+	Site, Name string
+	Items      []menuItem
+}
+
+// menuFor is the menu for whoever a request is from: none if nobody's
+// signed in. The program fills it in (main.go).
+var menuFor = func(r *http.Request) menu { return menu{} }
+
+// page writes a page: the style, the menu for whoever's signed in, and the
+// page itself.
+func page(w http.ResponseWriter, r *http.Request, code int, name string, p any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
-	dataPages.ExecuteTemplate(w, name, p)
+	dataPages.ExecuteTemplate(w, "head", nil)
+	if m := menuFor(r); m.Name != "" {
+		dataPages.ExecuteTemplate(w, "menu", m)
+	}
+	io.WriteString(w, "<main>")
+	defer io.WriteString(w, "</main>")
+	if err := dataPages.ExecuteTemplate(w, name, p); err != nil {
+		log.Printf("page %s: %v", name, err) // the page stops where it went wrong
+	}
 }
 
-var dataPages = template.Must(template.New("").Funcs(template.FuncMap{"human": human, "tableLink": tableLink, "add": func(a, b int) int { return a + b }}).Parse(`
-{{define "top"}}<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+var dataPages = template.Must(template.New("").Funcs(template.FuncMap{"human": human, "tableLink": tableLink, "extraStyle": func() template.CSS { return template.CSS(extraStyle) }, "roles": func() []string { return []string{roleClient, roleStaff, roleAdmin} }, "add": func(a, b int) int { return a + b }}).Parse(`
+{{define "head"}}<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+[hidden]{display:none!important}
 :root{--ink:#1c1c1c;--soft:#666;--line:#c9c9c9;--bg:#fff;--box:#f4f4f1;--accent:#0b5cad}
 @media (prefers-color-scheme:dark){:root{--ink:#eee;--soft:#aaa;--line:#555;--bg:#161616;--box:#232323;--accent:#7db8f0}}
 body{font:16px/1.5 system-ui,sans-serif;color:var(--ink);background:var(--bg);max-width:70rem;margin:0 auto;padding:1rem}
@@ -923,13 +1186,52 @@ table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:.35rem .
 form.edit{max-width:30rem}form.edit label{display:block;margin-bottom:1rem}
 form.edit input:not([type=checkbox]),form.edit select,form.edit textarea{display:block;width:100%;box-sizing:border-box;padding:.5rem;font:inherit}
 button{padding:.4rem 1rem;font:inherit}.bar{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin:1rem 0}
+.told{background:#e7f4ec;color:#14532d;padding:.6rem .8rem;border-radius:6px}
+@media (prefers-color-scheme:dark){.told{background:#14321f;color:#c7f0d4}}
+.muted{color:var(--soft)}label input[type=checkbox]{margin-right:.4rem}
+.choices label{display:block;margin:.35rem 0}.members{padding-left:1.2rem}.members li{margin:.3rem 0}
+.members button{padding:.1rem .6rem;font-size:.9em}
 svg text{fill:var(--ink);font:13px system-ui,sans-serif}svg .type{fill:var(--soft);font-size:11px}svg .title{font-weight:600}
 svg rect{fill:var(--box);stroke:var(--line)}svg path{fill:none;stroke:var(--accent);stroke-width:1.5}svg .end{fill:var(--accent);font-size:12px}
 @media print{nav,.bar,form{display:none}}
-</style>{{end}}
+header.app{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem 1.2rem;padding:.2rem 0 .8rem;margin-bottom:1.2rem;border-bottom:1px solid var(--line)}
+header.app .site{font-weight:700;font-size:1.1rem;color:var(--ink);text-decoration:none;margin-right:auto}
+nav.menu{display:flex;flex-wrap:wrap;gap:.2rem;margin:0}nav.menu a{color:var(--ink);text-decoration:none;padding:.35rem .7rem;border-radius:6px}
+nav.menu a:hover{background:var(--box)}nav.menu a[aria-current]{background:var(--box);font-weight:600;color:var(--accent)}
+details.who{position:relative}details.who summary{cursor:pointer;list-style:none;padding:.35rem .7rem;border:1px solid var(--line);border-radius:6px;font-size:.9rem;color:var(--soft)}
+details.who summary::-webkit-details-marker{display:none}details.who[open] summary{background:var(--box)}
+details.who .drop{position:absolute;right:0;top:2.4rem;z-index:5;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.5rem;min-width:13rem;box-shadow:0 8px 16px #0000001a}
+details.who .drop a,details.who .drop button{display:block;width:100%;text-align:left;padding:.4rem .6rem;border:0;background:none;font:inherit;color:var(--ink);text-decoration:none;border-radius:6px;cursor:pointer}
+details.who .drop a:hover,details.who .drop button:hover{background:var(--box)}
+main > nav{font-size:.9rem;color:var(--soft)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1.5rem 0}
+.tiles a{display:block;padding:1.2rem;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--ink);background:var(--box)}
+.tiles a:hover{border-color:var(--accent)}.tiles b{display:block;font-size:1.6rem;margin-bottom:.4rem}
+form.signin{max-width:24rem;margin:3rem auto}
+{{extraStyle}}</style>{{end}}
+
+{{define "top"}}{{end}}
+
+{{define "menu"}}<header class="app"><a class="site" href="/">{{.Site}}</a>
+<nav class="menu" aria-label="Menu">{{range .Items}}<a href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}</nav>
+<details class="who"><summary>{{.Name}} ▾</summary><div class="drop">
+<a href="` + base + `password">Change your password</a>
+<form method="post" action="` + base + `logout"><button>Sign out</button></form></div></details></header>{{end}}
+
+{{define "home"}}<title>{{.Site}}</title>
+<h1>Hello, {{.Name}}</h1>
+<div class="tiles">{{range .Items}}{{if ne .Href "` + base + `"}}<a href="{{.Href}}"><b>{{.Icon}}</b>{{.Title}}</a>{{end}}{{end}}
+<a href="` + base + `password"><b>🔑</b>Change your password</a></div>{{end}}
+
+{{define "login"}}<title>Sign in</title>
+<form class="edit signin" method="post" action="` + base + `login"><h1>Sign in</h1>
+{{if .}}<p class="err">{{.}}</p>{{end}}
+<label>Email <input name="email" type="email" autocomplete="username" required autofocus></label>
+<label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+<button>Sign in</button></form>{{end}}
 
 {{define "diagram"}}{{template "top"}}<title>Your data</title>
-<nav><a href="` + base + `">Home</a></nav><h1>Your data</h1>
+<h1>Your data</h1>
 {{range .Machines}}<p>{{.}}</p>{{end}}
 {{if .Refused}}<p class="err"><a href="` + dataBase + `_refused">{{.Refused}} to look at</a>: saves that couldn't be merged.</p>{{end}}
 {{if .Tables}}<div class="scroll"><svg width="{{.W}}" height="{{.H}}" viewBox="0 0 {{.W}} {{.H}}" role="img" aria-label="Tables and how they relate">
@@ -941,10 +1243,14 @@ svg rect{fill:var(--box);stroke:var(--line)}svg path{fill:none;stroke:var(--acce
 <h2>Tables</h2><ul>{{range .Tables}}<li><a href="{{tableLink .Name}}">{{human .Name}}</a></li>{{end}}</ul>
 {{else}}<p>There are no tables yet. Write your tables in a .sql file and import it with -import.</p>{{end}}{{end}}
 
+{{define "mine"}}{{template "top"}}<title>Your records</title>
+<h1>Your records</h1>
+{{if .}}<ul>{{range .}}<li><a href="{{tableLink .Name}}">{{human .Name}}</a></li>{{end}}</ul>{{else}}<p>There's nothing here for you yet.</p>{{end}}{{end}}
+
 {{define "report"}}{{template "top"}}<title>{{human .Name}}</title>
 <nav><a href="` + dataBase + `">Your data</a></nav><h1>{{human .Name}}</h1>
 {{if .Filter}}<p>{{.Filter}} · <a href="{{.Link}}">Show all</a></p>{{end}}
-<div class="bar"><a href="{{.Link}}new">Add</a>
+<div class="bar">{{if .Admin}}<a href="{{.Link}}new">Add</a>{{end}}
 <form method="get" action="{{.Link}}"><input name="q" value="{{.Q}}" aria-label="Search"> <button>Search</button></form>
 <span>{{.Total}} in all</span><a href="{{.CSV}}">Download CSV</a></div>
 {{if .GroupBy}}<p>Totals by: {{range .GroupBy}}<a href="{{.Link}}">{{.Title}}</a> {{end}}</p>{{end}}
@@ -958,15 +1264,16 @@ svg rect{fill:var(--box);stroke:var(--line)}svg path{fill:none;stroke:var(--acce
 {{define "form"}}{{template "top"}}<title>{{human .Name}}</title>
 <nav><a href="{{.Link}}">{{human .Name}}</a></nav><h1>{{human .Name}}</h1>
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+{{if .Shown}}<table>{{range .Shown}}<tr><th>{{index . 0}}</th><td>{{index . 1}}</td></tr>{{end}}</table>{{else}}
 <form class="edit" method="post" action="{{.Action}}">{{range .Fields}}<label>{{.Title}}{{if .Required}} *{{end}}
 {{if or (eq .Kind "ref") (eq .Kind "choice")}}{{$v := .Value}}<select name="{{.Name}}"{{if .Required}} required{{end}}><option value=""></option>{{range .Options}}<option value="{{index . 0}}"{{if eq (index . 0) $v}} selected{{end}}>{{index . 1}}</option>{{end}}</select>
 {{else if eq .Kind "textarea"}}<textarea name="{{.Name}}" rows="5"{{if .Required}} required{{end}}>{{.Value}}</textarea>
 {{else if eq .Kind "checkbox"}}<input type="checkbox" name="{{.Name}}" value="1"{{if and .Value (ne .Value "0")}} checked{{end}}>
 {{else if eq .Kind "decimal"}}<input type="number" step="any" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}>
-{{else}}<input type="{{.Kind}}" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}>{{end}}</label>{{end}}
-<button>Save</button></form>
+{{else}}<input type="{{.Kind}}" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}>{{end}}{{if .Help}}<small class="muted">{{.Help}}</small>{{end}}</label>{{end}}
+<button>Save</button></form>{{end}}
 {{if .Delete}}<form method="post" action="{{.Delete}}" onsubmit="return confirm('Delete this?')"><p><button>Delete</button></p></form>{{end}}
-{{if .Children}}<h2>Related</h2><ul>{{range .Children}}<li><a href="{{.Link}}">{{.Title}}</a> ({{.Count}}) · <a href="{{.Add}}">Add</a></li>{{end}}</ul>{{end}}{{end}}
+{{if .Children}}<h2>Related</h2><ul>{{range .Children}}<li><a href="{{.Link}}">{{.Title}}</a> ({{.Count}}){{if .Add}} · <a href="{{.Add}}">Add</a>{{end}}</li>{{end}}</ul>{{end}}{{end}}
 
 {{define "refused"}}{{template "top"}}<title>To look at</title>
 <nav><a href="` + dataBase + `">Your data</a></nav><h1>To look at</h1>

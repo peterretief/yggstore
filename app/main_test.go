@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"database/sql"
@@ -17,9 +17,9 @@ func TestSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	db.Exec(`CREATE TABLE accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL);
+	db.Exec(`CREATE TABLE accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin');
 		CREATE TABLE sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL);`)
-	db.Exec(`INSERT INTO accounts VALUES ('alice@example.org', ?)`, hashPassword("correct horse"))
+	db.Exec(`INSERT INTO accounts (name, hash) VALUES ('alice@example.org', ?)`, hashPassword("correct horse"))
 	a := &app{db: db, tries: map[string][]time.Time{}}
 	h := a.routes()
 	do := func(method, path, ip, body string, c *http.Cookie) *httptest.ResponseRecorder {

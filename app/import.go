@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ type object struct{ kind, name, stmt string }
 // objects lists what a schema holds ("main", or "design" when attached).
 func objects(ctx context.Context, c *sql.Conn, schema string) ([]object, error) {
 	rows, err := c.QueryContext(ctx, `SELECT type, name, sql FROM `+schema+`.sqlite_master
-		WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite%' AND name NOT LIKE '\_sync%' ESCAPE '\' ORDER BY rowid`)
+		WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite%' AND name NOT LIKE '\_%' ESCAPE '\' ORDER BY rowid`)
 	if err != nil {
 		return nil, err
 	}
@@ -352,6 +352,7 @@ func importDesign(path, file string, drop bool, out io.Writer) error {
 func designNotes(tables []table) []string {
 	var out, numbered []string
 	for _, t := range tables {
+		out = append(out, t.Problems...)
 		if c := t.col(t.Key); c != nil && c.Auto && !c.Random {
 			numbered = append(numbered, t.Name)
 		} else if c == nil {
