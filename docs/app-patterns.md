@@ -1,6 +1,6 @@
 # Apps on yggstore: patterns for developers
 
-Status: approved 2026-11-09; step 1 being built.
+Status: approved 2026-11-09; step 1 built in Peter's site (not yet deployed).
 
 A developer in the group builds a site with a private part for a client: people
 sign in, see what's theirs, fill in forms, read reports, get documents. Today
@@ -58,6 +58,9 @@ CREATE TABLE projects (
 
 - `own` means through `login`, as clients' rows work now: the row, or one it
   links to through foreign keys, names the person.
+- `if COLUMN` limits a read to rows where that column is set, such as
+  `client read if published` for a catalogue; a read with neither is every
+  row. Several reads add up (built 2026-11-09).
 - Clients only read, for now (see Decided).
 - `hide from: client` leaves a column out of their forms, reports and downloads.
 - `label:` and `help:` change how a field reads, and nothing else.
@@ -126,6 +129,15 @@ Peter's YGGSITES folder.
    imports it.
 4. `yggstore site dev` and `yggstore site deploy`.
 5. The template repo, and a how-to; then one other developer tries it.
+
+## An example
+
+`learning.withcare.co.za` (Peter's machine, not published) is an online
+learning platform built this way, with `TUTORIAL.md` going through each step:
+courses for everyone once published, each learner's own enrolments and
+progress, teachers as staff, and its own pages (`learn.go`) for lessons in
+order and certificates. An app's own pages register with `ownPages` and
+`ownLinks`, and ask the same `access` and `rows` as the data pages.
 
 ## Decided
 
