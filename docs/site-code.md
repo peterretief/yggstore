@@ -5,6 +5,8 @@ it's built this way. Built: handlers (stage 1), data with its write log,
 replay and rules (most of stage 3), previews, and
 [developing locally](sites.md#working-on-a-site-on-your-own-machine). Not
 yet: handing on (stage 2), snapshots, the data key and big records.
+Proposed: [apps on the log](#apps-on-the-log-the-private-part-on-every-web-node)
+(stage 4), a site's private part on every web node.
 
 ## What we want
 
@@ -258,6 +260,105 @@ lowest address keeps the copy (`site.Keeper`).
   database. Fine for courses, members and bookings; not for millions of
   rows.
 
+## Apps on the log: the private part on every web node
+
+Status: proposed 2026-11-09. Nothing is built.
+
+Today a site's private part (sign-in, people, documents, the forms and
+reports from its `design.sql`, and its rules) is yggstore's
+[app package](../app/api.go), running as a [local app](local-apps.md) on one
+machine. When that machine is off, `/app/` says it isn't available. This
+stage moves the private part onto the log above, so it works on every web
+node while any one machine is off (aim 4), as the rest of the site does.
+
+It keeps the decision of 2026-10-23: **new data is saved as entries, reads
+are SQL** on a copy built from them, and the copies meet by replaying the
+entries in one order.
+
+### How it works
+
+| Part | Today (a local app) | On the log |
+| --- | --- | --- |
+| Tables | `design.sql`, imported into a data file on one machine | `design.sql` is the site's schema, on every web node |
+| A form saved | written to the data file | an entry (`row-add`, `row-change`, `row-remove`) with the fields and who sent it |
+| The rules | checked before the write | checked during replay, so every web node turns down the same entries |
+| What someone sees | `t.Rows` on the data file | the same `t.Rows`, on the web node's copy |
+| People, roles, password hashes | an accounts file on one machine | entries too (`person`, `role`, `password`) |
+| Sessions | on that machine | on each web node, as signing in to a box works today |
+| Documents | a folder on that machine | big records: stored in the group, the entry holds the stub |
+| Pages of a site's own | Go compiled into the program (`AddPages`) | handlers in `api/`, given who's asking ([below](#pages-of-a-sites-own)) |
+
+- **The app package's pages are built into the web nodes,** as members and
+  the contact form are, not run as a handler. A site switches them on;
+  `/app/` is then answered by whichever web node the visitor reaches.
+- **Every change is an entry**, including people and roles. The rules
+  depend on who someone is ("staff write own by tutor"), and a role
+  changed on one web node must apply in the same place in the order
+  everywhere. So roles can't be sent separately, as
+  [site members](site-members.md) are; they go in the log with the rows.
+- **Rules at replay use the same check as today** (`Data.Allowed`: the row
+  as it was, and as it would be). An entry that breaks one is kept, marked
+  turned down, and the person sees "not saved" with the reason.
+- **Passwords:** an entry holds the hash, never the password, sealed with
+  the data key like every entry. Signing in, and changing your own
+  password, work on any web node. Five wrong tries in a row make that
+  person wait, per web node, as for people on a box.
+
+### Pages of a site's own
+
+A site's own pages (the learning example's lessons, quizzes and videos)
+can't be compiled into the web nodes. They become handlers in `api/`, as
+[above](#code-webassembly-handlers), with two additions:
+
+- **who's asking:** the web node passes the signed-in person's email and
+  role (`YGG_VIEWER`, `YGG_ROLE`), after checking their session;
+- **reads limited by the rules:** `db.QueryAs(table, ...)` adds the same
+  condition `t.Rows` gives today, so a handler can't read rows the person
+  may not see. `db.Record` records as that person, so the rules at replay
+  apply to it as to a form.
+
+The leak test (`TestSite.NothingLeaks`) runs on them in `yggstore site
+dev`, which runs the web nodes' own code.
+
+### What it needs first
+
+1. **The data key** ([keeping it private](#keeping-it-private)): designed,
+   not built. Without it every member who follows a site's topic could read
+   its people and notes.
+2. **Snapshots** ([above](#snapshots-and-big-records)): a site's people and
+   records last for years, longer than the topic's 30 days.
+3. **Big records,** for documents.
+
+### Who can read it
+
+With the data key, members who aren't web nodes see only sealed entries.
+The web nodes themselves read the data while they serve it, as they read
+the sites today: a tutor's notes on a student would be readable on every
+machine that runs a web node. That is the same trust as the rest of this
+page, and the reason web nodes are machines the group chooses.
+
+A site that wants a table kept off the web nodes can keep it as a local app
+on one machine, as today: the two can run side by side, with `/app/` on the
+log and, say, `/app/private/` on the owner's machine.
+
+### Steps
+
+1. The data key, then snapshots (stage 3's unbuilt parts).
+2. The app package's forms, reports and rules on a site's log: `row-*`
+   entries, rules at replay, `t.Rows` on reads. Sign-in for the test still
+   from a list of people the owner sends. Tried on a throwaway site with
+   the tutoring example's design and leak test.
+3. People, roles and passwords as entries; sessions on the web nodes.
+4. Documents as big records.
+5. Pages of a site's own as handlers (`YGG_VIEWER`, `db.QueryAs`), with the
+   learning example as the test.
+6. Moving a local app over: its data file and accounts become the first
+   snapshot. First a copy of `peter.withcare.co.za`, then the site itself,
+   once its `/app/` has been answered with the desktop off.
+
+Each step is tried in `yggstore site dev`, then on a test site, before any
+real site moves.
+
 ## One project, two halves
 
 The starter (`YGGSITE-STARTER`: Vite pages on Node, a TinyGo module in the
@@ -326,6 +427,10 @@ is the first question below.
    gets registrations and bookings. Built up to held bookings, with
    `yggstore site data pull`; snapshots, the data key and big records are
    not.
+4. **Apps on the log:** a site's private part (sign-in, people, forms,
+   reports, rules, documents) on every web node instead of one machine
+   ([above](#apps-on-the-log-the-private-part-on-every-web-node)). Needs
+   stage 3 finished. Proposed 2026-11-09.
 
 Each stage is useful by itself, and each needs the one before. Each is
 tried on a test site, then on Kath's, with her.
@@ -352,3 +457,9 @@ tried on a test site, then on Kath's, with her.
    enough if snapshots are taken often; how often, and how many are kept?
 4. **Who makes the data key** when the owner is a person on a box rather
    than a node? Probably their box, which holds their sharing key now.
+5. **Is every web node trusted with every site's private records?**
+   (Stage 4.) If yes, apps move onto the log whole. If not for some
+   tables, those stay a local app on the owner's machine, beside the rest.
+6. **Which comes first, `peter.withcare.co.za` or a new site?** (Stage 4,
+   step 6.) A new site has no data to move; Peter's own has real use to
+   test against.
