@@ -1,6 +1,8 @@
 # One login for the group
 
 Status: approved 2026-10-18; step 1 built (see [What's built](#whats-built)).
+Proposed 2026-11-10: [a new device with numbers from several nodes](#a-new-device-with-numbers-from-several-nodes),
+no password.
 
 Everyone in the group, whether a member with their own node or someone on a
 box, gets **one login that works everywhere in the group**:
@@ -101,6 +103,122 @@ address; only signing in moves.
 - **One login is one thing to lose.** A locked or lost key locks the person
   out of everything at once. It's still fixed the same way, with a new
   invite.
+
+## A new device with numbers from several nodes
+
+Status: proposed 2026-11-10. Nothing is built.
+
+Passkeys are safe, but some people find them hard to set up, and a
+password is one more thing to remember. This signs in a new device with no
+password. The signing in is spread over several nodes, so no one node can
+do it alone.
+
+### What the person sees
+
+1. On a new phone or laptop, they type their email address.
+2. A few short numbers arrive, each from a different node of the group,
+   such as `47`, `12` and `90`. The page says where to look for them.
+3. They type any two of them. The device is now theirs: it's remembered,
+   and later visits just work.
+4. **Your devices** lists it. Removing it there, or the admin removing it,
+   signs it out everywhere.
+
+They type numbers once per device, not each time they sign in.
+
+**Signing in must be instant, or this is a step back.** So:
+
+- **Every sign-in after the first is instant:** the device proves itself
+  with its key, with no typing and no waiting. That's quicker than a
+  password.
+- **The first time on a device must take seconds too.** The numbers go
+  first where they show at once: a device the person is already signed in
+  on, their box's dashboard, their phone. Email, which can be slow or land
+  in spam, is the fallback, not the main route.
+
+### How it works
+
+- **Each number comes from its own node,** chosen from nodes on different
+  machines: the web nodes, the admin's node, the person's own box. Each
+  node makes its number, keeps only that number's hash, and sends it.
+- **Two of three is enough,** so one node being off doesn't stop anyone.
+- **Each node checks its own number.** The web node the person types into
+  passes each number to the node that made it, which answers yes or no.
+  Only that node knows whether it's right, so a node can't learn the
+  others' numbers.
+- **The device makes a key of its own.** The browser makes a key pair that
+  can't be copied out of it (WebCrypto, kept in the browser), and sends the
+  public half with the numbers. Each node whose number was right **signs
+  that public key** for this person.
+- **A device is let in with two nodes' signatures.** Every web node keeps
+  each person's devices, with the signatures, and accepts a device only
+  with two from different nodes. Later visits prove the device by signing
+  a challenge with its key, on any web node.
+- **So one node can't add a device.** A node that's been broken into, or a
+  rogue admin on one machine, has one signature, not two.
+
+### Keeping it safe
+
+- **Limits:** 5 wrong numbers and that request ends; a few requests an hour
+  per email address and per visitor, as for passwords now.
+- **Numbers last 10 minutes** and are used once.
+- **One request at a time:** asking again sends the same numbers again,
+  never new ones, at most every few minutes
+  ([one email at a time](email-login.md)).
+- **Every message says what it's for:** "a sign-in to tutoring.withcare.co.za
+  from a new device, from about Johannesburg", so an unexpected one gets
+  noticed. Where it seems to come from, from the web node's view, is
+  shown as information, never used as a lock.
+- **A message that wasn't asked for** has a "this wasn't me" link, which
+  ends the request and tells the admin.
+
+### How safe it is depends on the routes
+
+| The numbers go | Someone needs, to get in |
+| --- | --- |
+| all by email | the person's email |
+| by email and to their box (on its screen or dashboard) | their email and their box |
+| by email, their box and their phone | two of the three |
+
+Email alone is about as safe as "forgot your password" on most sites.
+Different routes make it as strong as a second factor, and it's still
+just typing numbers.
+
+### The other way: approve it from a device you have
+
+Instead of numbers, a device the person already uses (their phone, or
+their box's dashboard) shows "a laptop wants to sign in as Lee: allow?",
+and tapping yes signs the new key. With no other device, the request goes
+to the site's admin, who knows them. It's one tap instead of typing, but
+an approval tapped without reading lets a stranger in, which typed numbers
+make harder. Both can be offered: numbers by default, approval for people
+who have a second device.
+
+### Where it fits
+
+- **Passkeys stay.** This is for people without one, and for adding a
+  device to someone who has one.
+- **The group login at `my.`** gets it as another way to sign in. So do the
+  sites' private parts when they move onto the web nodes
+  ([apps on the log](site-code.md#apps-on-the-log-the-private-part-on-every-web-node)),
+  where a device's signatures are entries like a password hash.
+- **A cleared browser loses its key,** and the device signs in with numbers
+  again. Nothing else is lost.
+- **It protects signing in, not the data.** A web node still reads what it
+  serves; this stops one node adding a device, not one node misusing data.
+
+### Questions
+
+1. **Which routes?** They must show at once (see
+   [What the person sees](#what-the-person-sees)). A device the person is
+   already signed in on is the quickest: the page there shows the number
+   as it arrives. A message to a person's box needs a place on the box to
+   show it. A phone needs an app or SMS, and SMS is outside the group.
+   Email is there today, as the fallback.
+2. **Which nodes send numbers?** At least three on different machines, with
+   at least two up at any time.
+3. **Two digits each, or three?** Two of three two-digit numbers is four
+   digits to type. With the limits that's enough; three digits each is
+   safer and a little more typing.
 
 ## Build order
 
