@@ -29,7 +29,7 @@ import (
 
 const (
 	syncPath    = base + "_sync"
-	syncEvery   = 30 * time.Second
+	syncEvery   = 30 * time.Second // by default; see -sync-every
 	syncMaxSend = 5000 // entries in one answer
 	syncMaxAge  = 5 * time.Minute
 )
@@ -228,12 +228,18 @@ func (d *data) pull(client *http.Client, url string) (added int, err error) {
 	}
 }
 
-// syncWith keeps asking the other machines, for as long as the program runs.
-func (d *data) syncWith(site string, addrs []string) {
+// syncWith keeps asking the other machines, every so often, for as long as
+// the program runs. An address is another machine's node ([ADDRESS]:7400),
+// which passes the request to the program there; or, for two copies on one
+// machine in development, the other program itself (http://127.0.0.1:PORT).
+func (d *data) syncWith(site string, addrs []string, every time.Duration) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	for {
 		for _, addr := range addrs {
 			url := "http://" + addr + "/v1/local/" + site + syncPath
+			if strings.HasPrefix(addr, "http://") {
+				url = strings.TrimSuffix(addr, "/") + syncPath
+			}
 			n, err := d.pull(client, url)
 			d.keep.mu.Lock()
 			was := d.keep.seen[addr]
@@ -250,7 +256,7 @@ func (d *data) syncWith(site string, addrs []string) {
 				log.Printf("%d entries from %s", n, addr)
 			}
 		}
-		time.Sleep(syncEvery)
+		time.Sleep(every)
 	}
 }
 

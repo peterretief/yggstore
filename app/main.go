@@ -62,10 +62,11 @@ func Main() {
 	newKey := flag.String("sync-newkey", "", "make a key your machines can share, and stop")
 	site := flag.String("site", "", "the site this program serves, for -sync-with")
 	var syncAddrs []string
-	flag.Func("sync-with", "another machine's node, as [ADDRESS]:7400 (can be repeated)", func(s string) error {
+	flag.Func("sync-with", "another machine's node, as [ADDRESS]:7400, or in development another copy, as http://127.0.0.1:PORT (can be repeated)", func(s string) error {
 		syncAddrs = append(syncAddrs, s)
 		return nil
 	})
+	syncEveryFlag := flag.Duration("sync-every", syncEvery, "how often to ask the other machines for what's new")
 	check := flag.Bool("check", false, "import: only say what it would do")
 	docsDir := flag.String("docs", "app-documents", "with -data: the folder the uploaded documents are kept in")
 	asAdmin := flag.Bool("admin", false, "add: the account can see and change everything")
@@ -188,10 +189,12 @@ func Main() {
 		}
 		dataFile.keep = &keeper{key: key, seen: map[string]string{}}
 		if len(syncAddrs) > 0 {
-			if *site == "" {
-				log.Fatal("-sync-with needs -site")
+			for _, a := range syncAddrs {
+				if *site == "" && !strings.HasPrefix(a, "http://") {
+					log.Fatal("-sync-with a node needs -site")
+				}
 			}
-			go dataFile.syncWith(*site, syncAddrs)
+			go dataFile.syncWith(*site, syncAddrs, *syncEveryFlag)
 		}
 	}
 	a := &app{db: db, data: dataFile, tries: map[string][]time.Time{}}
