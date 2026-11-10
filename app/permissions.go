@@ -20,7 +20,12 @@ import (
 //	  id TEXT PRIMARY KEY,
 //	  budget REAL,    -- hide from: client
 //	  notes LONGTEXT  -- label: Notes for us; help: Anything we should know
+//	  made_by TEXT    -- fill: who made it
 //	);
+//
+// "fill: who made it" puts the email of whoever makes a row in that column,
+// whatever is sent, and keeps it; "staff read own by made_by" is then what
+// they made.
 //
 // Drawn in drawDB, the same go in its comment boxes: a table's rules in the
 // table's comment, which drawDB writes above the table and the import moves
@@ -56,7 +61,7 @@ var (
 	// columnStart is a line that may define a column, with no comment of
 	// its own: its name, then its type.
 	columnStart = regexp.MustCompile(`^\s*("[^"]+"|\[[^\]]+\]|` + "`[^`]+`" + `|[A-Za-z_][A-Za-z0-9_]*)\s+\S`)
-	directive   = regexp.MustCompile(`(?i)^\s*(hide from|label|help)\s*:\s*(.+?)\s*$`)
+	directive   = regexp.MustCompile(`(?i)^\s*(hide from|label|help|fill)\s*:\s*(.+?)\s*$`)
 )
 
 // readRule reads one rule, such as "client read if published".
@@ -132,15 +137,17 @@ func readRules(t *table, stmt string) {
 		}
 		if c != nil {
 			for _, n := range notes {
-				applyNotes(c, n)
+				if err := applyNotes(c, n); err != nil {
+					t.Problems = append(t.Problems, t.Name+"."+c.Name+": "+err.Error())
+				}
 			}
 		}
 	}
 }
 
-// applyNotes takes a column's hiding, label and help from a comment, such
-// as "hide from: client; label: Notes for us".
-func applyNotes(c *column, comment string) {
+// applyNotes takes a column's hiding, label, help and filling from a
+// comment, such as "hide from: client; label: Notes for us".
+func applyNotes(c *column, comment string) error {
 	for _, part := range strings.Split(comment, ";") {
 		d := directive.FindStringSubmatch(part)
 		if d == nil {
@@ -158,8 +165,16 @@ func applyNotes(c *column, comment string) {
 			c.Label = d[2]
 		case "help":
 			c.Help = d[2]
+		case "fill":
+			if !strings.EqualFold(strings.Join(strings.Fields(d[2]), " "), "who made it") {
+				return fmt.Errorf("%q: the only filling is \"fill: who made it\"", strings.TrimSpace(part))
+			}
+			// The signed-in person's email, when the row is made (see
+			// data.save); never asked for, never changed.
+			c.Maker, c.Auto, c.Required = true, true, false
 		}
 	}
+	return nil
 }
 
 // access is the one check: what a person may do with this table.

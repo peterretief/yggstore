@@ -46,6 +46,7 @@ type column struct {
 	Required   bool
 	Auto       bool // given when a row is made, not asked for
 	Random     bool // Auto, and a random id: see newID
+	Maker      bool // Auto, and who made the row: "fill: who made it" (permissions.go)
 	Ref        *ref
 	Choices    []string
 	HasDefault bool            // the design gives it a value when it's left out
@@ -1077,13 +1078,23 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 		args = append(args, v)
 		fields[c.Name] = v
 	}
+	// Who made a new row, whatever was sent, even into a column they can't
+	// see; on a change it stays as it was.
+	for _, c := range full.Cols {
+		if c.Maker && id == "" {
+			names = append(names, quote(c.Name))
+			marks = append(marks, "?")
+			args = append(args, who.Name)
+			fields[c.Name] = who.Name
+		}
+	}
 	if !d.allowed(tables, full, who, "write", id, fields) {
 		http.Error(w, "you can't change this", http.StatusForbidden)
 		return
 	}
 	var err error
 	if d.sync != nil {
-		err = d.saveEntry(*t, id, fields)
+		err = d.saveEntry(full, id, fields)
 	} else if id == "" {
 		_, err = d.db.Exec("INSERT INTO "+quote(t.Name)+" ("+strings.Join(names, ", ")+") VALUES ("+strings.Join(marks, ", ")+")", args...)
 	} else {
