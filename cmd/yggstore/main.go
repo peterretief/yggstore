@@ -28,6 +28,7 @@ import (
 	"github.com/peterretief/yggstore/internal/localstore"
 	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/mailbridge"
+	"github.com/peterretief/yggstore/internal/member"
 	"github.com/peterretief/yggstore/internal/mesh"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/outbox"
@@ -61,6 +62,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
                                                            live status page; with -outfiles it also
                                                            runs the outbox watcher (see watch)
   yggstore devices [add ADDR NAME | remove ADDR|NAME]      devices that may open your dashboard (see docs/remote-dashboard.md)
+  yggstore login invite | keys | forget ID                a passkey for the group login at my. (docs/login.md)
   yggstore hub     [-listen :7490] [-users DIR] [-service] | off|on|pause|resume|users|remove NAME
                                                            LAN devices sync files with this box through
                                                            Syncthing, which stores them (see docs/hub.md)
@@ -184,6 +186,8 @@ func main() {
 		err = cmdMesh(ctx, args)
 	case "devices":
 		err = cmdDevices(args)
+	case "login":
+		err = cmdLogin(ctx, args)
 	case "hub":
 		err = cmdHub(ctx, args)
 	case "mail":
@@ -486,9 +490,15 @@ func cmdServe(ctx context.Context, args []string) error {
 		go keeper.Run(ctx)
 		siteData = keeper
 	}
+	// The member's side of the group login (docs/login.md, step 2).
+	memberLogin := &member.Login{Path: filepath.Join(yggstoreHome(), "member-login.json"), Self: ip.String(), Peers: live.List,
+		Client: client.New().HTTP, Log: log.Printf,
+		WebNodes:  func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) },
+		IsWebNode: func(ctx context.Context, caller string) bool { return isWebNode(ctx, client.New(), *peersPath, caller) }}
+	go memberLogin.Run(ctx)
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
-		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), SiteData: siteData, Version: versionString(),
+		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), SiteData: siteData, Version: versionString(), Member: memberLogin,
 		LocalApp: &site.LocalRelay{Apps: site.LocalApps{Path: localAppsPath()}, Self: ip.String(), Log: log.Printf,
 			IsWebNode: func(ctx context.Context, caller string) bool { return isWebNode(ctx, client.New(), *peersPath, caller) }},
 		Join: func(caller string, req invite.Request) (invite.Response, error) {

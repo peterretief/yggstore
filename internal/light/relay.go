@@ -233,6 +233,17 @@ func (rl *Relay) boxURL(ip string) string {
 	if rl.BoxURL != nil {
 		return rl.BoxURL(ip)
 	}
+	// A member's own node answers on its node API (docs/login.md, step 2).
+	if rl.Signin != nil {
+		for _, p := range rl.Peers() {
+			if p.IP() == ip {
+				if rl.Signin.IsMember(p.Name) {
+					return "http://" + p.Addr + MemberBase
+				}
+				break
+			}
+		}
+	}
 	return "http://" + net.JoinHostPort(ip, HubPort)
 }
 

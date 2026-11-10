@@ -66,7 +66,15 @@ type Person struct {
 // People is what a box sends the web nodes: everyone on it with a key.
 type People struct {
 	People []Person `json:"people"`
+	// Member says the sender is a member's own node, not a box: its one
+	// person is the member, and it answers their invites and pages on its
+	// node API, under MemberBase (docs/login.md, step 2).
+	Member bool `json:"member,omitempty"`
 }
+
+// MemberBase is where a member's node answers what a box answers on
+// HubPort.
+const MemberBase = "/v1/member"
 
 // Session is a browser signed in.
 type Session struct {
@@ -117,8 +125,10 @@ type Store struct {
 }
 
 type storeState struct {
-	Boxes    map[string][]Person `json:"boxes"` // by box name
-	Sessions []Session           `json:"sessions"`
+	Boxes map[string][]Person `json:"boxes"` // by box name
+	// Members are the boxes that are members' own nodes (People.Member).
+	Members  map[string]bool `json:"members,omitempty"`
+	Sessions []Session       `json:"sessions"`
 	// Fails are wrong passwords in a row, per "box/person", as the web
 	// nodes saw them (see password.go).
 	Fails map[string]Fails `json:"password_fails,omitempty"`
@@ -154,6 +164,9 @@ func (s *Store) lock() {
 	}
 	if s.st.Boxes == nil {
 		s.st.Boxes = map[string][]Person{}
+	}
+	if s.st.Members == nil {
+		s.st.Members = map[string]bool{}
 	}
 	if s.st.Fails == nil {
 		s.st.Fails = map[string]Fails{}
@@ -209,6 +222,29 @@ func (s *Store) SetPeople(box string, ps []Person) {
 	s.st.Boxes[box] = ps
 	s.pruneLocked(time.Now())
 	s.saveLocked()
+}
+
+// setMember notes whether box is a member's own node.
+func (s *Store) setMember(box string, member bool) {
+	s.lock()
+	defer s.mu.Unlock()
+	if s.st.Members[box] == member {
+		return
+	}
+	if member {
+		s.st.Members[box] = true
+	} else {
+		delete(s.st.Members, box)
+	}
+	s.saveLocked()
+}
+
+// IsMember is whether box is a member's own node, which answers on its
+// node API rather than HubPort.
+func (s *Store) IsMember(box string) bool {
+	s.lock()
+	defer s.mu.Unlock()
+	return s.st.Members[box]
 }
 
 // allowedLocked is whether ss's person and key still let it in.
@@ -519,6 +555,7 @@ func (s *Store) Serve(w http.ResponseWriter, r *http.Request, caller string) boo
 			return true
 		}
 		s.SetPeople(box, ps.People)
+		s.setMember(box, ps.Member)
 		w.WriteHeader(http.StatusNoContent)
 		return true
 	}

@@ -63,6 +63,16 @@ Run these in `/media/peter/storage1/YGGSTORE` as `bin/yggstore …`. They cover 
 
 A new domain is published only once it's on Cloudflare; until then a `SITE - NOT PUBLISHED.txt` beside its folder says what to do.
 
+## Your own sign-in at my.withcare.co.za
+
+For a member, on their own machine ([login.md](login.md)). A person on a box gets an invite from the box instead.
+
+| Command | What it does |
+| --- | --- |
+| `yggstore login invite` | a QR code to open on your phone: it makes a passkey for the group login (the same link until used, for a week) |
+| `yggstore login keys` | your passkeys for the group login, and when each was last used |
+| `yggstore login forget ID` | forget one, not the last (the start of its ID is enough) |
+
 ## People on a box
 
 Run these on the box, as root: from the desktop, `ssh -t pi4 'sudo yggstore hub …'` (pi4 is localbox-004). The box's dashboard does the same under **Admin → People on this box**.

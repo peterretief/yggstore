@@ -1,6 +1,6 @@
 # One login for the group
 
-Status: approved 2026-10-18; step 1 built (see [What's built](#whats-built)).
+Status: approved 2026-10-18; steps 1 and 2 built (see [What's built](#whats-built)).
 Proposed 2026-11-10: [a new device with numbers from several nodes](#a-new-device-with-numbers-from-several-nodes),
 no password.
 
@@ -260,3 +260,28 @@ Step 1, on every web node (`internal/light/login.go`):
   `email` (`label@domain`) for someone with a name under the group's domain.
 - **Your devices** shows one sign-in per browser, with the addresses it's
   signed in at.
+
+Step 2, members (2026-11-10, `internal/member`):
+
+- **A member's own node keeps their passkeys**, as a box keeps its people's,
+  in `~/.yggstore/member-login.json`. The member is the node's owner in the
+  group's list, and their address comes from the node's name
+  (`peter.withcare.co.za` gives `peter@withcare.co.za`).
+- **`yggstore login invite`**, on the member's machine, asks their node for an
+  invite and shows it as a QR code to open on a phone, which makes a passkey
+  at `my.` as a box's invite does. `yggstore login keys` lists them and
+  `yggstore login forget ID` forgets one, not the last.
+- **The node sends the web nodes its member and their keys** once it has made
+  an invite, marked as a member's node (`People.Member`). The web nodes then
+  pass the member's invite and pages to the node's API, under `/v1/member`,
+  instead of to a box's hub; only web nodes may ask there, and only the
+  node's own machine may make an invite.
+- **Signing in works while the member's node is off,** as for people on a
+  box: the web nodes check the passkey. Once signed in, the member's page at
+  `my.` says so and links to their devices; their files and dashboard stay
+  on their own node.
+- **Not on a box:** a node whose machine runs a box's hub refuses, so its
+  people's requests keep going to the hub. A box's owner signs in as a
+  person on it.
+- Not yet: "make a passkey for the group login" on the dashboard; the
+  command line does it for now.

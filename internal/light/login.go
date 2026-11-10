@@ -510,6 +510,14 @@ func (rl *Relay) email(box, person string) string {
 				}
 			}
 		}
+		// A member's own node: the member's name is the node's.
+		if rl.Signin != nil && rl.Signin.IsMember(p.Name) {
+			for _, n := range p.Names {
+				if label, ok := strings.CutSuffix(strings.ToLower(n), "."+d); ok && d != "" && !strings.Contains(label, ".") {
+					return label + "@" + d
+				}
+			}
+		}
 	}
 	return ""
 }

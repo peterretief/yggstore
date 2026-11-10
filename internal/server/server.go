@@ -108,6 +108,12 @@ type Options struct {
 	LocalApp interface {
 		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
 	}
+	// Member, if set, is a member's side of the group login: their
+	// passkeys, and their invite and pages, which web nodes pass on
+	// (/v1/member/…; see package member).
+	Member interface {
+		Serve(w http.ResponseWriter, r *http.Request, caller string) bool
+	}
 	// SiteData, if set, takes sites' data from the other web nodes and
 	// gives them what they missed (/v1/site-data/…; see package site).
 	SiteData interface {
@@ -215,6 +221,9 @@ func Handler(store localstore.Store, opts Options) http.Handler {
 			return
 		}
 		if opts.LocalApp != nil && opts.LocalApp.Serve(w, r, caller) {
+			return
+		}
+		if opts.Member != nil && opts.Member.Serve(w, r, caller) {
 			return
 		}
 		if opts.SiteData != nil && opts.SiteData.Serve(w, r, caller) {
