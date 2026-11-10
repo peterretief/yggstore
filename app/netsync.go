@@ -30,7 +30,7 @@ import (
 const (
 	syncPath    = base + "_sync"
 	syncEvery   = 30 * time.Second // by default; see -sync-every
-	syncMaxSend = 5000 // entries in one answer
+	syncMaxSend = 5000             // entries in one answer
 	syncMaxAge  = 5 * time.Minute
 )
 

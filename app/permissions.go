@@ -22,6 +22,11 @@ import (
 //	  notes LONGTEXT  -- label: Notes for us; help: Anything we should know
 //	);
 //
+// Drawn in drawDB, the same go in its comment boxes: a table's rules in the
+// table's comment, which drawDB writes above the table and the import moves
+// inside it (commentsInside), and a column's notes in the field's comment,
+// which it writes on the line above the column.
+//
 // A rule can be limited: "own" is a person's own rows, through a login
 // column (scope), "own by COLUMN" through another column naming them, such
 // as a course's teacher in course_teachers ("staff write own by teacher"),
@@ -48,7 +53,10 @@ type access struct {
 var (
 	allowLine  = regexp.MustCompile(`(?i)--\s*allow:\s*(.+)$`)
 	columnLine = regexp.MustCompile(`^\s*("[^"]+"|\[[^\]]+\]|` + "`[^`]+`" + `|[A-Za-z_][A-Za-z0-9_]*)\s.*?--\s*(.+)$`)
-	directive  = regexp.MustCompile(`(?i)^\s*(hide from|label|help)\s*:\s*(.+?)\s*$`)
+	// columnStart is a line that may define a column, with no comment of
+	// its own: its name, then its type.
+	columnStart = regexp.MustCompile(`^\s*("[^"]+"|\[[^\]]+\]|` + "`[^`]+`" + `|[A-Za-z_][A-Za-z0-9_]*)\s+\S`)
+	directive   = regexp.MustCompile(`(?i)^\s*(hide from|label|help)\s*:\s*(.+?)\s*$`)
 )
 
 // readRule reads one rule, such as "client read if published".
@@ -93,7 +101,11 @@ func readRule(t *table, clause string) (rule, error) {
 
 // readRules takes a table's rules, and its columns' hiding, labels and help,
 // from its statement. What it can't read is kept in t.Problems.
+//
+// A column's notes go at the end of its line, or on comment lines just above
+// it, which is where drawDB puts a field's comment when it exports SQL.
 func readRules(t *table, stmt string) {
+	var above []string // comment lines waiting for the column below them
 	for _, line := range strings.Split(stmt, "\n") {
 		if m := allowLine.FindStringSubmatch(line); m != nil {
 			for _, clause := range strings.Split(m[1], ",") {
@@ -105,32 +117,47 @@ func readRules(t *table, stmt string) {
 			}
 			continue
 		}
-		m := columnLine.FindStringSubmatch(line)
-		if m == nil {
+		if c, ok := strings.CutPrefix(strings.TrimSpace(line), "--"); ok {
+			above = append(above, c)
 			continue
 		}
-		c := t.col(strings.Trim(m[1], "\"[]`"))
-		if c == nil {
-			continue
+		notes := above
+		above = nil
+		var c *column
+		if m := columnLine.FindStringSubmatch(line); m != nil {
+			c = t.col(strings.Trim(m[1], "\"[]`"))
+			notes = append(notes, m[2])
+		} else if m := columnStart.FindStringSubmatch(line); m != nil {
+			c = t.col(strings.Trim(m[1], "\"[]`"))
 		}
-		for _, part := range strings.Split(m[2], ";") {
-			d := directive.FindStringSubmatch(part)
-			if d == nil {
-				continue
+		if c != nil {
+			for _, n := range notes {
+				applyNotes(c, n)
 			}
-			switch strings.ToLower(d[1]) {
-			case "hide from":
-				for _, role := range strings.Split(strings.ToLower(d[2]), ",") {
-					if c.Hide == nil {
-						c.Hide = map[string]bool{}
-					}
-					c.Hide[strings.TrimSpace(role)] = true
+		}
+	}
+}
+
+// applyNotes takes a column's hiding, label and help from a comment, such
+// as "hide from: client; label: Notes for us".
+func applyNotes(c *column, comment string) {
+	for _, part := range strings.Split(comment, ";") {
+		d := directive.FindStringSubmatch(part)
+		if d == nil {
+			continue
+		}
+		switch strings.ToLower(d[1]) {
+		case "hide from":
+			for _, role := range strings.Split(strings.ToLower(d[2]), ",") {
+				if c.Hide == nil {
+					c.Hide = map[string]bool{}
 				}
-			case "label":
-				c.Label = d[2]
-			case "help":
-				c.Help = d[2]
+				c.Hide[strings.TrimSpace(role)] = true
 			}
+		case "label":
+			c.Label = d[2]
+		case "help":
+			c.Help = d[2]
 		}
 	}
 }

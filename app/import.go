@@ -108,12 +108,35 @@ func checkDesign(path, file string, out io.Writer) error {
 	return nil
 }
 
+// tableComment is a /* comment */ just before a CREATE TABLE, where drawDB
+// writes a table's comment when it exports SQL.
+var tableComment = regexp.MustCompile(`/\*([^*]*\*+(?:[^/*][^*]*\*+)*)/(\s*CREATE\s+TABLE\s+[^(]*\()`)
+
+// commentsInside moves each table's comment inside it, as -- lines. SQLite
+// keeps only what's inside a table's statement, and that is where its
+// rules are read (see readRules), so a rule typed into drawDB's comment
+// box for a table ("allow: staff read") works as one written by hand.
+func commentsInside(stmts string) string {
+	return tableComment.ReplaceAllStringFunc(stmts, func(m string) string {
+		sm := tableComment.FindStringSubmatch(m)
+		var b strings.Builder
+		b.WriteString(strings.TrimLeft(sm[2], " \t\r\n"))
+		for _, line := range strings.Split(strings.TrimSuffix(sm[1], "*"), "\n") {
+			if line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "*")); line != "" {
+				b.WriteString("\n  -- " + line)
+			}
+		}
+		return b.String()
+	})
+}
+
 func importDesign(path, file string, drop bool, out io.Writer) error {
 	ctx := context.Background()
-	stmts, err := os.ReadFile(file)
+	raw, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
+	stmts := commentsInside(string(raw))
 	// Tried on its own first: a mistake in the file changes nothing.
 	scratch := path + ".import-tmp"
 	os.Remove(scratch)
@@ -122,7 +145,7 @@ func importDesign(path, file string, drop bool, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	_, err = sdb.Exec(string(stmts))
+	_, err = sdb.Exec(stmts)
 	sdb.Close()
 	if err != nil {
 		return fmt.Errorf("%s: %w (nothing was changed)", file, err)
