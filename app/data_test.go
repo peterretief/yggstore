@@ -124,7 +124,7 @@ func testData(t *testing.T, logged bool) {
 		t.Fatalf("the date: %s", p)
 	}
 	saved(dataBase+"projects/"+site, url.Values{"title": {"Site 2"}, "client_id": {acme}, "status": {"open"}, "started": {"2026-10-01"}})
-	if p := get(dataBase + "projects/"); !strings.Contains(p, "<td>2026-10-01</td>") {
+	if p := get(dataBase + "projects/"); !strings.Contains(p, `data-label="Started">2026-10-01</td>`) {
 		t.Fatalf("the date in the report: %s", p)
 	}
 	saved(dataBase+"projects/"+site, url.Values{"title": {"Site"}, "client_id": {acme}, "status": {"open"}})

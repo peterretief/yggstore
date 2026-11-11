@@ -233,11 +233,12 @@ func init() {
 <label>Role <select name="role"><option value="client">Client: sees only their own, and what's shared with them</option><option value="staff">Staff: sees and changes what the design allows staff</option><option value="admin">Admin: sees and changes everything</option></select></label>
 <button>Add</button></form>
 <h2>Everyone</h2>
-<div class="scroll"><table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
-{{$me := .Me}}{{range .People}}<tr><td>{{.Name}}{{if eq .Name $me}} (you){{end}}</td><td>{{.Role}}</td><td>
+<div class="scroll" tabindex="0" role="region" aria-label="Everyone"><table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
+{{$me := .Me}}{{range $i, $p := .People}}<tr><td>{{.Name}}{{if eq .Name $me}} (you){{end}}</td><td data-label="Role">{{.Role}}</td><td>
 <form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="reset"><button>Reset password</button></form>
 {{if ne .Name $me}}<form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="role"><select name="role" aria-label="Role for {{.Name}}">{{$r := .Role}}{{range $x := roles}}<option value="{{$x}}"{{if eq $x $r}} selected{{end}}>{{$x}}</option>{{end}}</select> <button>Change role</button></form>
-<form method="post" action="` + base + `people" style="display:inline" onsubmit="return confirm('Remove {{.Name}}?')"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="remove"><button>Remove</button></form>{{end}}
+<button type="button" commandfor="remove-{{$i}}" command="show-modal">Remove</button>
+<dialog id="remove-{{$i}}"><p>Remove {{.Name}}? They can't sign in any more.</p><form class="bar" method="post" action="` + base + `people"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="remove"><button type="button" commandfor="remove-{{$i}}" command="close">Cancel</button><button>Remove</button></form></dialog>{{end}}
 </td></tr>{{end}}</tbody></table></div>
 {{if .HasDocs}}<h2 id="groups">Groups</h2>
 <p class="muted">Share a document with a group, and everyone in it sees it, including whoever joins later.</p>
@@ -245,7 +246,8 @@ func init() {
 {{if .Members}}<ul class="members">{{range .Members}}<li>{{.}} <form method="post" action="` + base + `groups" style="display:inline"><input type="hidden" name="do" value="remove"><input type="hidden" name="group" value="{{$g.ID}}"><input type="hidden" name="email" value="{{.}}"><button>Take out</button></form></li>{{end}}</ul>{{else}}<p class="muted">Nobody yet.</p>{{end}}
 <form method="post" action="` + base + `groups" style="display:inline"><input type="hidden" name="do" value="add"><input type="hidden" name="group" value="{{.ID}}">
 <select name="email" aria-label="Someone to add">{{range $people}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select> <button>Add to {{.Name}}</button></form>
-<form method="post" action="` + base + `groups" style="display:inline" onsubmit="return confirm('Delete the group {{.Name}}? Its people stay, and lose only what was shared with the group.')"><input type="hidden" name="do" value="delete"><input type="hidden" name="group" value="{{.ID}}"><button>Delete group</button></form>{{end}}
+<button type="button" commandfor="delete-group-{{.ID}}" command="show-modal">Delete group</button>
+<dialog id="delete-group-{{.ID}}"><p>Delete the group {{.Name}}? Its people stay, and lose only what was shared with the group.</p><form class="bar" method="post" action="` + base + `groups"><input type="hidden" name="do" value="delete"><input type="hidden" name="group" value="{{.ID}}"><button type="button" commandfor="delete-group-{{.ID}}" command="close">Cancel</button><button>Delete group</button></form></dialog>{{end}}
 <form class="edit" method="post" action="` + base + `groups"><input type="hidden" name="do" value="new">
 <label>New group <input name="name" required maxlength="100"></label><button>Make it</button></form>{{end}}{{end}}
 

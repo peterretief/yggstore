@@ -1191,9 +1191,14 @@ var dataPages = template.Must(template.New("").Funcs(template.FuncMap{"human": h
 :root{--ink:#1c1c1c;--soft:#666;--line:#c9c9c9;--bg:#fff;--box:#f4f4f1;--accent:#0b5cad}
 @media (prefers-color-scheme:dark){:root{--ink:#eee;--soft:#aaa;--line:#555;--bg:#161616;--box:#232323;--accent:#7db8f0}}
 body{font:16px/1.5 system-ui,sans-serif;color:var(--ink);background:var(--bg);max-width:70rem;margin:0 auto;padding:1rem}
-a{color:var(--accent)}nav{margin-bottom:1rem}.scroll{overflow-x:auto}
+a{color:var(--accent)}nav{margin-bottom:1rem}.scroll{overflow-x:auto;container-type:inline-size}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:.35rem .6rem;border-bottom:1px solid var(--line);white-space:nowrap}
 .num{text-align:right}tfoot td{font-weight:600}.err{color:#c62828}
+@container (width < 36rem){.scroll :is(table,thead,tbody,tfoot,tr,th,td){display:block}.scroll thead{display:none}
+.scroll tr{border:1px solid var(--line);border-radius:8px;padding:.3rem 0;margin:0 0 .6rem}.scroll td{border:0;white-space:normal;padding:.2rem .7rem;text-align:left}
+.scroll td[data-label]:not([data-label=""])::before{content:attr(data-label) ": ";color:var(--soft)}.scroll td:empty{display:none}}
+dialog{box-sizing:border-box;width:min(28rem,calc(100vw - 2rem));border:1px solid var(--line);border-radius:12px;padding:1.2rem 1.4rem;background:var(--bg);color:var(--ink)}
+dialog::backdrop{background:#0006}dialog form.bar{justify-content:flex-end;margin:1rem 0 0}
 form.edit{max-width:30rem}form.edit label{display:block;margin-bottom:1rem}
 form.edit input:not([type=checkbox]),form.edit select,form.edit textarea{display:block;width:100%;box-sizing:border-box;padding:.5rem;font:inherit}
 button{padding:.4rem 1rem;font:inherit}.bar{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin:1rem 0}
@@ -1219,7 +1224,8 @@ main > nav{font-size:.9rem;color:var(--soft)}
 .tiles a{display:block;padding:1.2rem;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--ink);background:var(--box)}
 .tiles a:hover{border-color:var(--accent)}.tiles b{display:block;font-size:1.6rem;margin-bottom:.4rem}
 form.signin{max-width:24rem;margin:3rem auto}
-{{extraStyle}}</style>{{end}}
+{{extraStyle}}</style>
+<script>if(!("commandForElement" in HTMLButtonElement.prototype))addEventListener("click",e=>{const b=e.target.closest("button[commandfor]"),d=b&&document.getElementById(b.getAttribute("commandfor"));if(!d)return;if(b.getAttribute("command")=="show-modal")d.showModal();else if(b.getAttribute("command")=="close")d.close()})</script>{{end}}
 
 {{define "top"}}{{end}}
 
@@ -1265,11 +1271,11 @@ form.signin{max-width:24rem;margin:3rem auto}
 <form method="get" action="{{.Link}}"><input name="q" value="{{.Q}}" aria-label="Search"> <button>Search</button></form>
 <span>{{.Total}} in all</span><a href="{{.CSV}}">Download CSV</a></div>
 {{if .GroupBy}}<p>Totals by: {{range .GroupBy}}<a href="{{.Link}}">{{.Title}}</a> {{end}}</p>{{end}}
-{{if .Groups}}<div class="scroll"><table><thead><tr><th></th><th class="num">Count</th>{{range .GroupHeads}}<th class="num">{{.}}</th>{{end}}</tr></thead>
-<tbody>{{range .Groups}}<tr><td>{{.Name}}</td><td class="num">{{.Count}}</td>{{range .Sums}}<td class="num">{{.}}</td>{{end}}</tr>{{end}}</tbody></table></div><br>{{end}}
-<div class="scroll"><table><thead><tr><th></th>{{range .Heads}}<th{{if .Num}} class="num"{{end}}><a href="{{.Link}}">{{.Title}}</a></th>{{end}}</tr></thead>
-<tbody>{{range .Rows}}<tr><td><a href="{{.Link}}">Open</a></td>{{range .Cells}}<td{{if .Num}} class="num"{{end}}>{{if .Link}}<a href="{{.Link}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}</td>{{end}}</tr>{{end}}</tbody>
-{{if .HasSums}}<tfoot><tr><td>Total</td>{{range .Sums}}<td{{if .Num}} class="num"{{end}}>{{.Text}}</td>{{end}}</tr></tfoot>{{end}}</table></div>
+{{if .Groups}}<div class="scroll" tabindex="0" role="region" aria-label="Totals"><table><thead><tr><th></th><th class="num">Count</th>{{range .GroupHeads}}<th class="num">{{.}}</th>{{end}}</tr></thead>
+<tbody>{{range .Groups}}<tr><td>{{.Name}}</td><td class="num" data-label="Count">{{.Count}}</td>{{range $i, $s := .Sums}}<td class="num" data-label="{{index $.GroupHeads $i}}">{{$s}}</td>{{end}}</tr>{{end}}</tbody></table></div><br>{{end}}
+<div class="scroll" tabindex="0" role="region" aria-label="{{human .Name}}"><table><thead><tr><th></th>{{range .Heads}}<th{{if .Num}} class="num"{{end}}><a href="{{.Link}}">{{.Title}}</a></th>{{end}}</tr></thead>
+<tbody>{{range .Rows}}<tr><td><a href="{{.Link}}">Open</a></td>{{range $i, $c := .Cells}}<td{{if $c.Num}} class="num"{{end}} data-label="{{(index $.Heads $i).Title}}">{{if $c.Link}}<a href="{{$c.Link}}">{{$c.Text}}</a>{{else}}{{$c.Text}}{{end}}</td>{{end}}</tr>{{end}}</tbody>
+{{if .HasSums}}<tfoot><tr><td>Total</td>{{range $i, $s := .Sums}}<td{{if $s.Num}} class="num"{{end}} data-label="{{(index $.Heads $i).Title}}">{{$s.Text}}</td>{{end}}</tr></tfoot>{{end}}</table></div>
 <div class="bar">{{if .Prev}}<a href="{{.Prev}}">Previous</a>{{end}}{{if .Next}}<a href="{{.Next}}">Next</a>{{end}}</div>{{end}}
 
 {{define "form"}}{{template "top"}}<title>{{human .Name}}</title>
@@ -1283,14 +1289,15 @@ form.signin{max-width:24rem;margin:3rem auto}
 {{else if eq .Kind "decimal"}}<input type="number" step="any" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}>
 {{else}}<input type="{{.Kind}}" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}>{{end}}{{if .Help}}<small class="muted">{{.Help}}</small>{{end}}</label>{{end}}
 <button>Save</button></form>{{end}}
-{{if .Delete}}<form method="post" action="{{.Delete}}" onsubmit="return confirm('Delete this?')"><p><button>Delete</button></p></form>{{end}}
+{{if .Delete}}<p><button type="button" commandfor="delete-this" command="show-modal">Delete</button></p>
+<dialog id="delete-this"><p>Delete this {{human .Name}}? It can't be undone.</p><form class="bar" method="post" action="{{.Delete}}"><button type="button" commandfor="delete-this" command="close">Cancel</button><button>Delete</button></form></dialog>{{end}}
 {{if .Children}}<h2>Related</h2><ul>{{range .Children}}<li><a href="{{.Link}}">{{.Title}}</a> ({{.Count}}){{if .Add}} · <a href="{{.Add}}">Add</a>{{end}}</li>{{end}}</ul>{{end}}{{end}}
 
 {{define "refused"}}{{template "top"}}<title>To look at</title>
 <nav><a href="` + dataBase + `">Your data</a></nav><h1>To look at</h1>
 {{if .}}<p>These saves were made on one machine and couldn't be merged with another's. Nothing was lost: each is here until someone deals with it.</p>
-<div class="scroll"><table><thead><tr><th>When</th><th>Machine</th><th>Table</th><th>What it tried</th><th>Why not</th><th></th></tr></thead><tbody>
-{{range .}}<tr><td>{{.When}}</td><td>{{.Node}}</td><td>{{human .Table}}</td><td>{{range .Fields}}{{.}}<br>{{end}}</td><td>{{.Reason}}</td>
+<div class="scroll" tabindex="0" role="region" aria-label="To look at"><table><thead><tr><th>When</th><th>Machine</th><th>Table</th><th>What it tried</th><th>Why not</th><th></th></tr></thead><tbody>
+{{range .}}<tr><td data-label="When">{{.When}}</td><td data-label="Machine">{{.Node}}</td><td data-label="Table">{{human .Table}}</td><td data-label="What it tried">{{range .Fields}}{{.}}<br>{{end}}</td><td data-label="Why not">{{.Reason}}</td>
 <td><a href="{{.Fix}}">Put it right</a> <form method="post" action="` + dataBase + `_refused" style="display:inline"><input type="hidden" name="node" value="{{.Node}}"><input type="hidden" name="seq" value="{{.Seq}}"><button>Dismiss</button></form></td></tr>{{end}}
 </tbody></table></div>{{else}}<p>Nothing to look at.</p>{{end}}{{end}}
 

@@ -556,10 +556,11 @@ func init() {
 <nav><a href="` + base + `">Home</a> · <a href="` + docsBase + `">Documents</a>{{range .Crumbs}} / <a href="{{index . 0}}">{{index . 1}}</a>{{end}}</nav>
 <h1>{{.Title}}</h1>
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
-{{if .Items}}<div class="scroll"><table><thead><tr><th>Name</th><th>Size</th><th>Added</th>{{if .Admin}}<th>Shared with</th><th></th>{{end}}</tr></thead><tbody>
-{{$admin := .Admin}}{{$here := .Here}}{{range .Items}}<tr><td>{{if .Folder}}📁 {{end}}<a href="{{.Link}}">{{.Name}}</a></td><td>{{.Size}}</td><td>{{.When}}</td>
-{{if $admin}}<td>{{.Shared}}</td><td><a href="` + docsBase + `share/{{.ID}}">Share</a>
-<form method="post" action="` + docsBase + `delete" style="display:inline" onsubmit="return confirm('Delete {{.Name}}{{if .Folder}} and everything in it{{end}}?')"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="parent" value="{{$here}}"><button>Delete</button></form></td>{{end}}</tr>{{end}}
+{{if .Items}}<div class="scroll" tabindex="0" role="region" aria-label="Documents"><table><thead><tr><th>Name</th><th>Size</th><th>Added</th>{{if .Admin}}<th>Shared with</th><th></th>{{end}}</tr></thead><tbody>
+{{$admin := .Admin}}{{$here := .Here}}{{range .Items}}<tr><td>{{if .Folder}}📁 {{end}}<a href="{{.Link}}">{{.Name}}</a></td><td data-label="Size">{{.Size}}</td><td data-label="Added">{{.When}}</td>
+{{if $admin}}<td data-label="Shared with">{{.Shared}}</td><td><a href="` + docsBase + `share/{{.ID}}">Share</a>
+<button type="button" commandfor="delete-doc-{{.ID}}" command="show-modal">Delete</button>
+<dialog id="delete-doc-{{.ID}}"><p>Delete {{.Name}}{{if .Folder}} and everything in it{{end}}? It can't be undone.</p><form class="bar" method="post" action="` + docsBase + `delete"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="parent" value="{{$here}}"><button type="button" commandfor="delete-doc-{{.ID}}" command="close">Cancel</button><button>Delete</button></form></dialog></td>{{end}}</tr>{{end}}
 </tbody></table></div>{{else}}<p>{{if .Admin}}Nothing here yet.{{else}}Nothing has been shared with you here yet.{{end}}</p>{{end}}
 {{if .Admin}}
 <h2>Add</h2>

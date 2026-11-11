@@ -29,7 +29,7 @@ button.plain { background: none; color: var(--info); border: 1px solid var(--lin
     <h1>Your mail and files</h1>
     <form id="pwForm">
       <label for="login">Your email address</label>
-      <input id="login" type="email" autocomplete="username" required>
+      <input id="login" type="email" autocomplete="username webauthn" required>
       <label for="pw" id="pwLabel">Password</label>
       <input id="pw" type="password" autocomplete="current-password" required>
       <div id="newBox" hidden>
@@ -85,22 +85,52 @@ document.getElementById("pwForm").addEventListener("submit", async ev => {
   } catch (e) { msg.textContent = e.message; }
   btn.disabled = false;
 });
+// finish sends a passkey's answer to the challenge ch, and goes on once in.
+async function finish(ch, cred) {
+  const r = await fetch(base + "/signin", {method: "POST", headers: {"Content-Type": "application/json", "X-Yggstore": "1"}, body: JSON.stringify({
+    challenge: ch.challenge, id: cred.id, client_data: b64(cred.response.clientDataJSON), auth_data: b64(cred.response.authenticatorData),
+    signature: b64(cred.response.signature), user_handle: cred.response.userHandle ? b64(cred.response.userHandle) : ""})});
+  if (!r.ok) throw new Error((await r.text()).trim() || "not signed in (" + r.status + ")");
+  done(await r.json());
+}
+const challenge = async () => (await fetch(base + "/challenge", {cache: "no-store"})).json();
+// Passkeys offered among the email box's suggestions, where the browser can:
+// picking one signs in at once. A challenge lasts 5 minutes on the web
+// nodes, so the offer is renewed every 4.
+let offer = null, renew = 0;
+async function offerPasskeys() {
+  if (!window.PublicKeyCredential || !(await PublicKeyCredential.isConditionalMediationAvailable?.())) return;
+  offer?.abort();
+  clearTimeout(renew);
+  const ac = offer = new AbortController(), msg = document.getElementById("msg");
+  renew = setTimeout(offerPasskeys, 4 * 60 * 1000);
+  try {
+    const ch = await challenge();
+    const cred = await navigator.credentials.get({publicKey: {challenge: unb64(ch.challenge), rpId: ch.rp, userVerification: "preferred"},
+      mediation: "conditional", signal: ac.signal});
+    clearTimeout(renew);
+    msg.textContent = "";
+    await finish(ch, cred);
+  } catch (e) {
+    if (e.name !== "AbortError" && e.name !== "NotAllowedError" && !ac.signal.aborted) msg.textContent = e.message;
+  }
+}
+offerPasskeys();
 async function signIn() {
   const msg = document.getElementById("msg"), go = document.getElementById("go");
   if (!window.PublicKeyCredential) { msg.textContent = "This browser can't use passkeys. Try an up-to-date Chrome, Safari, Edge or Firefox."; return; }
+  offer?.abort(); // a browser asks for one passkey at a time
+  clearTimeout(renew);
   go.disabled = true; msg.textContent = "";
   try {
-    const ch = await (await fetch(base + "/challenge", {cache: "no-store"})).json();
+    const ch = await challenge();
     const cred = await navigator.credentials.get({publicKey: {challenge: unb64(ch.challenge), rpId: ch.rp, userVerification: "preferred", timeout: 120000}});
-    const r = await fetch(base + "/signin", {method: "POST", headers: {"Content-Type": "application/json", "X-Yggstore": "1"}, body: JSON.stringify({
-      challenge: ch.challenge, id: cred.id, client_data: b64(cred.response.clientDataJSON), auth_data: b64(cred.response.authenticatorData),
-      signature: b64(cred.response.signature), user_handle: cred.response.userHandle ? b64(cred.response.userHandle) : ""})});
-    if (!r.ok) throw new Error((await r.text()).trim() || "not signed in (" + r.status + ")");
-    done(await r.json());
+    await finish(ch, cred);
   } catch (e) {
     msg.textContent = e.name === "NotAllowedError" ? "Signing in was cancelled, or this device has no passkey for your files." : e.message;
   }
   go.disabled = false;
+  offerPasskeys();
 }
 document.getElementById("go").addEventListener("click", signIn);
 // At someone's own address, after my. said it doesn't know this browser:
