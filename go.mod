@@ -1,6 +1,6 @@
 module github.com/peterretief/yggstore
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/Arceliar/ironwood v0.0.0-20260117132459-7017dbc41d8e
@@ -10,8 +10,10 @@ require (
 	github.com/emersion/go-smtp v0.25.0
 	github.com/gologme/log v1.3.0
 	github.com/klauspost/reedsolomon v1.14.2
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/ncruces/go-sqlite3 v0.30.0
 	github.com/quic-go/quic-go v0.59.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/tetratelabs/wazero v1.9.0
 	github.com/yggdrasil-network/yggdrasil-go v0.5.13
 	github.com/yuin/goldmark v1.7.8
@@ -24,13 +26,19 @@ require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.1 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/emersion/go-textwrapper v0.0.0-20200911093747-65d896831594 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/hjson/hjson-go/v4 v4.6.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/oauth2 v0.35.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 )

@@ -73,6 +73,14 @@ For a member, on their own machine ([login.md](login.md)). A person on a box get
 | `yggstore login keys` | your passkeys for the group login, and when each was last used |
 | `yggstore login forget ID` | forget one, not the last (the start of its ID is enough) |
 
+## An AI assistant
+
+`yggstore mcp` gives an AI assistant such as Claude Code read-only tools for looking after the group from the admin's machine, through this machine's dashboard: `nodes`, `activity`, `sites` (yours, or the group's), `check_site` and `my_passkeys`. Nothing can be changed through it, and no secret (sharing code, invites, keys) is ever in its answers. Add it to Claude Code once:
+
+```
+claude mcp add --scope user yggstore -- /media/peter/storage1/YGGSTORE/bin/yggstore mcp
+```
+
 ## People on a box
 
 Run these on the box, as root: from the desktop, `ssh -t pi4 'sudo yggstore hub …'` (pi4 is localbox-004). The box's dashboard does the same under **Admin → People on this box**.

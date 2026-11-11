@@ -63,6 +63,7 @@ const usage = `yggstore: sharded, encrypted file storage over Yggdrasil
                                                            runs the outbox watcher (see watch)
   yggstore devices [add ADDR NAME | remove ADDR|NAME]      devices that may open your dashboard (see docs/remote-dashboard.md)
   yggstore login invite | keys | forget ID                a passkey for the group login at my. (docs/login.md)
+  yggstore mcp                                            read-only tools for an AI assistant, over stdin and stdout
   yggstore hub     [-listen :7490] [-users DIR] [-service] | off|on|pause|resume|users|remove NAME
                                                            LAN devices sync files with this box through
                                                            Syncthing, which stores them (see docs/hub.md)
@@ -188,6 +189,8 @@ func main() {
 		err = cmdDevices(args)
 	case "login":
 		err = cmdLogin(ctx, args)
+	case "mcp":
+		err = cmdMCP(ctx, args)
 	case "hub":
 		err = cmdHub(ctx, args)
 	case "mail":
