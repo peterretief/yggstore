@@ -3,12 +3,10 @@ package site
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,8 +15,6 @@ import (
 
 	"github.com/peterretief/yggstore/internal/atomicfile"
 	"github.com/peterretief/yggstore/internal/client"
-	"github.com/peterretief/yggstore/internal/files"
-	"github.com/peterretief/yggstore/internal/mail"
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/peers"
@@ -127,6 +123,13 @@ type SiteStatus struct {
 
 func (w *Web) statePath() string { return filepath.Join(w.Dir, "web.json") }
 
+// siteDir holds a site's versions, each in a folder named by its ID.
+func (w *Web) siteDir(site string) string { return filepath.Join(w.Dir, "sites", site) }
+
+func (w *Web) versionDir(site, version string) string {
+	return filepath.Join(w.siteDir(site), version)
+}
+
 func (w *Web) load() {
 	w.st = webState{Sites: map[string]*webEntry{}}
 	if b, err := os.ReadFile(w.statePath()); err == nil {
@@ -138,7 +141,7 @@ func (w *Web) load() {
 	w.roots = map[string]string{}
 	for name, e := range w.st.Sites {
 		if e.Serving != "" {
-			w.roots[name] = filepath.Join(w.Dir, "sites", name, e.Serving)
+			w.roots[name] = w.versionDir(name, e.Serving)
 		}
 	}
 }
@@ -196,30 +199,29 @@ func (w *Web) retry(ctx context.Context) {
 
 func (w *Web) handle(s msg.Stored) {
 	w.mu.Lock()
+	defer w.mu.Unlock()
+	defer w.save()
 	w.st.After = max(w.st.After, s.N)
-	if s.Topic == Topic && s.Type == typeOwner {
-		w.changeOwner(s)
-		w.save()
-		w.mu.Unlock()
-		return
-	}
-	if s.Topic == Topic && s.Type == typeAllow {
-		w.allowCode(s)
-		w.save()
-		w.mu.Unlock()
-		return
+	if s.Topic == Topic {
+		switch s.Type {
+		case typeOwner:
+			w.changeOwner(s)
+			return
+		case typeAllow:
+			w.allowCode(s)
+			return
+		}
 	}
 	a, ok := decode(s)
 	if !ok {
-		w.save()
-		w.mu.Unlock()
 		return
 	}
 	e := w.st.Sites[a.Site]
 	list := w.Peers()
 	keeper, given, under := peers.SiteKeeper(list, a.Site)
+	fromKeeper := given && keeper.IP() == s.From
 	switch {
-	case (under || given) && !(given && keeper.IP() == s.From) && !isAdmin(list, s.From):
+	case (under || given) && !fromKeeper && !isAdmin(list, s.From):
 		w.logf("web: ignored %s from %s: names the group gives are published by the node it gives them to", a.Site, s.FromName)
 	case !under && !given && e != nil && !w.mayChange(s.From, e.Owner):
 		w.logf("web: ignored a change to %s from %s, who didn't publish it", a.Site, s.FromName)
@@ -231,40 +233,45 @@ func (w *Web) handle(s msg.Stored) {
 		if e != nil {
 			delete(w.st.Sites, a.Site)
 			delete(w.roots, a.Site)
-			os.RemoveAll(filepath.Join(w.Dir, "sites", a.Site))
+			os.RemoveAll(w.siteDir(a.Site))
 			w.logf("web: %s removed", a.Site)
 		}
 	case !w.shardsAtMembers(*a.Stub):
 		w.logf("web: ignored %s from %s: its parts aren't on the group's nodes", a.Site, s.FromName)
 	default:
-		if e == nil {
-			e = &webEntry{Owner: s.From}
-			w.st.Sites[a.Site] = e
-		}
-		if given && keeper.IP() == s.From {
-			e.Owner = s.From // its contact form goes to the name's node
-		}
-		e.Announced = s.Time
-		if a.Code && !e.Code && e.Serving != "" && !w.NoCode {
-			go w.warm(a.Site, filepath.Join(w.Dir, "sites", a.Site, e.Serving)) // code just turned on
-		}
-		e.Contact, e.Uploaders, e.Code, e.Local, e.Machines = a.Contact, a.Uploaders, a.Code, a.Local, a.LocalMachines
-		switch {
-		case a.Preview == nil || a.PreviewKey == "":
-			e.Preview, e.PreviewWant, e.PreviewKey = "", nil, ""
-		case a.Preview.FileID != e.Preview:
-			e.PreviewWant, e.PreviewKey = a.Preview, a.PreviewKey
-		default:
-			e.PreviewWant, e.PreviewKey = nil, a.PreviewKey
-		}
-		if a.Stub.FileID == e.Serving {
-			e.Want = nil
-		} else {
-			e.Want, e.Error = a.Stub, ""
-		}
+		w.takeAnnouncement(e, a, s, fromKeeper)
 	}
-	w.save()
-	w.mu.Unlock()
+}
+
+// takeAnnouncement records announcement a of a site; e is the site's entry, nil if
+// it is new. fromKeeper: it came from the node the group gave the name.
+// Called with w.mu held.
+func (w *Web) takeAnnouncement(e *webEntry, a Announcement, s msg.Stored, fromKeeper bool) {
+	if e == nil {
+		e = &webEntry{Owner: s.From}
+		w.st.Sites[a.Site] = e
+	}
+	if fromKeeper {
+		e.Owner = s.From // its contact form goes to the name's node
+	}
+	e.Announced = s.Time
+	if a.Code && !e.Code && e.Serving != "" && !w.NoCode {
+		go w.warm(a.Site, w.versionDir(a.Site, e.Serving)) // code just turned on
+	}
+	e.Contact, e.Uploaders, e.Code, e.Local, e.Machines = a.Contact, a.Uploaders, a.Code, a.Local, a.LocalMachines
+	switch {
+	case a.Preview == nil || a.PreviewKey == "":
+		e.Preview, e.PreviewWant, e.PreviewKey = "", nil, ""
+	case a.Preview.FileID != e.Preview:
+		e.PreviewWant, e.PreviewKey = a.Preview, a.PreviewKey
+	default:
+		e.PreviewWant, e.PreviewKey = nil, a.PreviewKey
+	}
+	if a.Stub.FileID == e.Serving {
+		e.Want = nil
+	} else {
+		e.Want, e.Error = a.Stub, ""
+	}
 }
 
 // MailMissed is how often mail reached this node with no -mail-in.
@@ -286,7 +293,7 @@ func (w *Web) allowCode(s msg.Stored) {
 	if c.On {
 		w.st.CodeAllowed[c.Site] = s.Time
 		if e := w.st.Sites[c.Site]; e != nil && e.Code && e.Serving != "" && !w.NoCode {
-			go w.warm(c.Site, filepath.Join(w.Dir, "sites", c.Site, e.Serving))
+			go w.warm(c.Site, w.versionDir(c.Site, e.Serving))
 		}
 		w.logf("web: %s may run code (the admin allowed it)", c.Site)
 	} else {
@@ -384,98 +391,6 @@ func (w *Web) shardsAtMembers(m manifest.Manifest) bool {
 	return true
 }
 
-var fetchMu sync.Mutex // one fetch at a time
-
-func (w *Web) fetchWanted(ctx context.Context) {
-	fetchMu.Lock()
-	defer fetchMu.Unlock()
-	w.mu.Lock()
-	todo := map[string]manifest.Manifest{}
-	previews := map[string]manifest.Manifest{}
-	for name, e := range w.st.Sites {
-		if e.Want != nil {
-			todo[name] = *e.Want
-		}
-		if e.PreviewWant != nil {
-			previews[name] = *e.PreviewWant
-		}
-	}
-	w.mu.Unlock()
-	for name, m := range previews {
-		err := w.fetch(ctx, name, m)
-		w.mu.Lock()
-		if e := w.st.Sites[name]; e != nil && e.PreviewWant != nil && e.PreviewWant.FileID == m.FileID {
-			if err != nil {
-				w.logf("web: could not fetch the preview of %s (will retry): %v", name, err)
-			} else {
-				e.Preview, e.PreviewWant = m.FileID, nil
-				w.logf("web: preview of %s is version %s", name, m.FileID[:8])
-				w.save()
-			}
-		}
-		w.mu.Unlock()
-	}
-	for name, m := range todo {
-		err := w.fetch(ctx, name, m)
-		w.mu.Lock()
-		e := w.st.Sites[name]
-		if e == nil || e.Want == nil || e.Want.FileID != m.FileID {
-			w.mu.Unlock()
-			continue // changed meanwhile
-		}
-		if err != nil {
-			e.Error = err.Error()
-			w.logf("web: could not fetch %s (will retry): %v", name, err)
-		} else {
-			old := e.Serving
-			e.Serving, e.Want, e.Error = m.FileID, nil, ""
-			w.roots[name] = filepath.Join(w.Dir, "sites", name, m.FileID)
-			w.logf("web: now serving %s version %s (%d files)", name, m.FileID[:8], m.FileCount)
-			if e.Code && !w.NoCode {
-				go w.warm(name, w.roots[name]) // so the first request needn't wait
-			}
-			w.cleanup(name, old, m.FileID, e.Preview)
-		}
-		w.save()
-		w.mu.Unlock()
-	}
-}
-
-// fetch unpacks version m of a site beside the one being served.
-func (w *Web) fetch(ctx context.Context, name string, m manifest.Manifest) error {
-	if m.Kind != files.KindFolder {
-		return errors.New("the announced item is not a folder")
-	}
-	dir := filepath.Join(w.Dir, "sites", name)
-	final := filepath.Join(dir, m.FileID)
-	if _, err := os.Stat(final); err == nil {
-		return nil // fetched before (a rollback to it)
-	}
-	incoming := filepath.Join(dir, ".incoming")
-	os.RemoveAll(incoming)
-	fctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
-	defer cancel()
-	got, err := files.Restore(fctx, w.Client, m, incoming, nil)
-	if err != nil {
-		os.RemoveAll(incoming)
-		return err
-	}
-	defer os.RemoveAll(incoming)
-	return os.Rename(got, final)
-}
-
-// cleanup keeps the version being served, the one before it for a quick
-// rollback, and the preview.
-func (w *Web) cleanup(name, previous, current, preview string) {
-	dir := filepath.Join(w.Dir, "sites", name)
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		if n := e.Name(); n != previous && n != current && (n != preview || preview == "") {
-			os.RemoveAll(filepath.Join(dir, n))
-		}
-	}
-}
-
 // Status lists the sites this node has.
 func (w *Web) Status() []SiteStatus {
 	w.mu.Lock()
@@ -489,159 +404,6 @@ func (w *Web) Status() []SiteStatus {
 		out = append(out, s)
 	}
 	return out
-}
-
-// ServeHTTP serves the site named by the request's host. Requests for
-// www.NAME are served NAME if there is no www.NAME site.
-func (w *Web) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
-	host := Normalise(r.Host)
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	if host == HealthHost {
-		rw.Write([]byte("ok\n"))
-		return
-	}
-	if w.Light != nil {
-		if d := peers.GroupDomain(w.Peers()); d != "" && host == LightPrefix+d && !(w.Work != nil && r.URL.Path == WorkPath) {
-			w.Light.ServeHTTP(rw, r)
-			return
-		}
-		// Someone on a box signs in at their own name: /files there is
-		// their box's, the rest their website.
-		if p := r.URL.Path; p == "/files" || strings.HasPrefix(p, "/files/") {
-			if _, pn, ok := peers.NameHolder(w.Peers(), host); ok && pn.Person != "" && !pn.Site {
-				w.Light.ServeHTTP(rw, r)
-				return
-			}
-		}
-	}
-	if r.URL.Path == mail.IngestPath || r.URL.Path == mail.MailboxPath {
-		// A web node without -mail-in must not look like "no such mailbox":
-		// the Worker would bounce the mail for good. A failure makes the
-		// sending server try again, and reach a node that takes it.
-		if w.Mail == nil {
-			w.mailMissed.Add(1)
-			w.logf("web: mail reached this node, which has no -mail-in: the sender will retry")
-			http.Error(rw, "this web node takes no mail: try another", http.StatusServiceUnavailable)
-			return
-		}
-		w.Mail.ServeHTTP(rw, r)
-		return
-	}
-	if w.Work != nil && r.URL.Path == WorkPath {
-		w.Work.ServeHTTP(rw, r)
-		return
-	}
-	w.mu.Lock()
-	name := host
-	root, ok := w.roots[name]
-	if !ok {
-		name = strings.TrimPrefix(host, "www.")
-		root, ok = w.roots[name]
-	}
-	var owner, contact, preview, previewKey string
-	var uploaders, local, machines []string
-	code := false
-	if e := w.st.Sites[name]; ok && e != nil {
-		owner, contact, uploaders, code, local, machines = e.Owner, e.Contact, e.Uploaders, e.Code, e.Local, e.Machines
-		preview, previewKey = e.Preview, e.PreviewKey
-	}
-	w.mu.Unlock()
-	if ok && !servable(w.Peers(), name, owner) {
-		ok = false
-	}
-	if !ok {
-		http.Error(rw, "There is no site called "+host+" here.", http.StatusNotFound)
-		return
-	}
-	if r.URL.Path == PreviewPath {
-		previewSwitch(rw, r, previewKey)
-		return
-	}
-	if localPrefix(local, cleanLocal(r.URL.Path)) != "" {
-		w.localApp(rw, r, name, owner, machines, root)
-		return
-	}
-	if p := path.Clean("/" + r.URL.Path); p == "/"+SourceDir || strings.HasPrefix(p, "/"+SourceDir+"/") {
-		http.Error(rw, "Not found.", http.StatusNotFound) // a Markdown site's source isn't served
-		return
-	}
-	if r.URL.Path == ContactPath {
-		w.contact(rw, r, name, owner, contact)
-		return
-	}
-	if r.URL.Path == ApplyPath {
-		w.apply(rw, r, name)
-		return
-	}
-	if r.URL.Path == UploadPath {
-		w.upload(rw, r, name, uploaders)
-		return
-	}
-	if p := r.URL.Path; p == strings.TrimSuffix(ApiPath, "/") || strings.HasPrefix(p, ApiPath) {
-		w.api(rw, r, name, root, owner, code)
-		return
-	}
-	if preview != "" && previewKey != "" && inPreview(r, previewKey) {
-		rw.Header().Set("Cache-Control", "no-store")
-		servePreview(rw, r, filepath.Join(w.Dir, "sites", name, preview))
-		return
-	}
-	rw.Header().Set("Cache-Control", "public, max-age=300")
-	serveStatic(rw, r, root)
-}
-
-// LightPrefix is the label light clients' address takes under the group's
-// domain (package light's Host, and a dot).
-const LightPrefix = "my."
-
-// WorkPath is where a recovery link opens (package workhere's PagePath).
-const WorkPath = "/_yggstore/work"
-
-// serveStatic serves a site's folder.
-func serveStatic(rw http.ResponseWriter, r *http.Request, root string) {
-	h := rw.Header()
-	h.Set("X-Content-Type-Options", "nosniff")
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(rw, "This is a static site.", http.StatusMethodNotAllowed)
-		return
-	}
-	// Show the site's own 404.html for missing pages, if it has one.
-	clean := filepath.Join(root, filepath.FromSlash(filepath.Clean("/"+r.URL.Path)))
-	if _, err := os.Stat(clean); errors.Is(err, os.ErrNotExist) {
-		if b, err := os.ReadFile(filepath.Join(root, "404.html")); err == nil {
-			h.Set("Content-Type", "text/html")
-			rw.WriteHeader(http.StatusNotFound)
-			rw.Write(b)
-			return
-		}
-	}
-	// Older pages declare their own encoding (often iso-8859-1) in a meta
-	// tag; naming none here lets the browser follow it, as Apache does.
-	if ext := strings.ToLower(filepath.Ext(r.URL.Path)); ext == ".html" || ext == ".htm" || strings.HasSuffix(r.URL.Path, "/") {
-		h.Set("Content-Type", "text/html")
-	}
-	http.FileServer(noListing{http.Dir(root)}).ServeHTTP(rw, r)
-}
-
-// noListing hides folder listings: a folder without index.html is a 404.
-type noListing struct{ fs http.FileSystem }
-
-func (n noListing) Open(name string) (http.File, error) {
-	f, err := n.fs.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	if st, err := f.Stat(); err == nil && st.IsDir() {
-		idx, err := n.fs.Open(strings.TrimSuffix(name, "/") + "/index.html")
-		if err != nil {
-			f.Close()
-			return nil, os.ErrNotExist
-		}
-		idx.Close()
-	}
-	return f, nil
 }
 
 func (w *Web) logf(format string, args ...any) {
