@@ -925,24 +925,6 @@ func webNodes(ctx context.Context, c client.Client, peersPath string) []string {
 	return out
 }
 
-// isWebNode says whether the member with this node ID serves the group's
-// websites.
-func isWebNode(ctx context.Context, c client.Client, peersPath, id string) bool {
-	list, err := peers.Load(peersPath)
-	if err != nil {
-		return false
-	}
-	for _, p := range list {
-		if p.IP() == id {
-			ictx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			info, err := c.Info(ictx, p.Addr)
-			return err == nil && len(info.Web) > 0
-		}
-	}
-	return false
-}
-
 // mailNodes are the web nodes that send the group's email.
 func mailNodes(ctx context.Context, c client.Client, peersPath string) []string {
 	var out []string

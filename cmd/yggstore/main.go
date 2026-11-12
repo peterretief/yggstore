@@ -493,17 +493,18 @@ func cmdServe(ctx context.Context, args []string) error {
 		go keeper.Run(ctx)
 		siteData = keeper
 	}
+	knownWeb := newKnownWebNodes(filepath.Join(yggstoreHome(), "web-nodes.json"), *peersPath)
 	// The member's side of the group login (docs/login.md, step 2).
 	memberLogin := &member.Login{Path: filepath.Join(yggstoreHome(), "member-login.json"), Self: ip.String(), Peers: live.List,
 		Client: client.New().HTTP, Log: log.Printf,
 		WebNodes:  func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) },
-		IsWebNode: func(ctx context.Context, caller string) bool { return isWebNode(ctx, client.New(), *peersPath, caller) }}
+		IsWebNode: knownWeb.Is}
 	go memberLogin.Run(ctx)
 	handler := server.Handler(store, server.Options{
 		Name: *name, NodeID: ip.String(), Transport: t, Peers: live, Customers: *customers, Messages: engine, Mesh: meshStatus, Web: webStatus,
 		MailOut: mailOutHandler(relay), Work: workOpt(work), Light: lightOpt(signin), SiteData: siteData, Version: versionString(), Member: memberLogin,
 		LocalApp: &site.LocalRelay{Apps: site.LocalApps{Path: localAppsPath()}, Self: ip.String(), Log: log.Printf,
-			IsWebNode: func(ctx context.Context, caller string) bool { return isWebNode(ctx, client.New(), *peersPath, caller) }},
+			IsWebNode: knownWeb.Is},
 		Join: func(caller string, req invite.Request) (invite.Response, error) {
 			own := ""
 			if id, err := share.Load(*keyPath); err == nil {
