@@ -18,7 +18,13 @@ import (
 // drop its .ystub in restore/. -copy-also adds the files that go with the
 // data: its design, and the site's .yggstore.json.
 
-const copyEvery = 23 * time.Hour // a little under a day, so it doesn't drift
+// With a log (-machine), a copy is also a snapshot: another machine can be
+// started from it (drop its .ystub in restore/, or yggstore get) and takes
+// only the entries since from the others. -copy-every makes them more often
+// than daily; a copy is skipped while the log hasn't grown.
+
+const copyEvery = 23 * time.Hour      // by default: a little under a day, so it doesn't drift
+const copyEveryMin = 10 * time.Minute // each copy is a new version stored across the group
 
 // source is a database and the name its copies go by.
 type source struct {
@@ -114,15 +120,24 @@ func unstored(sources []source, dir string) string {
 	return ""
 }
 
-// keepCopies makes a copy whenever the last is a day old, checking hourly,
-// so a machine that was off catches up when it's back.
-// After a nudge, it waits a minute for more changes, then copies everything.
-func keepCopies(sources []source, also []string, dir string) {
+// keepCopies makes a copy whenever the last is as old as every (a day,
+// unless -copy-every says less), checking at least hourly, so a machine
+// that was off catches up when it's back. mark, if not nil, says where the
+// data has got to (logMark): while it's where the last copy left it, there
+// is nothing new to copy. After a nudge, it waits a minute for more
+// changes, then copies everything.
+func keepCopies(sources []source, also []string, dir string, every time.Duration, mark func() string) {
 	last := lastCopy(sources, dir)
 	nudged := false
+	copied := ""
 	for {
-		if nudged || time.Since(last) >= copyEvery {
+		now := ""
+		if mark != nil {
+			now = mark()
+		}
+		if nudged || (time.Since(last) >= every && (now == "" || now != copied)) {
 			nudged = false
+			copied = now
 			if n := unstored(sources, dir); n != "" {
 				log.Printf("the last copy of %s is still in %s: is the dashboard running?", n, dir)
 			}
@@ -134,7 +149,7 @@ func keepCopies(sources []source, also []string, dir string) {
 			}
 		}
 		select {
-		case <-time.After(time.Hour):
+		case <-time.After(min(time.Hour, every)):
 		case <-copySoon:
 			time.Sleep(time.Minute)
 			nudged = true
@@ -189,4 +204,14 @@ func nudgeCopy() {
 	case copySoon <- struct{}{}:
 	default:
 	}
+}
+
+// logMark says where a data file's log has got to: it changes with every
+// save here and every entry from another machine. "" if it can't be read.
+func logMark(db *sql.DB) string {
+	var n, t sql.NullInt64
+	if err := db.QueryRow(`SELECT COUNT(*), MAX(t) FROM _sync_entries`).Scan(&n, &t); err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d", n.Int64, t.Int64)
 }

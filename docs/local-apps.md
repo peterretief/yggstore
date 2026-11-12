@@ -190,6 +190,26 @@ Times come from each machine's clock, so a machine with a wrong clock can win
 when it shouldn't. The log only grows, and replaying gets slower with it, so it
 will need snapshots, which aren't built for site data yet either.
 
+### Starting a machine from a stored copy
+
+The copy that goes into yggstore (`-copy-to`) holds the log too, so it is a
+snapshot: stored in parts across the group's nodes, with a stub. A machine
+that has the stub, the key and the program can start from it:
+
+```
+yggstore get -o learning.db learning.db.ystub
+./signin -data learning.db -machine NEWNAME -sync-key sync.key -site SITE -sync-with '[ADDRESS]:7400'
+```
+
+It has everything up to the copy, accounts included, and takes only the
+entries since from the other machines. `-copy-every 1h` makes a copy that
+often instead of daily, and only when the log has grown. Tried 2026-11-12 on
+`academy-test.withcare.co.za`: restored on a second node from 3 of 5 parts.
+
+The stub is on the machine that made the copy only, so with every machine
+of a site lost, so is the way back. Keeping the stub in the group, and
+dropping old entries once a snapshot holds them, aren't built.
+
 **Build order:**
 
 1. Random ids in the design and forms, with a way to move numbered rows over

@@ -57,6 +57,7 @@ func Main() {
 		return nil
 	})
 	copyNow := flag.Bool("copy-now", false, "copy-to: make a copy now, and stop")
+	copyEveryFlag := flag.Duration("copy-every", copyEvery, "copy-to: how often to copy; with -machine, only when there's something new")
 	machine := flag.String("machine", "", "keep a log of the data's changes, under this machine's name")
 	keyPath := flag.String("sync-key", "", "the key your machines share")
 	newKey := flag.String("sync-newkey", "", "make a key your machines can share, and stop")
@@ -204,7 +205,14 @@ func Main() {
 		}
 	}
 	if *copyTo != "" {
-		go keepCopies(sources, copyAlso, *copyTo)
+		if *copyEveryFlag < copyEveryMin {
+			log.Fatalf("-copy-every: at least %s, as each copy is stored across the group", copyEveryMin)
+		}
+		var mark func() string
+		if dataFile != nil && dataFile.sync != nil {
+			mark = func() string { return logMark(dataFile.db) }
+		}
+		go keepCopies(sources, copyAlso, *copyTo, *copyEveryFlag, mark)
 	}
 	srv := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("listening on %s", *addr)

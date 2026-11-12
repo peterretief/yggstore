@@ -85,3 +85,31 @@ func TestCopyAlso(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A copy is only worth making when the log has grown: its mark changes with
+// a save here and with an entry from another machine, and not otherwise.
+func TestLogMarkFollowsTheLog(t *testing.T) {
+	a, b := machine(t, "a"), machine(t, "b")
+	start := logMark(a.db)
+	if start == "" || start != logMark(a.db) {
+		t.Fatalf("the mark of a log nothing was added to: %q then %q", start, logMark(a.db))
+	}
+	put(t, a, "clients", "c1", map[string]any{"name": "Ann"})
+	saved := logMark(a.db)
+	if saved == start {
+		t.Fatal("a save here didn't change the mark")
+	}
+	put(t, b, "clients", "c2", map[string]any{"name": "Ben"})
+	meet(t, a, b)
+	if logMark(a.db) == saved {
+		t.Fatal("an entry from another machine didn't change the mark")
+	}
+	plain, err := openData(filepath.Join(t.TempDir(), "plain.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.db.Close()
+	if m := logMark(plain.db); m != "" {
+		t.Fatalf("a data file without a log has the mark %q", m)
+	}
+}
