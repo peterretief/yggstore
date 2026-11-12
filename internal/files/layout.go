@@ -9,27 +9,25 @@ import (
 
 // LayoutFor picks how a new item is split, from how many separate machines
 // (see peers.Peer.Machine) are online to hold it, and how many of a chunk's
-// shards one machine may hold. With enough machines every shard gets a
-// machine of its own and the item survives losing the parity's worth of
-// machines. One machine is never enough (see ErrTooFewMachines):
+// shards one machine may hold. The group's split is 6+4: any 6 of a
+// chunk's 10 shards rebuild it. From 5 machines every item gets it, two
+// shards to a machine at most; from 10 every shard has a machine of its
+// own and the item survives losing any 4. Fewer machines can't hold 6+4
+// as safely as a smaller split, so they keep one. One machine is never
+// enough (see ErrTooFewMachines):
 //
 //	machines  layout  survives    stored
 //	2         2+2     1 machine   2x
 //	3         4+2     1 machine   1.5x
 //	4         2+2     2 machines  2x
-//	5         3+2     2 machines  1.67x
-//	6-8       4+2     2 machines  1.5x
-//	9+        6+3     3 machines  1.5x
+//	5-9       6+4     2 machines  1.67x
+//	10+       6+4     4 machines  1.67x
 func LayoutFor(online []peers.Peer) (erasure.Layout, int) {
 	n := machineCount(online)
 	var l erasure.Layout
 	switch {
-	case n >= 9:
-		l = erasure.Layout{DataShards: 6, ParityShards: 3}
-	case n >= 6:
-		l = erasure.Layout{DataShards: 4, ParityShards: 2}
-	case n == 5:
-		l = erasure.Layout{DataShards: 3, ParityShards: 2}
+	case n >= 5:
+		l = erasure.Layout{DataShards: 6, ParityShards: 4}
 	case n == 4 || n == 2:
 		l = erasure.Layout{DataShards: 2, ParityShards: 2}
 	default:

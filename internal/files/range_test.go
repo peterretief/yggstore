@@ -127,7 +127,7 @@ func TestShardBytes(t *testing.T) {
 	for _, n := range ShardBytes(m) {
 		total += n
 	}
-	if want := int64(m.CiphertextSize) * 6 / 4; total < want || total > want+64 {
+	if want := int64(m.CiphertextSize) * 10 / 6; total < want || total > want+64 { // 6+4
 		t.Fatalf("shard bytes %d, want about %d", total, want)
 	}
 }

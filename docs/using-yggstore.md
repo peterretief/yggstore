@@ -13,10 +13,10 @@ each node answers only the group.
 1. `put` splits a file into 4 MiB chunks, encrypts each with AES-256-GCM
    (a random key per file) and erasure-codes it into data and parity
    shards. The split depends on how many separate machines are online:
-   **2+2** with 2, **4+2** with 3, **2+2** with 4, **3+2** with 5, **4+2**
-   with 6–8 and **6+3** from 9. With 4 or more, no machine holds two shards
-   of a chunk, and any two machines can fail. With one machine online, an
-   upload is refused.
+   **6+4** from 5 machines (any 6 of the 10 shards rebuild a chunk), and
+   **2+2** with 2, **4+2** with 3, **2+2** with 4. With 4 or more, any two
+   machines can fail; from 10, no machine holds two shards of a chunk and
+   any four can fail. With one machine online, an upload is refused.
 2. Shards are named by their SHA-256 and spread over the online nodes.
 3. A stub, `FILE.ystub`, holds the manifest **and the key**: anyone with it
    and access to the nodes can read the file.

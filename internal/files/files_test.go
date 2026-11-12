@@ -73,13 +73,17 @@ func TestRoundTripSurvivesTwoNodesDown(t *testing.T) {
 	if len(m.Chunks) != 4 {
 		t.Fatalf("chunks = %d, want 4", len(m.Chunks))
 	}
+	// Six machines hold a 6+4 chunk's ten shards two each at most, so any
+	// two can be lost.
 	for _, ch := range m.Chunks {
-		seen := map[string]bool{}
+		if len(ch.Shards) != 10 {
+			t.Fatalf("%d shards to a chunk, want 10 (6+4)", len(ch.Shards))
+		}
+		seen := map[string]int{}
 		for _, ref := range ch.Shards {
-			if seen[ref.Peer] {
-				t.Fatalf("two shards of one chunk on %s", ref.Peer)
+			if seen[ref.Peer]++; seen[ref.Peer] > 2 {
+				t.Fatalf("three shards of one chunk on %s", ref.Peer)
 			}
-			seen[ref.Peer] = true
 		}
 	}
 	nodes[0].srv.Close()
@@ -89,16 +93,45 @@ func TestRoundTripSurvivesTwoNodesDown(t *testing.T) {
 	}
 }
 
-func TestThreeNodesDownFails(t *testing.T) {
+// With ten machines every shard of a 6+4 chunk has a machine of its own, so
+// any four can be lost.
+func TestTenMachinesSurviveFourDown(t *testing.T) {
+	nodes := startNodes(t, 10)
+	data := make([]byte, 1<<20+12345)
+	rand.Read(data)
+	_, get, m := putFile(t, nodes, data)
+	for _, ch := range m.Chunks {
+		seen := map[string]bool{}
+		for _, ref := range ch.Shards {
+			if seen[ref.Peer] {
+				t.Fatalf("two shards of one chunk on %s", ref.Peer)
+			}
+			seen[ref.Peer] = true
+		}
+		if len(seen) != 10 {
+			t.Fatalf("a chunk's shards are on %d machines, want 10", len(seen))
+		}
+	}
+	for _, i := range []int{1, 4, 6, 9} {
+		nodes[i].srv.Close()
+	}
+	if !bytes.Equal(get(), data) {
+		t.Fatal("restored data differs")
+	}
+}
+
+// Four of six machines hold at least six of a chunk's ten shards, more than
+// the parity covers.
+func TestFourNodesDownFails(t *testing.T) {
 	nodes := startNodes(t, 6)
 	data := make([]byte, 100_000)
 	rand.Read(data)
 	_, _, m := putFile(t, nodes, data)
-	for _, i := range []int{0, 1, 2} {
+	for _, i := range []int{0, 1, 2, 3} {
 		nodes[i].srv.Close()
 	}
 	err := Get(context.Background(), client.New(), m, &bytes.Buffer{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "need 4") {
+	if err == nil || !strings.Contains(err.Error(), "need 6") {
 		t.Fatalf("want not-enough-shards error, got %v", err)
 	}
 }

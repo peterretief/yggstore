@@ -124,12 +124,13 @@ func TestRepairAfterGrace(t *testing.T) {
 		t.Fatal("the stub still names the gone node")
 	}
 	for ci, ch := range fixed.Chunks {
-		seen := map[string]bool{}
+		// Six machines are left for a 6+4 chunk's ten shards: two each at
+		// most, so any two of them can still be lost.
+		seen := map[string]int{}
 		for si, s := range ch.Shards {
-			if seen[s.Peer] {
-				t.Fatalf("chunk %d: two shards on %s", ci, s.Peer)
+			if seen[s.Peer]++; seen[s.Peer] > 2 {
+				t.Fatalf("chunk %d: three shards on %s", ci, s.Peer)
 			}
-			seen[s.Peer] = true
 			if s.Hash != m.Chunks[ci].Shards[si].Hash {
 				t.Fatalf("chunk %d shard %d: hash changed", ci, si)
 			}

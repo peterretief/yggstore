@@ -114,9 +114,12 @@ New items are split according to how many separate machines are online
 | 2 | 2+2 | 1 machine | 2x |
 | 3 | 4+2 | 1 machine | 1.5x |
 | 4 | 2+2 | any 2 machines | 2x |
-| 5 | 3+2 | any 2 machines | 1.67x |
-| 6-8 | 4+2 | any 2 machines | 1.5x |
-| 9+ | 6+3 | any 3 machines | 1.5x |
+| 5-9 | 6+4 | any 2 machines | 1.67x |
+| 10+ | 6+4 | any 4 machines | 1.67x |
+
+The group's split is 6+4: any 6 of a chunk's 10 shards rebuild it. With 5
+to 9 machines a machine holds at most two of them; from 10, one each. With
+fewer than 5 machines, 6+4 would be less safe than the smaller splits above.
 
 Like Tahoe-LAFS's "servers of happiness", an upload that can't survive
 losing any one machine is refused rather than stored anyway: with one
@@ -126,4 +129,5 @@ the sending server.
 
 An item keeps its layout: a new version is split like the old one (so
 unchanged chunks are reused), and repair rebuilds shards in the item's own
-layout. Items stored before this used 4+2 (very old ones 2+1).
+layout. Items stored before 6+4 (2026-11-12) keep the split they had: 3+2, 4+2 or
+6+3 by the machines online then, 4+2 before that (very old ones 2+1).

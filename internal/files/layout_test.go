@@ -9,7 +9,7 @@ import (
 
 func TestLayoutFor(t *testing.T) {
 	for _, tc := range []struct{ machines, data, parity, per int }{
-		{1, 4, 2, 2}, {3, 4, 2, 2}, {4, 2, 2, 1}, {5, 3, 2, 1}, {6, 4, 2, 1}, {8, 4, 2, 1}, {9, 6, 3, 1}, {20, 6, 3, 1},
+		{1, 4, 2, 2}, {3, 4, 2, 2}, {4, 2, 2, 1}, {5, 6, 4, 2}, {6, 6, 4, 2}, {9, 6, 4, 2}, {10, 6, 4, 1}, {20, 6, 4, 1},
 	} {
 		var online []peers.Peer
 		for i := range tc.machines {

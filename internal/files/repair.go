@@ -91,9 +91,10 @@ func MoveChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch m
 	return placeShards(ctx, c, layout, ch, move, shards, leaseID, online, list)
 }
 
-// placeShards stores shards[i] for each i in bad on an online peer the
-// chunk doesn't use yet, on a machine below its share of the chunk, fast
-// peers before slow ones, and returns the chunk with their new places.
+// placeShards stores shards[i] for each i in bad on an online peer on a
+// machine below its share of the chunk: peers the chunk doesn't use yet
+// first, fast ones before slow ones. It returns the chunk with their new
+// places.
 func placeShards(ctx context.Context, c client.Client, layout erasure.Layout, ch manifest.Chunk, bad []int, shards [][]byte, leaseID string, online, list []peers.Peer) (manifest.Chunk, int, error) {
 	isBad := map[int]bool{}
 	for _, i := range bad {
@@ -116,11 +117,18 @@ func placeShards(ctx context.Context, c client.Client, layout erasure.Layout, ch
 	for _, i := range bad {
 		var cands []peers.Peer
 		for _, p := range online {
-			if !p.Gateway && !used[p.Addr] && onMachine[p.Machine()] < limit {
+			if !p.Gateway && onMachine[p.Machine()] < limit {
 				cands = append(cands, p)
 			}
 		}
+		// A peer the chunk doesn't use yet comes first. One it does use
+		// takes a second shard only when its machine has room and no
+		// other has, as when the item was stored (see place): a 6+4
+		// chunk on fewer than ten machines.
 		sort.SliceStable(cands, func(a, b int) bool {
+			if ua, ub := used[cands[a].Addr], used[cands[b].Addr]; ua != ub {
+				return !ua
+			}
 			ma, mb := onMachine[cands[a].Machine()], onMachine[cands[b].Machine()]
 			if ma != mb {
 				return ma < mb
@@ -192,7 +200,7 @@ func SpreadChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch
 		}
 		var cands []peers.Peer
 		for _, p := range online {
-			if !p.Gateway && !used[p.Addr] && count[p.Machine()] < limit && p.Machine() != from {
+			if !p.Gateway && count[p.Machine()] < limit && p.Machine() != from {
 				cands = append(cands, p)
 			}
 		}
@@ -200,6 +208,9 @@ func SpreadChunk(ctx context.Context, c client.Client, layout erasure.Layout, ch
 			break
 		}
 		sort.SliceStable(cands, func(a, b int) bool {
+			if ua, ub := used[cands[a].Addr], used[cands[b].Addr]; ua != ub {
+				return !ua // as in placeShards
+			}
 			ca, cb := count[cands[a].Machine()], count[cands[b].Machine()]
 			if ca != cb {
 				return ca < cb
