@@ -539,7 +539,8 @@ func (d *Dashboard) onlinePeers() ([]peers.Peer, error) {
 	d.mu.Unlock()
 	var out []peers.Peer
 	for _, p := range list {
-		if up[p.Addr] && !p.Gateway {
+		// A leaving node takes nothing new (docs/repair.md), as in peers.Online.
+		if up[p.Addr] && !p.Gateway && !p.Leaving {
 			out = append(out, p)
 		}
 	}

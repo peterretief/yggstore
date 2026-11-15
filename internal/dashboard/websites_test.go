@@ -303,3 +303,35 @@ func TestPushToPersonSite(t *testing.T) {
 		t.Fatalf("an empty push: %d", w.Code)
 	}
 }
+
+// A node marked leaving takes nothing new from the dashboard either: not
+// the recovery copy, a site, nor a site move (docs/repair.md).
+func TestOnlinePeersLeavesOutLeaving(t *testing.T) {
+	dir := t.TempDir()
+	list := []peers.Peer{
+		{Name: "admin", Addr: "[200::9]:7400", Admin: true},
+		{Name: "staying", Addr: "[200::1]:7400"},
+		{Name: "going", Addr: "[200::2]:7400", Leaving: true},
+		{Name: "gw", Addr: "[200::3]:7400", Gateway: true},
+		{Name: "off", Addr: "[200::4]:7400"},
+	}
+	peersPath := filepath.Join(dir, "peers.json")
+	if err := peers.Write(peersPath, list); err != nil {
+		t.Fatal(err)
+	}
+	d := New(Config{PeersPath: peersPath, StubDir: dir, SelfID: "200::9", Listen: "127.0.0.1:7480", Client: client.New()})
+	for _, p := range list[:4] {
+		d.state.Peers = append(d.state.Peers, PeerState{Name: p.Name, Addr: p.Addr, Up: true})
+	}
+	got, err := d.onlinePeers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, p := range got {
+		names = append(names, p.Name)
+	}
+	if strings.Join(names, ",") != "admin,staying" {
+		t.Fatalf("online %v, want admin,staying", names)
+	}
+}
