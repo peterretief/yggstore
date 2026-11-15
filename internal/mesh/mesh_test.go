@@ -266,3 +266,34 @@ func TestValidListen(t *testing.T) {
 		}
 	}
 }
+
+func TestMeshNoPublic(t *testing.T) {
+	f := &fakeYgg{
+		self:      Self{Key: "aa", Address: "200::1"},
+		links:     map[string]Link{},
+		reachable: map[string]string{"tls://198.51.100.7:993": "300::7"},
+	}
+	admin := f.serve(t)
+	list := []peers.Peer{{Name: "desktop", Addr: "[200::2]:7400", Admin: true, YggPeers: []string{"tls://198.51.100.7:993"}}}
+	m := New(admin, "200::1", func() []peers.Peer { return list }, filepath.Join(t.TempDir(), "mesh.json"), t.Logf)
+	ctx := context.Background()
+	linkWait = 0
+
+	m.Sync(ctx)
+	if !f.has("tls://198.51.100.7:993") {
+		t.Fatal("the public peer was not linked")
+	}
+	// Turned off: the link this node opened is closed, and none is opened.
+	m.NoPublic = true
+	m.Sync(ctx)
+	if f.has("tls://198.51.100.7:993") {
+		t.Fatal("kept the link to a public peer with NoPublic")
+	}
+	m.Sync(ctx)
+	if f.has("tls://198.51.100.7:993") {
+		t.Fatal("linked again with NoPublic")
+	}
+	if st := m.Status(); st.Public != nil {
+		t.Fatalf("public %v, want none", st.Public)
+	}
+}

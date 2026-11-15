@@ -48,6 +48,10 @@ type Mesh struct {
 	list  func() []peers.Peer
 	state string // file of links this node added, so it only removes its own
 	logf  func(string, ...any)
+	// NoPublic leaves out the group's public Yggdrasil peers, and closes
+	// the links to them this node opened: for a node that reaches the group
+	// another way, so it isn't a route for the public network's traffic.
+	NoPublic bool
 
 	mu     sync.Mutex
 	status Status
@@ -136,6 +140,9 @@ func (m *Mesh) sync(ctx context.Context) (Status, error) {
 		}
 	}
 	public := peers.PublicPeers(list)
+	if m.NoPublic {
+		public = nil
+	}
 	publicFailed := map[string]string{}
 	for _, uri := range public {
 		want[uri] = true

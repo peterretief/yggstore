@@ -256,6 +256,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), `where your email is collected ("" for none; see docs/mail.md)`)
 	mailOut := fs.String("mail-out", "", "send members' email through the SMTP relay in this file (see docs/mail.md)")
 	yggAdmin := fs.String("ygg-admin", "auto", `Yggdrasil's admin socket, for linking to other members ("none" to leave Yggdrasil's links alone)`)
+	noPublic := fs.Bool("no-public-peers", false, "don't link to the group's public Yggdrasil peers (ygg_peers): for a node that reaches the group through other members, so it doesn't carry the public network's traffic")
 	yggKey := fs.String("ygg-key", filepath.Join(yggstoreHome(), "ygg.key"), "builtin: the node's Yggdrasil key, made if missing (a yggdrasil.conf works too, keeping that machine's address)")
 	yggPeers := fs.String("ygg-peers", defaultYggPeers, "builtin: comma-separated Yggdrasil peers to link to")
 	yggListen := fs.String("ygg-listen", "", "builtin: comma-separated URIs to take Yggdrasil links on, e.g. tls://0.0.0.0:9001")
@@ -341,6 +342,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 	if ygg != nil {
 		m := mesh.New(ygg, ip.String(), live.List, filepath.Join(*dataDir, "mesh.json"), log.Printf)
+		m.NoPublic = *noPublic
 		go m.Run(ctx, time.Minute)
 		meshStatus = m.Status
 	}
