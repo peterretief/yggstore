@@ -795,7 +795,7 @@ func (d *Dashboard) poll(ctx context.Context) {
 			go d.addYggNames(ctx, mainList)
 		}
 	}
-	st.Accounts = accounts(mainList, st.Peers, d.cfg.SelfID)
+	st.Accounts = accounts(mainList, d.leftNodes(), st.Peers, d.cfg.SelfID)
 	if k, ok := keeperOf(mainList); ok && st.PeersError == "" && k.IP() == d.cfg.SelfID {
 		d.countUsage(ctx, mainList, st.Peers, time.Now())
 	}
@@ -833,8 +833,9 @@ func (d *Dashboard) poll(ctx context.Context) {
 }
 
 // accounts totals, per person, the space their uploads use and the space
-// their nodes give, from each node's per-uploader counts.
-func accounts(list []peers.Peer, states []PeerState, self string) []Account {
+// their nodes give, from each node's per-uploader counts. Uploads from a
+// node that left the group are shown under its name.
+func accounts(list []peers.Peer, left map[string]leftNode, states []PeerState, self string) []Account {
 	byIP, byAddr := map[string]peers.Peer{}, map[string]peers.Peer{}
 	for _, p := range list {
 		byIP[p.IP()], byAddr[p.Addr] = p, p
@@ -848,6 +849,9 @@ func accounts(list []peers.Peer, states []PeerState, self string) []Account {
 		}
 		if ip == "" {
 			return "(unrecorded)"
+		}
+		if l, ok := left[ip]; ok {
+			return l.Name + " (left the group " + time.Unix(l.Left, 0).Format("2 Jan") + ")"
 		}
 		return "unknown node " + ip
 	}
@@ -1326,6 +1330,9 @@ func (d *Dashboard) dropLeft(states []PeerState) {
 	if err := peers.Write(d.cfg.PeersPath, keep); err != nil {
 		d.event("warn", "could not take nodes that left off the list: "+err.Error())
 		return
+	}
+	if err := d.recordLeft(left, time.Now()); err != nil {
+		d.event("warn", "could not keep the names of nodes that left: "+err.Error())
 	}
 	for _, p := range left {
 		d.event("info", fmt.Sprintf("%s has left the group: it was marked leaving, has been down since %s, and none of your files are on it",

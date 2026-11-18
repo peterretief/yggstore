@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"testing"
+	"time"
 
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/server"
@@ -20,7 +21,7 @@ func TestAccounts(t *testing.T) {
 		{Addr: "[200::3]:7400", Info: &server.Info{QuotaBytes: 10 * g, ByWriter: map[string]int64{"200::1": 3 * g, "200::9": 5}}},
 	}
 	got := map[string]Account{}
-	for _, a := range accounts(list, states, "200::1") {
+	for _, a := range accounts(list, nil, states, "200::1") {
 		got[a.Owner] = a
 	}
 	peter, anna := got["peter"], got["anna-pc"]
@@ -32,6 +33,16 @@ func TestAccounts(t *testing.T) {
 	}
 	if got["unknown node 200::9"].Uses != 5 {
 		t.Fatalf("uploads from unlisted nodes not shown: %+v", got)
+	}
+
+	// A node that left the group is shown by name.
+	left := map[string]leftNode{"200::9": {Name: "old-pi", Left: time.Date(2026, 11, 16, 12, 0, 0, 0, time.Local).Unix()}}
+	got = map[string]Account{}
+	for _, a := range accounts(list, left, states, "200::1") {
+		got[a.Owner] = a
+	}
+	if got["old-pi (left the group 16 Nov)"].Uses != 5 {
+		t.Fatalf("uploads from a node that left not named: %+v", got)
 	}
 }
 
@@ -48,7 +59,7 @@ func TestAccountsCountCustomersSeparately(t *testing.T) {
 		{Addr: "[200::3]:7400", Info: &server.Info{Customers: true, ByWriter: map[string]int64{"200::5": 600, "200::1": 50}}},
 	}
 	got := map[string]Account{}
-	for _, a := range accounts(list, states, "200::1") {
+	for _, a := range accounts(list, nil, states, "200::1") {
 		got[a.Owner] = a
 	}
 	if c := got[CustomersOwner]; !c.Customers || c.Uses != 900 {
