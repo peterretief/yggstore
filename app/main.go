@@ -83,6 +83,7 @@ func Main() {
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	register := flag.Bool("register", false, "let people register on the site; an admin lets them in on People")
 	mailAs := flag.String("mail", "", "email invites and new passwords through this machine's yggstore node, from this name (such as the site's)")
+	mailIn := flag.String("mail-in", "", "with -data: make rows of the mail in this app folder (from: yggstore app address)")
 	flag.Parse()
 
 	if *newKey != "" {
@@ -235,6 +236,18 @@ func Main() {
 		go keepCopies(sources, copyAlso, *copyTo, *copyEveryFlag, mark)
 	}
 	srv := &http.Server{Addr: *addr, Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
+	if dataFile != nil && a.mail != nil {
+		go dataFile.remindEvery(10 * time.Minute)
+	}
+	if *mailIn != "" {
+		if dataFile == nil {
+			log.Fatal("-mail-in needs -data")
+		}
+		if _, err := os.Stat(filepath.Join(*mailIn, "sharing.key")); err != nil {
+			log.Fatalf("-mail-in: %s isn't an app's folder (make it with: yggstore app address NAME LABEL)", *mailIn)
+		}
+		go dataFile.takeMailEvery(*mailIn, a.docs, 30*time.Second)
+	}
 	log.Printf("listening on %s", *addr)
 	log.Fatal(srv.ListenAndServe())
 }
@@ -276,6 +289,10 @@ func (a *app) routes() http.Handler {
 		add(a, mux)
 	}
 	if a.data != nil {
+		a.data.notify.send, a.data.notify.people, a.data.notify.address = a.mail, a.namesWithRole, a.address
+		if a.site != "" {
+			a.data.notify.site.Store(a.address(&http.Request{Host: a.site, Header: http.Header{}}))
+		}
 		a.data.routes(mux, a.signedIn, a.adminOnly)
 		if a.data.keep != nil {
 			mux.HandleFunc("POST "+syncPath, a.data.serveSync)
@@ -526,6 +543,23 @@ func (a *app) accountsDB() *sql.DB {
 		return a.data.db
 	}
 	return a.db
+}
+
+// namesWithRole is everyone who signs in with a role.
+func (a *app) namesWithRole(role string) []string {
+	rows, err := a.accountsDB().Query(`SELECT name FROM `+a.accounts()+` WHERE role = ? ORDER BY name`, role)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if rows.Scan(&n) == nil {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func (a *app) accounts() string {

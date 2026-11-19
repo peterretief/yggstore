@@ -72,6 +72,9 @@ type Attachment struct {
 	data []byte
 }
 
+// Data is the attachment's contents.
+func (a Attachment) Data() []byte { return a.data }
+
 // ErrNoMessage means the mailbox has no message with that ID.
 var ErrNoMessage = errors.New("no such message")
 

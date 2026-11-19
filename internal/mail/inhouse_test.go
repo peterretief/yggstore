@@ -2,8 +2,12 @@ package mail
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +18,7 @@ import (
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/server"
+	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/transport"
 )
 
@@ -118,5 +123,89 @@ func TestInHouseMail(t *testing.T) {
 	}
 	if len(down.st.Taken) != 0 {
 		t.Fatalf("kept a copy it couldn't hand on: %v", down.st.Taken)
+	}
+}
+
+// Mail to an app's address on a machine goes to the app's inbox, marked as
+// from a member when it came through the group's mail.
+func TestMailForAnApp(t *testing.T) {
+	var list []peers.Peer
+	for i := range 6 {
+		srv := httptest.NewServer(server.Handler(localstore.New(t.TempDir()), server.Options{
+			Transport: transport.Loopback{}, Allowed: map[string]bool{"127.0.0.1": true}}))
+		t.Cleanup(srv.Close)
+		list = append(list, peers.Peer{Name: string(rune('a' + i)), Addr: strings.TrimPrefix(srv.URL, "http://")})
+	}
+	apps := t.TempDir()
+	app, err := share.LoadOrCreate(filepath.Join(apps, "leave", "sharing.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := identity(t)
+	list[0].Admin, list[0].Domain = true, "group.example"
+	list = append(list,
+		peers.Peer{Name: "web", Addr: "127.0.0.2:9"},
+		peers.Peer{Name: "home", Addr: "127.0.0.3:9", Names: []string{"peter.group.example"}, Code: owner.Code(),
+			PeopleNames: []peers.PersonName{{Name: "leave.group.example", Person: "app:leave", Code: app.Code()}}})
+	members := func() []peers.Peer { return list }
+	pb := &postbox{boxes: map[string][]msg.Stored{}, wake: make(chan struct{})}
+	c := client.New()
+	web := &Node{Dir: t.TempDir(), Self: "127.0.0.2", Msgs: postNode{pb, "127.0.0.2"}, Peers: members, Client: c}
+	home := &Node{Dir: t.TempDir(), Box: t.TempDir(), Apps: apps, Self: "127.0.0.3", Msgs: postNode{pb, "127.0.0.3"}, Peers: members, Client: c}
+	for _, n := range []*Node{web, home} {
+		if err := n.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &Relay{Peers: members, InHouse: web.DeliverInHouse,
+		Deliver: func(ctx context.Context, from string, to []string, msg []byte) error { return errors.New("nothing goes out") }}
+	raw, rcpts, _ := Draft{From: "Peter@group.example", To: "leave@group.example", Subject: "Leave", Text: "2 to 6 December"}.Compose()
+	if err := r.send(context.Background(), "Peter@group.example", rcpts, raw); err != nil {
+		t.Fatal(err)
+	}
+	// And one from outside, as the Worker brings it.
+	sealed, _ := Seal(app.Code(), []byte("From: someone@example.net\r\nTo: leave@group.example\r\nSubject: Hi\r\n\r\nHello\r\n"))
+	if _, err := web.Take(context.Background(), "127.0.0.3", sealed); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var running sync.WaitGroup
+	defer running.Wait()
+	defer cancel()
+	for _, n := range []*Node{web, home} {
+		running.Add(1)
+		go func() { defer running.Done(); n.Run(ctx) }()
+	}
+	inbox := filepath.Join(apps, "leave", "inbox")
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		got, _ := filepath.Glob(filepath.Join(inbox, "*.sealed"))
+		if len(got) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("in the app's inbox: %v", got)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	metas, _ := filepath.Glob(filepath.Join(inbox, "*.json"))
+	var marked []string
+	for _, p := range metas {
+		var m Meta
+		b, _ := os.ReadFile(p)
+		json.Unmarshal(b, &m)
+		marked = append(marked, m.InGroup)
+		data, _ := os.ReadFile(strings.TrimSuffix(p, ".json") + ".sealed")
+		if _, err := Open(app, data); err != nil {
+			t.Fatal("the app can't open its mail")
+		}
+	}
+	sort.Strings(marked)
+	if strings.Join(marked, ",") != ",peter@group.example" {
+		t.Fatalf("marked: %q", marked)
+	}
+	if got, _ := (&Box{Dir: home.Box, ID: owner}).List(); len(got) != 0 {
+		t.Fatalf("the app's mail went to the owner's mailbox: %v", got)
 	}
 }

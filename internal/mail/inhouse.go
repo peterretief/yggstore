@@ -35,7 +35,7 @@ func (n *Node) DeliverInHouse(ctx context.Context, from, to string, raw []byte) 
 	if err != nil {
 		return true, fmt.Errorf("sealing for %s: %w", to, err)
 	}
-	if _, err := n.Take(ctx, p.IP(), sealed); err != nil {
+	if _, err := n.take(ctx, p.IP(), sealed, strings.ToLower(from)); err != nil {
 		return true, err
 	}
 	return true, nil

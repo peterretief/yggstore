@@ -61,7 +61,7 @@ var (
 	// columnStart is a line that may define a column, with no comment of
 	// its own: its name, then its type.
 	columnStart = regexp.MustCompile(`^\s*("[^"]+"|\[[^\]]+\]|` + "`[^`]+`" + `|[A-Za-z_][A-Za-z0-9_]*)\s+\S`)
-	directive   = regexp.MustCompile(`(?i)^\s*(hide from|label|help|fill)\s*:\s*(.+?)\s*$`)
+	directive   = regexp.MustCompile(`(?i)^\s*(hide from|label|help|fill|from|mail)\s*:\s*(.+?)\s*$`)
 )
 
 // readRule reads one rule, such as "client read if published".
@@ -111,7 +111,20 @@ func readRule(t *table, clause string) (rule, error) {
 // it, which is where drawDB puts a field's comment when it exports SQL.
 func readRules(t *table, stmt string) {
 	var above []string // comment lines waiting for the column below them
+	defer settleSteps(t)
 	for _, line := range strings.Split(stmt, "\n") {
+		if m := mailInLine.FindStringSubmatch(line); m != nil {
+			if err := readMailIn(t, m[1]); err != nil {
+				t.Problems = append(t.Problems, t.Name+": "+err.Error())
+			}
+			continue
+		}
+		if m := stepLine.FindStringSubmatch(line); m != nil {
+			if err := readStep(t, m[1], m[2]); err != nil {
+				t.Problems = append(t.Problems, t.Name+": "+err.Error())
+			}
+			continue
+		}
 		if m := allowLine.FindStringSubmatch(line); m != nil {
 			for _, clause := range strings.Split(m[1], ",") {
 				if r, err := readRule(t, clause); err != nil {
@@ -165,6 +178,10 @@ func applyNotes(c *column, comment string) error {
 			c.Label = d[2]
 		case "help":
 			c.Help = d[2]
+		case "from", "mail":
+			if err := mailNote(c, strings.ToLower(d[1]), d[2]); err != nil {
+				return err
+			}
 		case "fill":
 			if !strings.EqualFold(strings.Join(strings.Fields(d[2]), " "), "who made it") {
 				return fmt.Errorf("%q: the only filling is \"fill: who made it\"", strings.TrimSpace(part))

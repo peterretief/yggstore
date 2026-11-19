@@ -33,7 +33,7 @@ import (
 // after inviteFor.
 
 const (
-	roleApplied = "applied"      // registered, not let in yet: can't sign in
+	roleApplied = "applied" // registered, not let in yet: can't sign in
 	inviteFor   = 7 * 24 * time.Hour
 	resendAfter = 10 * time.Minute // asking again sooner sends nothing
 	maxWaiting  = 500              // registrations waiting at once

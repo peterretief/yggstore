@@ -240,6 +240,9 @@ func apply(tx *sql.Tx, tables []table, e entry) error {
 		_, err := tx.Exec(`INSERT INTO _sync_deleted VALUES (?, ?)`, e.Table, e.Row)
 		return err
 	}
+	if e.Kind == entryStep {
+		return applyStep(tx, *t, e)
+	}
 	var names, marks, sets []string
 	var args []any
 	for _, c := range t.Cols { // in the design's order; a field it dropped is passed over
@@ -363,7 +366,7 @@ func replay(tx *sql.Tx, tables []table) error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`PRAGMA defer_foreign_keys = OFF; DELETE FROM _sync_refused; DELETE FROM _sync_deleted; DELETE FROM _sync_accounts`); err != nil {
+	if _, err := tx.Exec(`PRAGMA defer_foreign_keys = OFF; DELETE FROM _sync_refused; DELETE FROM _sync_deleted; DELETE FROM _sync_accounts; DELETE FROM _steps`); err != nil {
 		return err
 	}
 	entries, err := readEntries(tx, "")
@@ -428,20 +431,21 @@ func (d *data) changed(t table, id string, fields map[string]any) (map[string]an
 }
 
 // saveEntry is the form's save, with the log on.
-func (d *data) saveEntry(t table, id string, fields map[string]any) error {
+// It returns the key of a row it made.
+func (d *data) saveEntry(t table, id string, fields map[string]any) (string, error) {
 	if id != "" {
 		change, err := d.changed(t, id, fields)
 		if err != nil || len(change) == 0 {
-			return err
+			return "", err
 		}
-		return d.sync.write(entryRow, t.Name, id, change)
+		return "", d.sync.write(entryRow, t.Name, id, change)
 	}
 	row := newID()
 	if c := t.col(t.Key); !c.Random {
 		row = text(fields[t.Key])
 		delete(fields, t.Key)
 	}
-	return d.sync.write(entryRow, t.Name, row, fields)
+	return row, d.sync.write(entryRow, t.Name, row, fields)
 }
 
 // The refused list.

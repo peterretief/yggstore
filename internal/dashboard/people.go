@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/peterretief/yggstore/internal/devices"
 	"github.com/peterretief/yggstore/internal/hub"
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/share"
 )
 
 // People on this box: on a box, its admin adds the people who use it,
@@ -368,17 +370,24 @@ func (d *Dashboard) claimForPerson(ctx context.Context, person, label string) (s
 	if err != nil {
 		return "", fmt.Errorf("%s's sharing key: %w", p.Name, err)
 	}
-	if admin {
-		if err := d.giveName(d.cfg.SelfID, name, id.Code(), p.Name); err != nil {
+	return d.askName(ctx, list, name, id.Code(), p.Name)
+}
+
+// askName gives name to someone on this machine (a person on the box, or an
+// app), whose mail is sealed for code: at once on an admin's machine, or by
+// asking the group's admin.
+func (d *Dashboard) askName(ctx context.Context, list []peers.Peer, name, code, person string) (string, error) {
+	if isAdmin(list, d.cfg.SelfID) {
+		if err := d.giveName(d.cfg.SelfID, name, code, person); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s has %s and https://%s now", p.Name, peers.MailAddress(name), name), nil
+		return fmt.Sprintf("%s has %s now", person, peers.MailAddress(name)), nil
 	}
 	lc, err := d.msgClient()
 	if err != nil {
 		return "", err
 	}
-	body, _ := json.Marshal(map[string]string{"name": name, "code": id.Code(), "person": p.Name})
+	body, _ := json.Marshal(map[string]string{"name": name, "code": code, "person": person})
 	sent := 0
 	for _, a := range list {
 		if a.Admin {
@@ -395,15 +404,71 @@ func (d *Dashboard) claimForPerson(ctx context.Context, person, label string) (s
 	f := d.loadNames()
 	keep := f.Claims[:0]
 	for _, c := range f.Claims {
-		if !(c.Mine && strings.EqualFold(c.Person, p.Name)) {
+		if !(c.Mine && strings.EqualFold(c.Person, person)) {
 			keep = append(keep, c)
 		}
 	}
-	f.Claims = append(keep, nameClaim{Name: name, Node: d.cfg.SelfID, Person: p.Name, Time: time.Now().UnixMilli(), Status: "asked", Mine: true})
+	f.Claims = append(keep, nameClaim{Name: name, Node: d.cfg.SelfID, Person: person, Time: time.Now().UnixMilli(), Status: "asked", Mine: true})
 	if err := d.saveNames(f); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("asked the group's admin for %s for %s", peers.MailAddress(name), p.Name), nil
+	return fmt.Sprintf("asked the group's admin for %s for %s", peers.MailAddress(name), person), nil
+}
+
+// AppPrefix marks an app's name among the people on a machine's entry.
+const AppPrefix = "app:"
+
+// handleAppName asks for LABEL.domain for an app on this machine
+// (docs/app-workflow.md): its mail is sealed for the app's own key, and the
+// node puts it in the app's inbox.
+func (d *Dashboard) handleAppName(w http.ResponseWriter, r *http.Request) {
+	var req struct{ App, Label, Code string }
+	json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req)
+	app, l := strings.ToLower(strings.TrimSpace(req.App)), strings.ToLower(strings.TrimSpace(req.Label))
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	domain := peers.GroupDomain(list)
+	if _, perr := share.ParseCode(req.Code); perr != nil {
+		err = errors.New("that isn't an app's sharing code")
+	}
+	switch {
+	case err != nil:
+	case peers.ValidLabel(app) != nil:
+		err = fmt.Errorf("an app's name is like leave or help-desk")
+	case domain == "":
+		err = errors.New(`the group has no domain yet: the admin sets "domain" on their entry in peers.json`)
+	case peers.ValidLabel(l) != nil:
+		err = peers.ValidLabel(l)
+	case reserved[l] && !isAdmin(list, d.cfg.SelfID):
+		err = fmt.Errorf("%s is kept for the group; choose another", l)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := l + "." + domain
+	if p, ok := peers.NameOwner(list, name); ok {
+		if pn, mine := peers.PersonNameOf(list, d.cfg.SelfID, AppPrefix+app); mine && p.IP() == d.cfg.SelfID && pn.Name == name {
+			writeJSONResp(w, map[string]string{"message": app + " has " + peers.MailAddress(name) + " already"})
+			return
+		}
+		http.Error(w, name+" is taken", http.StatusConflict)
+		return
+	}
+	if pn, ok := peers.PersonNameOf(list, d.cfg.SelfID, AppPrefix+app); ok {
+		http.Error(w, fmt.Sprintf("%s has %s already: one address each", app, peers.MailAddress(pn.Name)), http.StatusConflict)
+		return
+	}
+	msg, err := d.askName(r.Context(), list, name, req.Code, AppPrefix+app)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	d.event("info", msg)
+	writeJSONResp(w, map[string]string{"message": msg})
 }
 
 // askTrialNames asks the group for the name of each account people made

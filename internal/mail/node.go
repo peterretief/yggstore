@@ -23,6 +23,7 @@ import (
 	"github.com/peterretief/yggstore/internal/manifest"
 	"github.com/peterretief/yggstore/internal/msg"
 	"github.com/peterretief/yggstore/internal/peers"
+	"github.com/peterretief/yggstore/internal/share"
 )
 
 const (
@@ -48,8 +49,11 @@ type Messages interface {
 // messages from the Worker (Token set), and on anyone's node it collects the
 // messages sent to its owner into Box.
 type Node struct {
-	Dir    string // the node's mail state
-	Box    string // the owner's mailbox; "" if this node collects no mail
+	Dir string // the node's mail state
+	Box string // the owner's mailbox; "" if this node collects no mail
+	// Apps holds apps' own addresses on this machine (docs/app-workflow.md):
+	// APPS/NAME/sharing.key, and APPS/NAME/inbox for mail sealed for it.
+	Apps   string
 	Token  string // the Worker's token; "" if this node takes no mail in
 	Self   string // this node's ID
 	Msgs   Messages
@@ -87,6 +91,9 @@ type notice struct {
 	Stub     json.RawMessage `json:"stub"`
 	From     string          `json:"from,omitempty"` // the web node, filled in by the recipient
 	Error    string          `json:"error,omitempty"`
+	// InGroup is the sender's address when a member sent it through the
+	// group's own mail, checked by the web node that delivered it.
+	InGroup string `json:"in_group,omitempty"`
 }
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -180,7 +187,7 @@ func (n *Node) Run(ctx context.Context) {
 func (n *Node) handle(s msg.Stored) {
 	switch s.Type {
 	case typeMail:
-		if n.Box == "" {
+		if n.Box == "" && n.Apps == "" {
 			return
 		}
 		var no notice
@@ -188,7 +195,7 @@ func (n *Node) handle(s msg.Stored) {
 			n.logf("mail: ignoring a bad notice from %s", s.From)
 			return
 		}
-		if _, err := os.Stat(n.boxPath(no.ID, ".ystub")); err == nil {
+		if _, err := os.Stat(n.boxPath(no.ID, ".ystub")); err == nil && n.Box != "" {
 			n.st.Todo[no.ID] = &notice{ID: no.ID, From: s.From, Error: "done"} // collected before; just confirm
 			return
 		}
@@ -202,6 +209,40 @@ func (n *Node) handle(s msg.Stored) {
 }
 
 func (n *Node) boxPath(id, ext string) string { return filepath.Join(n.Box, id+ext) }
+
+// appFor is the app on this machine a sealed message is for: its folder,
+// or "" if it's for none of them.
+func (n *Node) appFor(data []byte) string {
+	if n.Apps == "" {
+		return ""
+	}
+	dirs, _ := os.ReadDir(n.Apps)
+	for _, d := range dirs {
+		dir := filepath.Join(n.Apps, d.Name())
+		id, err := share.Load(filepath.Join(dir, "sharing.key"))
+		if err != nil {
+			continue
+		}
+		if _, err := Open(id, data); err == nil {
+			return dir
+		}
+	}
+	return ""
+}
+
+// keepForApp puts a message in an app's inbox, still sealed, for the app to
+// take in (and delete).
+func keepForApp(dir string, no notice, data []byte) error {
+	inbox := filepath.Join(dir, "inbox")
+	if err := os.MkdirAll(inbox, 0o700); err != nil {
+		return err
+	}
+	meta, _ := json.Marshal(Meta{Received: no.Received, InGroup: no.InGroup})
+	if err := atomicfile.Replace(filepath.Join(inbox, no.ID+".json"), meta, 0o600); err != nil {
+		return err
+	}
+	return atomicfile.Replace(filepath.Join(inbox, no.ID+".sealed"), data, 0o600)
+}
 
 // work collects pending messages and deletes collected ones.
 func (n *Node) work(ctx context.Context) {
@@ -301,7 +342,7 @@ func (n *Node) collect(ctx context.Context, no notice) error {
 	}
 	sealed := n.boxPath(no.ID, ".sealed")
 	data, err := os.ReadFile(sealed)
-	if err != nil {
+	if err != nil || n.Box == "" {
 		var buf bytes.Buffer
 		if err := files.Get(ctx, n.Client, m, &buf, func(string, ...any) {}); err != nil {
 			return err
@@ -310,10 +351,17 @@ func (n *Node) collect(ctx context.Context, no notice) error {
 		if !IsSealed(data) {
 			return errors.New("not a sealed message")
 		}
+		// An app's mail goes to the app, and its row is the record.
+		if app := n.appFor(data); app != "" {
+			return keepForApp(app, no, data)
+		}
+		if n.Box == "" {
+			return errors.New("it isn't for any app here, and this node keeps no mailbox")
+		}
 		if err := os.MkdirAll(n.Box, 0o700); err != nil {
 			return err
 		}
-		meta, _ := json.Marshal(Meta{Received: no.Received})
+		meta, _ := json.Marshal(Meta{Received: no.Received, InGroup: no.InGroup})
 		if err := atomicfile.Replace(n.boxPath(no.ID, ".json"), meta, 0o600); err != nil {
 			return err
 		}
@@ -333,9 +381,10 @@ func (n *Node) collect(ctx context.Context, no notice) error {
 type Meta struct {
 	Received int64    `json:"received"` // unix ms
 	Sent     bool     `json:"sent,omitempty"`
-	Folder   string   `json:"folder,omitempty"` // "" is the Inbox (or Sent, if Sent)
-	Flags    []string `json:"flags,omitempty"`  // IMAP flags: \Seen, \Flagged, ...
-	UID      uint32   `json:"uid,omitempty"`    // its number in its folder
+	Folder   string   `json:"folder,omitempty"`   // "" is the Inbox (or Sent, if Sent)
+	Flags    []string `json:"flags,omitempty"`    // IMAP flags: \Seen, \Flagged, ...
+	UID      uint32   `json:"uid,omitempty"`      // its number in its folder
+	InGroup  string   `json:"in_group,omitempty"` // a member sent it, through the group's mail
 }
 
 func (n *Node) atMembers(m manifest.Manifest) bool {
@@ -457,6 +506,12 @@ func (n *Node) lookup(w http.ResponseWriter, r *http.Request) {
 // that node, which collects it into its owner's mailbox. It returns once
 // both are done, so a caller told of an error can have the sender retry.
 func (n *Node) Take(ctx context.Context, node string, data []byte) (string, error) {
+	return n.take(ctx, node, data, "")
+}
+
+// take is Take, with the sender's address when a member sent it through the
+// group's own mail (so not from the Worker, which anyone can write to).
+func (n *Node) take(ctx context.Context, node string, data []byte, inGroup string) (string, error) {
 	member := false
 	for _, p := range n.Peers() {
 		if p.IP() == node && !p.Gateway {
@@ -480,7 +535,7 @@ func (n *Node) Take(ctx context.Context, node string, data []byte) (string, erro
 		return "", errors.New("can't store the message now")
 	}
 	stub, _ := manifest.Marshal(m)
-	no := notice{ID: m.FileID, Received: time.Now().UnixMilli(), Stub: stub}
+	no := notice{ID: m.FileID, Received: time.Now().UnixMilli(), Stub: stub, InGroup: inGroup}
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.st.Taken[no.ID] = &taken{Node: node, Time: no.Received, Stub: m}

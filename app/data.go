@@ -51,16 +51,23 @@ type column struct {
 	Choices    []string
 	HasDefault bool            // the design gives it a value when it's left out
 	Hide       map[string]bool // roles it's hidden from (permissions.go)
+	Default    string          // the design's default, for a status (steps.go)
 	Label      string          // how it's named to people, if not by its name
 	Help       string          // a line under its field in forms
+	Mail       string          // what mail-in puts in it (mailin.go)
 }
 
 type table struct {
 	Name     string
 	Cols     []column
-	Key      string   // what identifies a row
-	Label    string   // what a row is called in drop-downs and reports
-	Rules    []rule   // who may do what (permissions.go)
+	Key      string // what identifies a row
+	Label    string // what a row is called in drop-downs and reports
+	Rules    []rule // who may do what (permissions.go)
+	Steps    []step // how its rows move on (steps.go)
+	Tells    []tell
+	Reminds  []remind
+	Start    string   // where a new row starts, with steps
+	MailIn   *mailIn  // mail to an address becomes its rows (mailin.go)
 	Problems []string // rules that couldn't be read
 }
 
@@ -249,11 +256,17 @@ type data struct {
 	path string
 	sync *syncLog // nil without -machine
 	keep *keeper  // nil without -sync-key
+
+	notify notifier // who's told of steps (steps.go)
 }
 
 func openData(path string) (*data, error) {
 	db, err := sql.Open("sqlite3", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(wal)&_pragma=foreign_keys(1)&_txlock=immediate")
 	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(stepsTable); err != nil {
+		db.Close()
 		return nil, err
 	}
 	return &data{db: db, path: path}, nil
@@ -314,6 +327,9 @@ func (d *data) readTable(t *table, stmt string) error {
 		}
 		c.Required = notNull && !dflt.Valid
 		c.HasDefault = dflt.Valid
+		if dflt.Valid {
+			c.Default = strings.Trim(dflt.String, "'\"")
+		}
 		if pk > 0 {
 			keys = append(keys, c.Name)
 		}
@@ -407,6 +423,7 @@ func (d *data) routes(mux *http.ServeMux, in, admin func(http.HandlerFunc) http.
 	mux.HandleFunc("GET "+dataBase+"{table}/{id}", in(d.form))
 	mux.HandleFunc("POST "+dataBase+"{table}/{id}", in(d.save))
 	mux.HandleFunc("POST "+dataBase+"{table}/{id}/delete", in(d.remove))
+	mux.HandleFunc("POST "+dataBase+"{table}/{id}/step", in(d.step))
 }
 
 // The diagram: parents on the left, what refers to them to their right.
@@ -912,6 +929,9 @@ type formPage struct {
 	Fields                            []field
 	Shown                             [][2]string // a client's view: title, value
 	Children                          []child
+	Status, StepAction                string // with steps: where the row is, and where its buttons go
+	Buttons                           []stepButton
+	History                           []historyLine
 }
 
 // shown is a record as a client reads it. Nothing else is offered, so a
@@ -1011,6 +1031,12 @@ func (d *data) form(w http.ResponseWriter, r *http.Request) {
 	if !canWrite {
 		p.Shown = d.shown(tables, *t, got)
 	}
+	if full.Steps != nil {
+		p.Status = got[statusColumn]
+		p.Buttons = stepsFor(full, who, got)
+		p.StepAction = tableLink(t.Name) + url.PathEscape(id) + "/step"
+		p.History = d.history(full, id)
+	}
 	for _, o := range tables {
 		for _, c := range o.Cols {
 			if c.Ref == nil || c.Ref.Table != t.Name {
@@ -1080,6 +1106,12 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 	}
 	// Who made a new row, whatever was sent, even into a column they can't
 	// see; on a change it stays as it was.
+	if full.Steps != nil && id == "" { // a new row starts where the steps do
+		names = append(names, quote(statusColumn))
+		marks = append(marks, "?")
+		args = append(args, full.Start)
+		fields[statusColumn] = full.Start
+	}
 	for _, c := range full.Cols {
 		if c.Maker && id == "" {
 			names = append(names, quote(c.Name))
@@ -1093,10 +1125,14 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var err error
+	made := ""
 	if d.sync != nil {
-		err = d.saveEntry(full, id, fields)
+		made, err = d.saveEntry(full, id, fields)
 	} else if id == "" {
-		_, err = d.db.Exec("INSERT INTO "+quote(t.Name)+" ("+strings.Join(names, ", ")+") VALUES ("+strings.Join(marks, ", ")+")", args...)
+		var res sql.Result
+		if res, err = d.db.Exec("INSERT INTO "+quote(t.Name)+" ("+strings.Join(names, ", ")+") VALUES ("+strings.Join(marks, ", ")+")", args...); err == nil {
+			made = d.madeID(full, res, names, args)
+		}
 	} else {
 		sets := make([]string, len(names))
 		for i, n := range names {
@@ -1110,7 +1146,25 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 		page(w, r, http.StatusBadRequest, "form", p)
 		return
 	}
+	if made != "" && full.Steps != nil {
+		d.notice(r)
+		d.made(full, made, who.Name)
+		http.Redirect(w, r, tableLink(t.Name)+url.PathEscape(made), http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, tableLink(t.Name), http.StatusSeeOther)
+}
+
+// madeID is the key of a row just inserted without the log.
+func (d *data) madeID(t table, res sql.Result, names []string, args []any) string {
+	if i := slices.Index(names, quote(t.Key)); i >= 0 {
+		return text(args[i])
+	}
+	var key any
+	if n, err := res.LastInsertId(); err == nil {
+		d.db.QueryRow("SELECT "+quote(t.Key)+" FROM "+quote(t.Name)+" WHERE rowid = ?", n).Scan(&key)
+	}
+	return text(key)
 }
 
 func (d *data) remove(w http.ResponseWriter, r *http.Request) {
@@ -1224,6 +1278,9 @@ main > nav{font-size:.9rem;color:var(--soft)}
 .tiles a{display:block;padding:1.2rem;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--ink);background:var(--box)}
 .tiles a:hover{border-color:var(--accent)}.tiles b{display:block;font-size:1.6rem;margin-bottom:.4rem}
 form.signin,div.signin{max-width:24rem;margin:3rem auto}
+.status b{background:var(--box);border:1px solid var(--line);border-radius:6px;padding:.1rem .5rem}
+table.shown td{white-space:pre-wrap;overflow-wrap:anywhere}table.shown th{vertical-align:top}
+ol.history{padding-left:1.2rem}ol.history li{margin:.3rem 0}ol.history q{color:var(--soft)}
 .trap{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 {{extraStyle}}</style>
 <script>if(!("commandForElement" in HTMLButtonElement.prototype))addEventListener("click",e=>{const b=e.target.closest("button[commandfor]"),d=b&&document.getElementById(b.getAttribute("commandfor"));if(!d)return;if(b.getAttribute("command")=="show-modal")d.showModal();else if(b.getAttribute("command")=="close")d.close()})</script>{{end}}
@@ -1284,7 +1341,10 @@ form.signin,div.signin{max-width:24rem;margin:3rem auto}
 {{define "form"}}{{template "top"}}<title>{{human .Name}}</title>
 <nav><a href="{{.Link}}">{{human .Name}}</a></nav><h1>{{human .Name}}</h1>
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
-{{if .Shown}}<table>{{range .Shown}}<tr><th>{{index . 0}}</th><td>{{index . 1}}</td></tr>{{end}}</table>{{else}}
+{{if .Status}}<p class="status">Status: <b>{{.Status}}</b></p>
+{{if .Buttons}}<form class="edit steps" method="post" action="{{.StepAction}}"><label>Comment (optional) <textarea name="comment" rows="2"></textarea></label>
+<div class="bar">{{range .Buttons}}<button name="action" value="{{.Action}}">{{.Label}}</button>{{end}}</div></form>{{end}}{{end}}
+{{if .Shown}}<table class="shown">{{range .Shown}}<tr><th>{{index . 0}}</th><td>{{index . 1}}</td></tr>{{end}}</table>{{else}}
 <form class="edit" method="post" action="{{.Action}}">{{range .Fields}}<label>{{.Title}}{{if .Required}} *{{end}}
 {{if or (eq .Kind "ref") (eq .Kind "choice")}}{{$v := .Value}}<select name="{{.Name}}"{{if .Required}} required{{end}}><option value=""></option>{{range .Options}}<option value="{{index . 0}}"{{if eq (index . 0) $v}} selected{{end}}>{{index . 1}}</option>{{end}}</select>
 {{else if eq .Kind "textarea"}}<textarea name="{{.Name}}" rows="5"{{if .Required}} required{{end}}>{{.Value}}</textarea>
@@ -1294,6 +1354,7 @@ form.signin,div.signin{max-width:24rem;margin:3rem auto}
 <button>Save</button></form>{{end}}
 {{if .Delete}}<p><button type="button" commandfor="delete-this" command="show-modal">Delete</button></p>
 <dialog id="delete-this"><p>Delete this {{human .Name}}? It can't be undone.</p><form class="bar" method="post" action="{{.Delete}}"><button type="button" commandfor="delete-this" command="close">Cancel</button><button>Delete</button></form></dialog>{{end}}
+{{if .History}}<h2>History</h2><ol class="history">{{range .History}}<li><span class="muted">{{.When}}</span> {{.What}}{{if .Who}} · {{.Who}}{{end}}{{if .Comment}}<br><q>{{.Comment}}</q>{{end}}</li>{{end}}</ol>{{end}}
 {{if .Children}}<h2>Related</h2><ul>{{range .Children}}<li><a href="{{.Link}}">{{.Title}}</a> ({{.Count}}){{if .Add}} · <a href="{{.Add}}">Add</a>{{end}}</li>{{end}}</ul>{{end}}{{end}}
 
 {{define "refused"}}{{template "top"}}<title>To look at</title>

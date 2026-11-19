@@ -195,6 +195,8 @@ func main() {
 		err = cmdHub(ctx, args)
 	case "mail":
 		err = cmdMail(ctx, args)
+	case "app":
+		err = cmdApp(args)
 	case "repair":
 		err = cmdRepair(ctx, args)
 	case "leases":
@@ -254,6 +256,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	cloudflared := fs.String("cloudflared", "cloudflared", "the cloudflared program, for -web-tunnel")
 	mailIn := fs.String("mail-in", "", "take the group's email from the mail Worker; the file holds its token (needs -web; see docs/mail.md)")
 	mailbox := fs.String("mailbox", filepath.Join(yggstoreHome(), "mail"), `where your email is collected ("" for none; see docs/mail.md)`)
+	appsDir := fs.String("apps", filepath.Join(yggstoreHome(), "apps"), `apps on this machine with an address of their own (see yggstore app; "" for none)`)
 	mailOut := fs.String("mail-out", "", "send members' email through the SMTP relay in this file (see docs/mail.md)")
 	yggAdmin := fs.String("ygg-admin", "auto", `Yggdrasil's admin socket, for linking to other members ("none" to leave Yggdrasil's links alone)`)
 	noPublic := fs.Bool("no-public-peers", false, "don't link to the group's public Yggdrasil peers (ygg_peers): for a node that reaches the group through other members, so it doesn't carry the public network's traffic")
@@ -355,6 +358,7 @@ func cmdServe(ctx context.Context, args []string) error {
 			mailNode.Box = *mailbox
 		}
 	}
+	mailNode.Apps = *appsDir
 	if *mailIn != "" {
 		if *webAddr == "" {
 			return errors.New("-mail-in needs -web")
