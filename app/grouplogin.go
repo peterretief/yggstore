@@ -180,7 +180,7 @@ func (a *app) groupBackHere(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if email == "" {
-		fail("You're signed in with the group, but have no address in it yet, so this site can't tell who you are. Ask the group's admin for a name.", nil)
+		fail("You're signed in with the group, but it didn't say who you are. Try again, or sign in here instead.", nil)
 		return
 	}
 	switch role := a.accountRole(email); role {
@@ -254,8 +254,45 @@ func (a *app) groupWho(ctx context.Context, code, verifier, nonce string) (strin
 	case !hmac.Equal([]byte(str("nonce")), []byte(nonce)):
 		return "", errors.New("the token's nonce isn't ours")
 	}
-	if v, _ := claims["email_verified"].(bool); !v {
-		return "", nil
+	if v, _ := claims["email_verified"].(bool); v && str("email") != "" {
+		return cleanEmail(str("email")), nil
 	}
-	return cleanEmail(str("email")), nil
+	// Someone on a box with no name in the group yet: known by their box
+	// and their name on it, at the group's internal domain, where no mail
+	// goes (see noMailbox). Given a name later, they're a new account.
+	return g.unnamed(str("sub")), nil
+}
+
+// unnamed is the account for "box/person", someone on a box with no name
+// in the group: person.box@GROUP.internal ("" if sub isn't like that).
+func (g *groupLogin) unnamed(sub string) string {
+	box, person, ok := strings.Cut(strings.ToLower(sub), "/")
+	label := func(s string) string {
+		var b strings.Builder
+		for _, r := range s {
+			switch {
+			case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+				b.WriteRune(r)
+			case b.Len() > 0 && !strings.HasSuffix(b.String(), "-"):
+				b.WriteByte('-')
+			}
+		}
+		return strings.Trim(b.String(), "-")
+	}
+	box, person = label(box), label(person)
+	host := strings.TrimPrefix(strings.TrimPrefix(g.issuer, "https://"), "http://")
+	host, _, _ = strings.Cut(host, ":")
+	group, _, _ := strings.Cut(strings.TrimPrefix(host, "my."), ".")
+	if !ok || box == "" || person == "" || group == "" {
+		return ""
+	}
+	return person + "." + box + "@" + group + ".internal"
+}
+
+// noMailbox says whether an account is someone known only by their box
+// (unnamed): mail to it can't be delivered, so it's left out of emails
+// rather than stop them going to everyone else.
+func noMailbox(addr string) bool {
+	local, domain, _ := strings.Cut(addr, "@")
+	return strings.HasSuffix(domain, ".internal") && strings.Contains(local, ".")
 }

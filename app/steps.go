@@ -527,7 +527,7 @@ func cleanList(list []string, without string) []string {
 	seen := map[string]bool{cleanEmail(without): true}
 	var out []string
 	for _, a := range list {
-		if a = cleanEmail(a); a != "" && !seen[a] {
+		if a = cleanEmail(a); a != "" && !seen[a] && !noMailbox(a) {
 			seen[a] = true
 			out = append(out, a)
 		}

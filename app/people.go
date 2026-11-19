@@ -15,6 +15,8 @@ type account struct {
 	Name, Role string
 	// NoPassword: let in, and hasn't chosen a password from their link yet.
 	NoPassword bool
+	// Group: signs in with the group's login only (grouplogin.go).
+	Group bool
 }
 
 type peoplePage struct {
@@ -48,7 +50,7 @@ func tempPassword() string {
 }
 
 func (a *app) listAccounts() ([]account, error) {
-	rows, err := a.accountsDB().Query(`SELECT name, role, hash = '' FROM `+a.accounts()+` WHERE role != ? ORDER BY name`, roleApplied)
+	rows, err := a.accountsDB().Query(`SELECT name, role, hash = '', invited = 0 FROM `+a.accounts()+` WHERE role != ? ORDER BY name`, roleApplied)
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +58,12 @@ func (a *app) listAccounts() ([]account, error) {
 	var out []account
 	for rows.Next() {
 		var x account
-		if err := rows.Scan(&x.Name, &x.Role, &x.NoPassword); err != nil {
+		var notInvited bool
+		if err := rows.Scan(&x.Name, &x.Role, &x.NoPassword, &notInvited); err != nil {
 			return nil, err
 		}
+		// No password and no invite waiting: they came by the group's login.
+		x.Group, x.NoPassword = x.NoPassword && notInvited && a.group != nil, x.NoPassword && !(notInvited && a.group != nil)
 		out = append(out, x)
 	}
 	return out, rows.Err()
@@ -300,7 +305,7 @@ func init() {
 <button>{{if .Mail}}Add, and email them a link{{else}}Add{{end}}</button></form>
 <h2>Everyone</h2>
 <div class="scroll" tabindex="0" role="region" aria-label="Everyone"><table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
-{{$me := .Me}}{{range $i, $p := .People}}<tr><td>{{.Name}}{{if eq .Name $me}} (you){{end}}{{if .NoPassword}}<br><span class="muted">hasn't chosen a password yet</span>{{end}}</td><td data-label="Role">{{.Role}}</td><td>
+{{$me := .Me}}{{range $i, $p := .People}}<tr><td>{{.Name}}{{if eq .Name $me}} (you){{end}}{{if .NoPassword}}<br><span class="muted">hasn't chosen a password yet</span>{{end}}{{if .Group}}<br><span class="muted">signs in with the group</span>{{end}}</td><td data-label="Role">{{.Role}}</td><td>
 {{if .NoPassword}}<form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="invite"><button>{{if $.Mail}}Email the link again{{else}}Show the link{{end}}</button></form>{{end}}
 <form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="reset"><button>Reset password</button></form>
 {{if ne .Name $me}}<form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="role"><select name="role" aria-label="Role for {{.Name}}">{{$r := .Role}}{{range $x := roles}}<option value="{{$x}}"{{if eq $x $r}} selected{{end}}>{{$x}}</option>{{end}}</select> <button>Change role</button></form>
