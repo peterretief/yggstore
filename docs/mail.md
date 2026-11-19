@@ -42,6 +42,27 @@ Everyone else's copy goes out through the relay. If the recipient's node
 can't be told just now, their copy goes out too, and comes back in through
 Cloudflare as before.
 
+### Internal addresses: mail that never leaves the group
+
+Every name the group gives has an internal twin at the group's `.internal`
+domain: `anna@example.org` is also `anna@example.internal`, the same
+mailbox. The `.internal` domain is set aside for private networks, so
+nothing on the internet can send to it, and the web nodes never send it
+out:
+
+- Mail to an internal address is delivered only in the group. If the
+  recipient's node can't be told just now, the sender gets an error and
+  tries again later; it doesn't go out through Cloudflare instead.
+- Mail from an internal address may go only to the group's own addresses,
+  ordinary or internal; anyone else is refused before anything is sent.
+- On the dashboard, **Write** has a **From** choice between your address
+  and your internal one, and a reply to a message that came to your
+  internal address starts from it. In a terminal: `yggstore mail send
+  -from anna@example.internal ...`.
+
+An app's address has a twin too (`help@example.internal`), and mail to it
+is from members by its nature.
+
 ## Use a mail program
 
 The dashboard serves your mailbox to mail programs on the same machine:

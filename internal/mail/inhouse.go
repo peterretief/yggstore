@@ -2,7 +2,9 @@ package mail
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,28 +45,60 @@ func (n *Node) DeliverInHouse(ctx context.Context, from, to string, raw []byte) 
 
 // send delivers in the group what it can, and the rest through the SMTP
 // relay. An in-house address that can't be delivered just now goes out
-// through the relay too, which brings it back in by Cloudflare as before.
+// through the relay too, which brings it back in by Cloudflare as before;
+// except an internal one (peers.InternalDomain), or anything from one:
+// those never leave the group, and fail instead.
 func (r *Relay) send(ctx context.Context, from string, to []string, msg []byte) error {
 	deliver := r.Deliver
 	if deliver == nil {
 		deliver = r.deliver
 	}
+	var list []peers.Peer
+	if r.Peers != nil {
+		list = r.Peers()
+	}
+	internal := func(a string) bool { return peers.IsInternal(list, a) }
+	fromInside := internal(from)
+	inGroup := func(a string) bool { p, _, ok := peers.MailHolder(list, a); return ok && !p.Gateway }
+	for _, a := range to {
+		switch {
+		case internal(a) && !inGroup(a):
+			return fmt.Errorf("%s: no such address in the group", a)
+		case fromInside && !inGroup(a):
+			return fmt.Errorf("mail from %s stays in the group: %s isn't one of its addresses", from, a)
+		}
+	}
 	if r.InHouse == nil {
+		if fromInside || slices.ContainsFunc(to, internal) {
+			return errors.New("this web node can't deliver mail in the group, and internal mail never goes out")
+		}
 		return deliver(ctx, from, to, msg)
 	}
-	var out, in []string
+	var out, in, failed []string
 	for _, a := range to {
-		if inhouse, err := r.InHouse(ctx, from, a, msg); !inhouse {
-			out = append(out, a)
-		} else if err != nil {
+		inhouse, err := r.InHouse(ctx, from, a, msg)
+		switch {
+		case inhouse && err == nil:
+			in = append(in, a)
+		case inhouse && (fromInside || internal(a)):
+			r.logf("mail: %s in the group: %v", a, err)
+			failed = append(failed, a)
+		case inhouse:
 			r.logf("mail: %s in the group: %v; sending it out instead", a, err)
 			out = append(out, a)
-		} else {
-			in = append(in, a)
+		default:
+			out = append(out, a)
 		}
 	}
 	if len(in) > 0 {
 		r.logf("mail: delivered in the group from %s to %d recipient(s)", from, len(in))
+	}
+	if len(failed) > 0 {
+		err := fmt.Errorf("can't reach %s in the group just now; internal mail never goes out, so try again later", strings.Join(failed, ", "))
+		if len(in) > 0 {
+			err = fmt.Errorf("%w (it did reach %s)", err, strings.Join(in, ", "))
+		}
+		return err
 	}
 	if len(out) == 0 {
 		return nil

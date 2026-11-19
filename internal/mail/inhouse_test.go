@@ -158,7 +158,9 @@ func TestMailForAnApp(t *testing.T) {
 		}
 	}
 	r := &Relay{Peers: members, InHouse: web.DeliverInHouse,
-		Deliver: func(ctx context.Context, from string, to []string, msg []byte) error { return errors.New("nothing goes out") }}
+		Deliver: func(ctx context.Context, from string, to []string, msg []byte) error {
+			return errors.New("nothing goes out")
+		}}
 	raw, rcpts, _ := Draft{From: "Peter@group.example", To: "leave@group.example", Subject: "Leave", Text: "2 to 6 December"}.Compose()
 	if err := r.send(context.Background(), "Peter@group.example", rcpts, raw); err != nil {
 		t.Fatal(err)
@@ -207,5 +209,65 @@ func TestMailForAnApp(t *testing.T) {
 	}
 	if got, _ := (&Box{Dir: home.Box, ID: owner}).List(); len(got) != 0 {
 		t.Fatalf("the app's mail went to the owner's mailbox: %v", got)
+	}
+}
+
+// Internal addresses work only inside the group: mail to them or from them
+// never goes out, even when it can't be delivered just now.
+func TestInternalMail(t *testing.T) {
+	anna := identity(t)
+	list := []peers.Peer{
+		{Name: "admin", Addr: "127.0.0.1:9", Admin: true, Domain: "group.example"},
+		{Name: "home", Addr: "127.0.0.3:9", Names: []string{"anna.group.example"}, Code: anna.Code()},
+		{Name: "peter", Addr: "127.0.0.4:9", Names: []string{"peter.group.example"}, Code: anna.Code()},
+	}
+	members := func() []peers.Peer { return list }
+	if peers.InternalDomain(list) != "group.internal" {
+		t.Fatal(peers.InternalDomain(list))
+	}
+	if p, _, ok := peers.MailHolder(list, "Anna@group.internal"); !ok || p.Name != "home" {
+		t.Fatal("anna@group.internal isn't anna's")
+	}
+	r := &Relay{Peers: members}
+	if !r.may("127.0.0.4", "peter@group.internal") || r.may("127.0.0.3", "peter@group.internal") {
+		t.Fatal("who may send as an internal address")
+	}
+	var out []string
+	var delivered []string
+	up := true
+	r.Deliver = func(ctx context.Context, from string, to []string, msg []byte) error {
+		out = append(out, to...)
+		return nil
+	}
+	r.InHouse = func(ctx context.Context, from, to string, msg []byte) (bool, error) {
+		if _, _, ok := peers.MailHolder(list, to); !ok {
+			return false, nil
+		}
+		if !up {
+			return true, errors.New("unreachable")
+		}
+		delivered = append(delivered, to)
+		return true, nil
+	}
+	ctx := context.Background()
+	if err := r.send(ctx, "peter@group.internal", []string{"anna@group.internal", "anna@group.example"}, nil); err != nil || len(out) != 0 || len(delivered) != 2 {
+		t.Fatalf("inside: %v, out %v, in %v", err, out, delivered)
+	}
+	if err := r.send(ctx, "peter@group.internal", []string{"someone@example.net"}, nil); err == nil || len(out) != 0 {
+		t.Fatalf("internal mail went out: %v %v", err, out)
+	}
+	if err := r.send(ctx, "peter@group.example", []string{"nobody@group.internal"}, nil); err == nil || len(out) != 0 {
+		t.Fatalf("to no one inside: %v %v", err, out)
+	}
+	up = false
+	if err := r.send(ctx, "peter@group.example", []string{"anna@group.internal"}, nil); err == nil || len(out) != 0 {
+		t.Fatalf("internal mail fell back to going out: %v %v", err, out)
+	}
+	if err := r.send(ctx, "peter@group.example", []string{"anna@group.example"}, nil); err != nil || strings.Join(out, ",") != "anna@group.example" {
+		t.Fatalf("an ordinary address should still fall back: %v %v", err, out)
+	}
+	r.InHouse = nil
+	if err := r.send(ctx, "peter@group.internal", []string{"anna@group.internal"}, nil); err == nil {
+		t.Fatal("internal mail without in-house delivery")
 	}
 }

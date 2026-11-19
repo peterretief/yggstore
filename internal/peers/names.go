@@ -133,6 +133,26 @@ func GroupDomain(list []Peer) string {
 	return ""
 }
 
+// InternalDomain is where every address the group gives has a twin that
+// works only inside the group (docs/mail.md): anna@example.org is also
+// anna@example.internal. The .internal domain is set aside for private
+// networks, so nothing on the internet sends to it, and the web nodes never
+// send it out.
+func InternalDomain(list []Peer) string {
+	d := GroupDomain(list)
+	if d == "" {
+		return ""
+	}
+	label, _, _ := strings.Cut(d, ".")
+	return label + ".internal"
+}
+
+// IsInternal says whether an address is at the group's internal domain.
+func IsInternal(list []Peer, addr string) bool {
+	_, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
+	return ok && domain != "" && domain == InternalDomain(list)
+}
+
 // NameOwner is the peer that holds name (anna.example.org): the node it
 // was given to, or the box of the person it was given to.
 func NameOwner(list []Peer, name string) (Peer, bool) {
@@ -203,6 +223,9 @@ func PersonNamesOf(list []Peer, node, person string) []PersonName {
 // messages can be forwarded from it.
 func MailOwner(list []Peer, addr string) (Peer, bool) {
 	local, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
+	if ok && domain == InternalDomain(list) {
+		domain = GroupDomain(list)
+	}
 	if !ok || ValidLabel(local) != nil {
 		return Peer{}, false
 	}
@@ -215,6 +238,9 @@ func MailOwner(list []Peer, addr string) (Peer, bool) {
 // of someone's own is one mailbox: every address at it is theirs.
 func MailHolder(list []Peer, addr string) (Peer, PersonName, bool) {
 	local, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
+	if ok && domain == InternalDomain(list) {
+		domain = GroupDomain(list) // the same mailbox, by its internal name
+	}
 	if ok && local != "" {
 		if p, pn, own := OwnDomain(list, domain); own {
 			return p, pn, true

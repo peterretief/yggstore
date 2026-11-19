@@ -60,6 +60,7 @@ type Message struct {
 	Text        string       `json:"text"`
 	FromHTML    bool         `json:"from_html,omitempty"` // Text was made from the HTML part
 	MessageID   string       `json:"message_id,omitempty"`
+	DeliveredTo string       `json:"delivered_to,omitempty"` // the address it came to
 	References  string       `json:"references,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
@@ -268,6 +269,7 @@ func Parse(raw []byte) (Message, error) {
 	m.ReplyTo = header(msg.Header, "Reply-To")
 	m.Subject = header(msg.Header, "Subject")
 	m.MessageID = strings.TrimSpace(msg.Header.Get("Message-ID"))
+	m.DeliveredTo = strings.ToLower(strings.TrimSpace(msg.Header.Get("Delivered-To")))
 	m.References = strings.Join(strings.Fields(msg.Header.Get("References")), " ")
 	if t, err := msg.Header.Date(); err == nil {
 		m.Date = t.UnixMilli()

@@ -45,6 +45,9 @@ type app struct {
 	registering bool
 	// mail sends email; nil for none: links are then shown to the admin.
 	mail func(to []string, subject, body string) error
+	// mailFrom sends as another address of the node's, such as the app's
+	// own; nil sends everything through mail.
+	mailFrom func(from string, to []string, subject, body string) error
 	// secret makes links (see linkToken); site is this site's address.
 	secret []byte
 	site   string
@@ -216,7 +219,8 @@ func Main() {
 		log.Fatal(err)
 	}
 	if *mailAs != "" {
-		a.mail = yggstoreMail(*mailAs)
+		a.mailFrom = yggstoreMail(*mailAs)
+		a.mail = func(to []string, subject, body string) error { return a.mailFrom("", to, subject, body) }
 	} else if *register {
 		log.Printf("-register without -mail: People shows each invite's link, for you to pass on")
 	}
@@ -289,7 +293,10 @@ func (a *app) routes() http.Handler {
 		add(a, mux)
 	}
 	if a.data != nil {
-		a.data.notify.send, a.data.notify.people, a.data.notify.address = a.mail, a.namesWithRole, a.address
+		a.data.notify.send, a.data.notify.people, a.data.notify.address = a.mailFrom, a.namesWithRole, a.address
+		if a.mailFrom == nil && a.mail != nil {
+			a.data.notify.send = func(_ string, to []string, subject, body string) error { return a.mail(to, subject, body) }
+		}
 		if a.site != "" {
 			a.data.notify.site.Store(a.address(&http.Request{Host: a.site, Header: http.Header{}}))
 		}

@@ -412,10 +412,10 @@ func (d *data) made(t table, id, by string) {
 
 // notifier is how data reaches people: set by the app.
 type notifier struct {
-	send    func(to []string, subject, body string) error // nil: nobody is emailed
-	people  func(role string) []string                    // the accounts with a role
-	site    atomic.Value                                  // string: the site's address, for links
-	address func(r *http.Request) string                  // the site's address, from a request
+	send    func(from string, to []string, subject, body string) error // nil: nobody is emailed; from "" is the node's own address
+	people  func(role string) []string                                 // the accounts with a role
+	site    atomic.Value                                               // string: the site's address, for links
+	address func(r *http.Request) string                               // the site's address, from a request
 }
 
 // notice remembers the site's address from a request, for links made later.
@@ -491,7 +491,7 @@ func (d *data) tellAbout(t table, id string, row map[string]string, by string, s
 		body += "\n" + comment + "\n"
 	}
 	body += "\nOpen it: " + d.link(t, id) + "\n"
-	if err := d.notify.send(to, fmt.Sprintf("%s %s: %s", human(t.Name), s.To, title), body); err != nil {
+	if err := d.notify.send(t.mailFrom(), to, fmt.Sprintf("%s %s: %s", human(t.Name), s.To, title), body); err != nil {
 		log.Printf("steps: telling %d about %s %s: %v", len(to), t.Name, id, err)
 	}
 }
@@ -585,7 +585,7 @@ func (d *data) remindAt(tables []table, t table, status string, after time.Durat
 		title := rowTitle(t, row)
 		body := fmt.Sprintf("%s: %s\n\nIt has been %s since %s, waiting for one of you.\n\nOpen it: %s\n",
 			human(t.Name), title, status, d.enteredAt(t, id), d.link(t, id))
-		if err := d.notify.send(to, fmt.Sprintf("Waiting: %s %s: %s", human(t.Name), status, title), body); err != nil {
+		if err := d.notify.send(t.mailFrom(), to, fmt.Sprintf("Waiting: %s %s: %s", human(t.Name), status, title), body); err != nil {
 			log.Printf("steps: reminding about %s %s: %v", t.Name, id, err)
 		}
 	}

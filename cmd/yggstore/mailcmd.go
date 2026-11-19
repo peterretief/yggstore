@@ -57,6 +57,7 @@ func cmdMail(ctx context.Context, args []string) error {
 	bcc := fs.String("bcc", "", "hidden copies (send)")
 	subject := fs.String("subject", "", "subject (send)")
 	name := fs.String("name", "", "your name, shown with your address (send)")
+	fromFlag := fs.String("from", "", "send as this address, if it's this node's: your internal one (NAME@GROUP.internal, which stays in the group), or an app's (send)")
 	fs.Parse(args[1:])
 	box := func() (*mail.Box, error) {
 		id, err := share.Load(*keyPath)
@@ -147,6 +148,9 @@ machine, so confirm. Keep the password private; it is in
 			return err
 		}
 		from := b.Address()
+		if *fromFlag != "" {
+			from = *fromFlag // the web nodes say whether this node may send as it
+		}
 		if from == "" {
 			return errors.New("no address to send from: set yours with yggstore mail address you@example.org")
 		}

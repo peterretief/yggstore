@@ -36,7 +36,7 @@ func TestMailIn(t *testing.T) {
 	})
 	bag := &mailbag{}
 	d := s.App.data
-	d.notify.send = bag.send
+	d.notify.send = bag.sendFrom
 	dir := t.TempDir()
 	key, err := share.LoadOrCreate(filepath.Join(dir, "sharing.key"))
 	if err != nil {
@@ -92,6 +92,11 @@ func TestMailIn(t *testing.T) {
 	}
 	if !toStaff || !toCustomer {
 		t.Fatalf("sent: %+v", bag.sent)
+	}
+	for _, f := range bag.from {
+		if f != "support@client.example" {
+			t.Fatalf("sent from %q, not the help desk's own address", f)
+		}
 	}
 	// The customer sees their ticket, and its attachment is kept.
 	if page := s.Get("cust", tableLink("tickets")+id); !strings.Contains(page, "The printer") || !strings.Contains(page, "Status: <b>new</b>") {
@@ -150,4 +155,22 @@ func fromOf(raw string) string {
 		return ""
 	}
 	return a.Address
+}
+
+func TestSameAddress(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		same bool
+	}{
+		{"help@withcare.co.za", "help@withcare.co.za", true},
+		{"help@withcare.co.za", "help@withcare.internal", true},
+		{"help@withcare.internal", "help@withcare.co.za", true},
+		{"help@withcare.co.za", "desk@withcare.internal", false},
+		{"help@acme.com", "help@withcare.internal", false},
+		{"help@withcare.co.za", "help@other.co.za", false},
+	} {
+		if sameAddress(c.a, c.b) != c.same {
+			t.Errorf("%s %s", c.a, c.b)
+		}
+	}
 }

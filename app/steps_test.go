@@ -20,7 +20,7 @@ func leaveSite(t *testing.T) (*TestSite, *mailbag) {
 		"cat":  {"cat@example.org", roleClient},
 	})
 	bag := &mailbag{}
-	s.App.data.notify.send = bag.send
+	s.App.data.notify.send = bag.sendFrom
 	return s, bag
 }
 

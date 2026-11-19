@@ -83,13 +83,34 @@ func mailNote(c *column, kind, what string) error {
 	return nil
 }
 
+// mailFrom is the address a table's emails come from: its own, if it takes
+// mail, so answers come back to it; otherwise the node's ("").
+func (t table) mailFrom() string {
+	if t.MailIn != nil {
+		return t.MailIn.Address
+	}
+	return ""
+}
+
+// sameAddress says whether two addresses are one, counting an address and
+// its internal twin (anna@example.org and anna@example.internal) as one.
+func sameAddress(a, b string) bool {
+	la, da, _ := strings.Cut(a, "@")
+	lb, db, _ := strings.Cut(b, "@")
+	if la != lb {
+		return false
+	}
+	first := func(d string) string { l, _, _ := strings.Cut(d, "."); return l }
+	return da == db || ((strings.HasSuffix(da, ".internal") || strings.HasSuffix(db, ".internal")) && first(da) == first(db))
+}
+
 // mailTable is the table mail to an address goes to.
 func mailTable(tables []table, to string) *table {
 	var only *table
 	n := 0
 	for i := range tables {
 		if m := tables[i].MailIn; m != nil {
-			if m.Address == to {
+			if sameAddress(m.Address, to) {
 				return &tables[i]
 			}
 			only = &tables[i]
@@ -274,7 +295,7 @@ func (d *data) takeOne(key *share.Identity, base string, dc *docs) error {
 		}
 		body := fmt.Sprintf("Thank you: we have your message, \"%s\", and will be in touch.\n", subject)
 		go func() {
-			if err := d.notify.send([]string{sender}, "Re: "+subject, body); err != nil {
+			if err := d.notify.send(t.mailFrom(), []string{sender}, "Re: "+subject, body); err != nil {
 				log.Printf("mail-in: answering %s: %v", sender, err)
 			}
 		}()

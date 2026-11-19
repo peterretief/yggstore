@@ -14,6 +14,12 @@ How to turn it on for an app:
    emails steps send.
 3. Write `mail-in:`, `step:`, `tell:` and `remind:` in `design.sql`.
 
+An app's emails (its `tell:` notes, reminders and acknowledgements) come
+from its own `mail-in:` address, so answers come back to it. Its internal
+twin (`help@withcare.internal`, see [mail.md](mail.md)) takes mail only from
+inside the group: a `mail-in:` at the internal address is for members by
+its nature, and its emails can't reach anyone outside.
+
 Lotus Notes ran whole companies on two things: databases that copied
 themselves between servers, and mail that carried documents from one person
 to the next. A leave form, a purchase order, a sign-off: each was a

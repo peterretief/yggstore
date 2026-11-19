@@ -155,11 +155,17 @@ func (a *app) sendLink(r *http.Request, x accountRec, invite bool) (string, bool
 
 // yggstoreMail sends through the yggstore node on this machine, from its
 // owner's address, with name shown beside it.
-func yggstoreMail(name string) func(to []string, subject, body string) error {
-	return func(to []string, subject, body string) error {
+// from, if not "", is another address the node may send as: an app's own
+// (yggstore app address), or the internal twin of one.
+func yggstoreMail(name string) func(from string, to []string, subject, body string) error {
+	return func(from string, to []string, subject, body string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, "yggstore", "mail", "send", "-name", name, "-to", strings.Join(to, ","), "-subject", subject)
+		args := []string{"mail", "send", "-name", name, "-to", strings.Join(to, ","), "-subject", subject}
+		if from != "" {
+			args = append(args, "-from", from)
+		}
+		cmd := exec.CommandContext(ctx, "yggstore", args...)
 		cmd.Stdin = strings.NewReader(body)
 		if os.Getenv("HOME") == "" { // a system service: the node's files are the user's
 			if u, err := user.Current(); err == nil {

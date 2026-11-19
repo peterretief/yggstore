@@ -1286,7 +1286,7 @@ $("msgTopics").addEventListener("click", async ev => {
 });
 if (PAGE === "messages") { refreshMsgs(); setInterval(refreshMsgs, 2000); }
 
-let mailOpen = "", mailKey = "", mailSent = false, mailAddress = "", mailReply = "";
+let mailOpen = "", mailKey = "", mailSent = false, mailAddress = "", mailInternal = "", mailReply = "";
 async function refreshMail() {
   let m;
   try {
@@ -1295,7 +1295,7 @@ async function refreshMail() {
     m = await r.json();
   } catch (e) { return; }
   $("mailError").textContent = m.available ? "" : m.error;
-  mailAddress = m.address || "";
+  mailAddress = m.address || ""; mailInternal = m.internal || "";
   const shown = m.messages.filter(x => (x.folder || (x.sent ? "Sent" : "INBOX")) === (mailSent ? "Sent" : "INBOX"));
   const key = JSON.stringify(shown.map(x => x.id)) + mailOpen + mailSent;
   if (key === mailKey) return;
@@ -1332,7 +1332,8 @@ async function openMail(id) {
     const quoted = (m.text || "").split("\n").map(l => "> " + l).join("\n");
     const when = m.date ? new Date(m.date).toLocaleString() : "";
     writeMail({to: m.reply_to || m.from, subject: /^re:/i.test(m.subject || "") ? m.subject : "Re: " + (m.subject || ""),
-      text: `\n\n${when ? "On " + when + ", " : ""}${m.from} wrote:\n${quoted}\n`, reply: id});
+      text: `\n\n${when ? "On " + when + ", " : ""}${m.from} wrote:\n${quoted}\n`, reply: id,
+      inside: !!mailInternal && [m.to, m.cc, m.delivered_to].join(",").toLowerCase().includes(mailInternal)});
   });
   $("mailDelete").addEventListener("click", async () => {
     if (!confirm("Delete this message, here and from the group?")) return;
@@ -1342,10 +1343,16 @@ async function openMail(id) {
     refreshMail();
   });
 }
-function writeMail({to = "", subject = "", text = "", reply = ""} = {}) {
+function writeMail({to = "", subject = "", text = "", reply = "", inside = false} = {}) {
   mailReply = reply;
   $("mailDlgTitle").textContent = reply ? "Reply" : "New message";
-  $("mailFrom").textContent = mailAddress ? "From " + mailAddress
+  const from = $("mailFrom");
+  if (mailAddress && mailInternal) {
+    from.innerHTML = `<label class="field">From <select id="mailFromPick">
+      <option value="">${esc(mailAddress)}</option>
+      <option value="1">${esc(mailInternal)} (stays in the group)</option></select></label>`;
+    $("mailFromPick").value = inside ? "1" : "";
+  } else from.textContent = mailAddress ? "From " + mailAddress
     : "No address to send from yet: run yggstore mail address you@example.org on this machine.";
   $("mailTo").value = to; $("mailCc").value = ""; $("mailBcc").value = "";
   $("mailSubject").value = subject; $("mailText").value = text; $("mailNote").textContent = ""; $("mailNote").className = "sub";
@@ -1364,7 +1371,8 @@ $("mailForm").addEventListener("submit", async ev => {
   if (!$("mailTo").value.trim() && !$("mailCc").value.trim() && !$("mailBcc").value.trim()) { note.textContent = "Who is it to?"; return; }
   $("mailSend").disabled = true; note.className = "sub"; note.textContent = "Sending…";
   const r = await post("api/mail/send", {body: JSON.stringify({to: $("mailTo").value, cc: $("mailCc").value,
-    bcc: $("mailBcc").value, subject: $("mailSubject").value, text: $("mailText").value, reply_to: mailReply})});
+    bcc: $("mailBcc").value, subject: $("mailSubject").value, text: $("mailText").value, reply_to: mailReply,
+    internal: !!($("mailFromPick") && $("mailFromPick").value)})});
   $("mailSend").disabled = false;
   if (!r.ok) { note.className = "err"; note.textContent = "Not sent: " + await r.text(); return; }
   const res = await r.json();

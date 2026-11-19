@@ -37,13 +37,15 @@ func (d *Dashboard) handleMailList(w http.ResponseWriter, r *http.Request) {
 	out := struct {
 		Available bool           `json:"available"`
 		Error     string         `json:"error,omitempty"`
-		Address   string         `json:"address,omitempty"` // to send from
+		Address   string         `json:"address,omitempty"`  // to send from
+		Internal  string         `json:"internal,omitempty"` // its twin that stays in the group
 		Messages  []mail.Summary `json:"messages"`
 	}{Messages: []mail.Summary{}}
 	box, err := d.mailBox()
 	if err == nil {
 		out.Messages, err = box.List()
 		out.Address = box.Address()
+		out.Internal = d.internalTwin(out.Address)
 	}
 	if err != nil {
 		out.Error = err.Error()
@@ -144,6 +146,7 @@ func (d *Dashboard) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		To, Cc, Bcc, Subject, Text string
 		ReplyTo                    string `json:"reply_to"` // the ID of the message answered
+		Internal                   bool   // from the internal twin of the address: it stays in the group
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -153,6 +156,12 @@ func (d *Dashboard) handleMailSend(w http.ResponseWriter, r *http.Request) {
 	if from == "" {
 		http.Error(w, "no address to send from: set yours with yggstore mail address you@example.org", http.StatusBadRequest)
 		return
+	}
+	if req.Internal {
+		if from = d.internalTwin(from); from == "" {
+			http.Error(w, "your address has no internal twin: only names the group gives have one", http.StatusBadRequest)
+			return
+		}
 	}
 	draft := mail.Draft{From: from, Name: d.me(), To: req.To, Cc: req.Cc, Bcc: req.Bcc, Subject: req.Subject, Text: req.Text}
 	if req.ReplyTo != "" {
@@ -184,4 +193,20 @@ func (d *Dashboard) handleMailSend(w http.ResponseWriter, r *http.Request) {
 		out["id"] = id
 	}
 	writeJSONResp(w, out)
+}
+
+// internalTwin is an address's twin at the group's internal domain, which
+// never leaves the group (docs/mail.md): "" for an address that isn't a
+// name the group gives.
+func (d *Dashboard) internalTwin(addr string) string {
+	list, err := peers.Load(d.cfg.PeersPath)
+	if err != nil {
+		return ""
+	}
+	local, domain, ok := strings.Cut(strings.ToLower(addr), "@")
+	internal := peers.InternalDomain(list)
+	if !ok || internal == "" || domain != peers.GroupDomain(list) {
+		return ""
+	}
+	return local + "@" + internal
 }

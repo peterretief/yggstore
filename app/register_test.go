@@ -18,6 +18,7 @@ import (
 type mailbag struct {
 	mu   sync.Mutex
 	sent []struct{ To, Subject, Body string }
+	from []string
 }
 
 func (m *mailbag) send(to []string, subject, body string) error {
@@ -25,6 +26,14 @@ func (m *mailbag) send(to []string, subject, body string) error {
 	defer m.mu.Unlock()
 	m.sent = append(m.sent, struct{ To, Subject, Body string }{strings.Join(to, ","), subject, body})
 	return nil
+}
+
+// sendFrom is send, keeping who it's from.
+func (m *mailbag) sendFrom(from string, to []string, subject, body string) error {
+	m.mu.Lock()
+	m.from = append(m.from, from)
+	m.mu.Unlock()
+	return m.send(to, subject, body)
 }
 
 func (m *mailbag) count() int {
