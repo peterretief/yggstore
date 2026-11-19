@@ -85,6 +85,7 @@ func cmdHub(ctx context.Context, args []string) error {
 	}
 	fs := flag.NewFlagSet("hub", flag.ExitOnError)
 	listen := fs.String("listen", ":7490", "address for the page (the LAN must reach it)")
+	localName := fs.String("local-name", "mail", `also call the box NAME.local on its own network (through Avahi), for webmail at http://NAME.local/webmail; "" for none`)
 	webmailAddr := fs.String("webmail", ":80", `also answer here, for webmail on the box's own network (http://BOX.local/webmail); "" for only -listen`)
 	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
 	name := fs.String("name", hostname(), "this box's node, by name, if its address isn't found")
@@ -363,6 +364,7 @@ func cmdHub(ctx context.Context, args []string) error {
 		<-ctx.Done()
 		srv.Close()
 	}()
+	go hub.KeepLocalName(ctx, *localName, log.Printf)
 	if *webmailAddr != "" && *webmailAddr != *listen {
 		// The ordinary web port, if nothing else has it (a signs page, say):
 		// the same pages, so /webmail needs no port in its address.
