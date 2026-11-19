@@ -380,6 +380,7 @@ func cmdServe(ctx context.Context, args []string) error {
 			relay = nil
 		} else {
 			relay.Log, relay.Peers = log.Printf, live.List
+			relay.InHouse = mailNode.DeliverInHouse
 			log.Printf("mail: sending members' email through %s", relay.SMTP)
 		}
 	}

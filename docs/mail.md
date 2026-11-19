@@ -33,6 +33,15 @@ senders keep their copies. Treat it as ordinary email, stored well.
 Messages are plain text, up to 50 recipients, and 60 an hour. A copy of
 each goes to **Sent**. A node that was off collects its mail when it's back.
 
+Mail between members stays in the group. A message to an address the
+group gives (a member's name, or someone's own domain on a box) is sealed
+for the recipient by the web node and stored, as incoming mail is: it
+never goes out to the internet and back, Cloudflare never sees it, and it
+arrives when the internet is down as long as the machines reach each other.
+Everyone else's copy goes out through the relay. If the recipient's node
+can't be told just now, their copy goes out too, and comes back in through
+Cloudflare as before.
+
 ## Use a mail program
 
 The dashboard serves your mailbox to mail programs on the same machine:

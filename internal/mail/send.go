@@ -241,6 +241,9 @@ type Relay struct {
 	Log   func(string, ...any) `json:"-"`
 	// Deliver sends a message; tests replace it.
 	Deliver func(ctx context.Context, from string, to []string, msg []byte) error `json:"-"`
+	// InHouse delivers a message to one address in the group, if it's one
+	// the group gives (see Node.DeliverInHouse); nil sends everything out.
+	InHouse func(ctx context.Context, from, to string, msg []byte) (bool, error) `json:"-"`
 
 	mu   sync.Mutex
 	sent map[string][]time.Time // by caller, for the rate limit
@@ -391,13 +394,9 @@ func (r *Relay) Serve(w http.ResponseWriter, req *http.Request, caller string) b
 		http.Error(w, fmt.Sprintf("at most %d messages an hour", MaxPerHour), http.StatusTooManyRequests)
 		return true
 	}
-	deliver := r.Deliver
-	if deliver == nil {
-		deliver = r.deliver
-	}
 	ctx, cancel := context.WithTimeout(req.Context(), 2*time.Minute)
 	defer cancel()
-	if err := deliver(ctx, from[0].Address, in.Rcpt, in.Message); err != nil {
+	if err := r.send(ctx, from[0].Address, in.Rcpt, in.Message); err != nil {
 		r.logf("mail: sending for %s: %v", caller, err)
 		http.Error(w, "the mail relay: "+err.Error(), http.StatusBadGateway)
 		return true
@@ -418,11 +417,7 @@ func (r *Relay) SendOwn(ctx context.Context, d Draft) error {
 	if !r.allow("this node") {
 		return fmt.Errorf("at most %d messages an hour", MaxPerHour)
 	}
-	deliver := r.Deliver
-	if deliver == nil {
-		deliver = r.deliver
-	}
-	if err := deliver(ctx, d.From, rcpts, raw); err != nil {
+	if err := r.send(ctx, d.From, rcpts, raw); err != nil {
 		return err
 	}
 	r.logf("mail: sent from %s to %d recipient(s) (%d bytes)", d.From, len(rcpts), len(raw))
