@@ -41,7 +41,7 @@ func newSite(t *testing.T) *site {
 	db.Exec(`CREATE TABLE sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL)`)
 	db.Exec(`CREATE TABLE accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin')`)
 	for token, who := range map[string][2]string{"boss": {"boss@example.org", "admin"}, "ann": {"ann@example.org", "client"}, "bob": {"bob@example.org", "client"}} {
-		db.Exec(`INSERT INTO accounts VALUES (?, ?, ?)`, who[0], hashPassword("old-password-1"), who[1])
+		db.Exec(`INSERT INTO accounts (name, hash, role) VALUES (?, ?, ?)`, who[0], hashPassword("old-password-1"), who[1])
 		db.Exec(`INSERT INTO sessions VALUES (?, ?, ?)`, hashToken(token), who[0], time.Now().Add(time.Hour).Unix())
 	}
 	a := &app{db: db, data: d, tries: map[string][]time.Time{}}
@@ -419,7 +419,7 @@ func TestGroups(t *testing.T) {
 	}
 
 	// Someone who joins later sees it at once; whoever leaves loses it at once.
-	s.a.db.Exec(`INSERT INTO accounts VALUES ('cat@example.org', 'x', 'client')`)
+	s.a.db.Exec(`INSERT INTO accounts (name, hash, role) VALUES ('cat@example.org', 'x', 'client')`)
 	s.a.db.Exec(`INSERT INTO sessions VALUES (?, 'cat@example.org', ?)`, hashToken("cat"), time.Now().Add(time.Hour).Unix())
 	if sees("cat", plan) {
 		t.Fatal("cat before joining")

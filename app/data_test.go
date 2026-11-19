@@ -36,9 +36,9 @@ func testData(t *testing.T, logged bool) {
 	t.Cleanup(func() { db.Close() })
 	db.Exec(`CREATE TABLE sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL)`)
 	db.Exec(`CREATE TABLE accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin')`)
-	db.Exec(`INSERT INTO accounts VALUES ('a@example.org', 'x', 'admin')`)
+	db.Exec(`INSERT INTO accounts (name, hash, role) VALUES ('a@example.org', 'x', 'admin')`)
 	if logged {
-		d.db.Exec(`INSERT INTO _sync_accounts VALUES ('a@example.org', 'x', 'admin')`)
+		d.db.Exec(`INSERT INTO _sync_accounts (name, hash, role) VALUES ('a@example.org', 'x', 'admin')`)
 	}
 	db.Exec(`INSERT INTO sessions VALUES (?, 'a@example.org', ?)`, hashToken("t"), time.Now().Add(time.Hour).Unix())
 	h := (&app{db: db, data: d, tries: map[string][]time.Time{}}).routes()

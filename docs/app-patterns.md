@@ -115,6 +115,36 @@ their own private repo, as Peter's site has.
 `yggstore site deploy`), so they work on any member's machine, not just in
 Peter's YGGSITES folder.
 
+## People: registering, vetting, invites
+
+Built 2026-11-19 (`app/register.go`). Two flags on the app's program:
+
+- **`-register`**: the sign-in page gets "No account yet? Register", and
+  `/app/register` asks for a name, an email and "anything we should know".
+  The person waits, unable to sign in, and the admins get an email. On
+  People, under **Waiting to be let in**, an admin picks a role and presses
+  **Let in**, or **Turn down** (deleted, not told).
+- **`-mail NAME`**: emails go through the yggstore node on the machine, from
+  its owner's group address, with NAME shown beside it. Letting someone in
+  (or **Add** on People) emails them a link to **Choose your password**,
+  which signs them in. The sign-in page gets **Forgot your password?**,
+  which emails the same kind of link. Without `-mail`, People shows each
+  link for the admin to pass on, and Add gives a temporary password as before.
+
+How the links behave:
+
+- A link works once, for 7 days. Setting the password ends it, and asking
+  for a new password doesn't change the old one until the new one is set.
+- Asking again within 10 minutes sends nothing; after that it resends the same
+  link, not a new one. No page says whether an address has an account.
+- A link isn't stored: it's worked out from the account under the key the
+  app's machines share (`-sync-key`), so a link made on one machine works on
+  the others. Without a shared key, it's a key of the machine's own, beside
+  the accounts file (`signin.db.link-key`).
+- Registrations travel between machines in the log like any account. At most
+  500 can wait at once, and one address can register a few times every 15
+  minutes. A hidden field catches robots.
+
 ## 5. Security a developer can count on
 
 - Passwords hashed, wrong tries limited, sessions in `HttpOnly`, `Secure`

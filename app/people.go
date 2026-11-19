@@ -13,6 +13,8 @@ import (
 
 type account struct {
 	Name, Role string
+	// NoPassword: let in, and hasn't chosen a password from their link yet.
+	NoPassword bool
 }
 
 type peoplePage struct {
@@ -23,6 +25,11 @@ type peoplePage struct {
 	Told    string // a temporary password to pass on, shown once
 	ToldFor string
 	Error   string
+	Waiting []waiter
+	Mail    bool   // invites go by email
+	Sent    string // who was just emailed a link
+	Link    string // a link to pass on by hand (no email, or it failed)
+	LinkFor string
 }
 
 // tempPassword is easy to read out over the phone: no 0/O or 1/l.
@@ -41,7 +48,7 @@ func tempPassword() string {
 }
 
 func (a *app) listAccounts() ([]account, error) {
-	rows, err := a.accountsDB().Query(`SELECT name, role FROM ` + a.accounts() + ` ORDER BY name`)
+	rows, err := a.accountsDB().Query(`SELECT name, role, hash = '' FROM `+a.accounts()+` WHERE role != ? ORDER BY name`, roleApplied)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +56,7 @@ func (a *app) listAccounts() ([]account, error) {
 	var out []account
 	for rows.Next() {
 		var x account
-		if err := rows.Scan(&x.Name, &x.Role); err != nil {
+		if err := rows.Scan(&x.Name, &x.Role, &x.NoPassword); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -63,14 +70,11 @@ func (a *app) accountRole(name string) string {
 	return role
 }
 
-// setAccount saves an account, in the log if there is one.
+// setAccount saves an account's password and role, keeping the rest.
 func (a *app) setAccount(name, hash, role string) error {
-	if a.data != nil && a.data.sync != nil {
-		return a.data.sync.write(entryAccount, "", name, map[string]any{"hash": hash, "role": role})
-	}
-	_, err := a.db.Exec(`INSERT INTO accounts (name, hash, role) VALUES (?, ?, ?)
-		ON CONFLICT (name) DO UPDATE SET hash = excluded.hash, role = excluded.role`, name, hash, role)
-	return err
+	x, _ := a.getAccount(name)
+	x.Name, x.Hash, x.Role = name, hash, role
+	return a.putAccount(x)
 }
 
 func (a *app) accountHash(name string) string {
@@ -109,6 +113,11 @@ func (a *app) showPeople(w http.ResponseWriter, r *http.Request, code int, p peo
 		return
 	}
 	p.Me = viewer(r).Name
+	p.Mail = a.mail != nil
+	if p.Waiting, err = a.listWaiting(); err != nil {
+		http.Error(w, "something went wrong", http.StatusInternalServerError)
+		return
+	}
 	if a.docs != nil {
 		p.HasDocs = true
 		if p.Groups, err = a.docs.groups(); err != nil {
@@ -132,11 +141,59 @@ func (a *app) changePeople(w http.ResponseWriter, r *http.Request) {
 		fail("That isn't an email address.")
 		return
 	}
-	exists := a.accountRole(name) != ""
+	current := a.accountRole(name)
+	exists := current != "" && current != roleApplied
+	// told shows what happened to a link: emailed, or to pass on by hand.
+	told := func(x accountRec, invite bool) {
+		link, emailed, err := a.sendLink(r, x, invite)
+		if err != nil {
+			fail("That couldn't be saved.")
+			return
+		}
+		if emailed {
+			a.showPeople(w, r, http.StatusOK, peoplePage{Sent: x.Name})
+		} else {
+			a.showPeople(w, r, http.StatusOK, peoplePage{Link: link, LinkFor: x.Name})
+		}
+	}
 	switch r.PostFormValue("do") {
+	case "letin":
+		if current != roleApplied {
+			fail(name + " isn't waiting to be let in.")
+			return
+		}
+		x, _ := a.getAccount(name)
+		x.Role = role
+		told(x, true)
+		return
+	case "turndown":
+		if current != roleApplied {
+			fail(name + " isn't waiting to be let in.")
+			return
+		}
+		if err := a.removeAccount(name); err != nil {
+			fail("That couldn't be done.")
+			return
+		}
+	case "invite":
+		x, ok := a.getAccount(name)
+		if !ok || !exists || x.Hash != "" {
+			fail(name + " has chosen a password already. To give them a new one, use Reset.")
+			return
+		}
+		told(x, true)
+		return
 	case "add":
+		if current == roleApplied {
+			fail(name + " registered and is waiting: let them in below.")
+			return
+		}
 		if exists {
 			fail(name + " already has an account. To give them a new password, use Reset.")
+			return
+		}
+		if a.mail != nil {
+			told(accountRec{Name: name, Role: role}, true)
 			return
 		}
 		pw := tempPassword()
@@ -227,14 +284,24 @@ func init() {
 <h1>People</h1>
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
 {{if .Told}}<p class="told">The temporary password for <b>{{.ToldFor}}</b> is <code>{{.Told}}</code>. Give it to them by phone or in person, not by email. It isn't shown again.</p>{{end}}
+{{if .Sent}}<p class="told">An email with a link to choose their password is on its way to <b>{{.Sent}}</b>.</p>{{end}}
+{{if .Link}}<p class="told">Pass this link on to <b>{{.LinkFor}}</b>{{if .Mail}} (the email didn't go){{end}}. It works once, for 7 days: <code>{{.Link}}</code></p>{{end}}
+{{if .Waiting}}<h2 id="waiting">Waiting to be let in</h2>
+<div class="scroll" tabindex="0" role="region" aria-label="Waiting to be let in"><table><thead><tr><th>Who</th><th>Registered</th><th>What they said</th><th></th></tr></thead><tbody>
+{{range $i, $p := .Waiting}}<tr><td>{{.Name}}<br><span class="muted">{{.Email}}</span></td><td data-label="Registered">{{.When}}</td><td data-label="What they said">{{.About}}</td><td>
+<form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Email}}"><input type="hidden" name="do" value="letin"><select name="role" aria-label="Role for {{.Email}}"><option value="client">client</option><option value="staff">staff</option><option value="admin">admin</option></select> <button>Let in</button></form>
+<button type="button" commandfor="turndown-{{$i}}" command="show-modal">Turn down</button>
+<dialog id="turndown-{{$i}}"><p>Turn down {{.Name}} ({{.Email}})? Their registration is deleted, and they aren't told.</p><form class="bar" method="post" action="` + base + `people"><input type="hidden" name="email" value="{{.Email}}"><input type="hidden" name="do" value="turndown"><button type="button" commandfor="turndown-{{$i}}" command="close">Cancel</button><button>Turn down</button></form></dialog>
+</td></tr>{{end}}</tbody></table></div>{{end}}
 <h2>Add someone</h2>
 <form class="edit" method="post" action="` + base + `people"><input type="hidden" name="do" value="add">
 <label>Email <input name="email" type="email" required></label>
 <label>Role <select name="role"><option value="client">Client: sees only their own, and what's shared with them</option><option value="staff">Staff: sees and changes what the design allows staff</option><option value="admin">Admin: sees and changes everything</option></select></label>
-<button>Add</button></form>
+<button>{{if .Mail}}Add, and email them a link{{else}}Add{{end}}</button></form>
 <h2>Everyone</h2>
 <div class="scroll" tabindex="0" role="region" aria-label="Everyone"><table><thead><tr><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
-{{$me := .Me}}{{range $i, $p := .People}}<tr><td>{{.Name}}{{if eq .Name $me}} (you){{end}}</td><td data-label="Role">{{.Role}}</td><td>
+{{$me := .Me}}{{range $i, $p := .People}}<tr><td>{{.Name}}{{if eq .Name $me}} (you){{end}}{{if .NoPassword}}<br><span class="muted">hasn't chosen a password yet</span>{{end}}</td><td data-label="Role">{{.Role}}</td><td>
+{{if .NoPassword}}<form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="invite"><button>{{if $.Mail}}Email the link again{{else}}Show the link{{end}}</button></form>{{end}}
 <form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="reset"><button>Reset password</button></form>
 {{if ne .Name $me}}<form method="post" action="` + base + `people" style="display:inline"><input type="hidden" name="email" value="{{.Name}}"><input type="hidden" name="do" value="role"><select name="role" aria-label="Role for {{.Name}}">{{$r := .Role}}{{range $x := roles}}<option value="{{$x}}"{{if eq $x $r}} selected{{end}}>{{$x}}</option>{{end}}</select> <button>Change role</button></form>
 <button type="button" commandfor="remove-{{$i}}" command="show-modal">Remove</button>

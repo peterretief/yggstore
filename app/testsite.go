@@ -46,7 +46,7 @@ func NewTestSite(t testing.TB, design string, people map[string][2]string) *Test
 	db.Exec(`CREATE TABLE sessions (token TEXT PRIMARY KEY, name TEXT NOT NULL, ends INTEGER NOT NULL)`)
 	db.Exec(`CREATE TABLE accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin')`)
 	for token, who := range people {
-		db.Exec(`INSERT INTO accounts VALUES (?, 'x', ?)`, who[0], who[1])
+		db.Exec(`INSERT INTO accounts (name, hash, role) VALUES (?, 'x', ?)`, who[0], who[1])
 		db.Exec(`INSERT INTO sessions VALUES (?, ?, ?)`, hashToken(token), who[0], time.Now().Add(time.Hour).Unix())
 	}
 	a := &app{db: db, data: d, tries: map[string][]time.Time{}}

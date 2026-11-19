@@ -1223,7 +1223,8 @@ main > nav{font-size:.9rem;color:var(--soft)}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1.5rem 0}
 .tiles a{display:block;padding:1.2rem;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--ink);background:var(--box)}
 .tiles a:hover{border-color:var(--accent)}.tiles b{display:block;font-size:1.6rem;margin-bottom:.4rem}
-form.signin{max-width:24rem;margin:3rem auto}
+form.signin,div.signin{max-width:24rem;margin:3rem auto}
+.trap{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 {{extraStyle}}</style>
 <script>if(!("commandForElement" in HTMLButtonElement.prototype))addEventListener("click",e=>{const b=e.target.closest("button[commandfor]"),d=b&&document.getElementById(b.getAttribute("commandfor"));if(!d)return;if(b.getAttribute("command")=="show-modal")d.showModal();else if(b.getAttribute("command")=="close")d.close()})</script>{{end}}
 
@@ -1242,10 +1243,12 @@ form.signin{max-width:24rem;margin:3rem auto}
 
 {{define "login"}}<title>Sign in</title>
 <form class="edit signin" method="post" action="` + base + `login"><h1>Sign in</h1>
-{{if .}}<p class="err">{{.}}</p>{{end}}
+{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
 <label>Email <input name="email" type="email" autocomplete="username" required autofocus></label>
 <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-<button>Sign in</button></form>{{end}}
+<button>Sign in</button>
+{{if .Forgot}}<p><a href="` + base + `forgot">Forgot your password?</a></p>{{end}}
+{{if .Register}}<p>No account yet? <a href="` + base + `register">Register</a></p>{{end}}</form>{{end}}
 
 {{define "diagram"}}{{template "top"}}<title>Your data</title>
 <h1>Your data</h1>

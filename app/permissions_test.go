@@ -107,7 +107,7 @@ func leakSite(t *testing.T) *site {
 	db.Exec(`CREATE TABLE accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin')`)
 	for token, who := range map[string][2]string{"boss": {"boss@example.org", "admin"}, "ann": {"ann@example.org", "client"},
 		"sam": {"sam@example.org", "staff"}, "bob": {"bob@example.org", "client"}} {
-		db.Exec(`INSERT INTO accounts VALUES (?, 'x', ?)`, who[0], who[1])
+		db.Exec(`INSERT INTO accounts (name, hash, role) VALUES (?, 'x', ?)`, who[0], who[1])
 		db.Exec(`INSERT INTO sessions VALUES (?, ?, ?)`, hashToken(token), who[0], time.Now().Add(time.Hour).Unix())
 	}
 	a := &app{db: db, data: d, tries: map[string][]time.Time{}}

@@ -33,7 +33,8 @@ CREATE INDEX IF NOT EXISTS _sync_order ON _sync_entries (t, node, seq);
 CREATE INDEX IF NOT EXISTS _sync_rows ON _sync_entries (tbl, row);
 CREATE TABLE IF NOT EXISTS _sync_refused (node TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (node, seq));
 CREATE TABLE IF NOT EXISTS _sync_deleted (tbl TEXT NOT NULL, row TEXT NOT NULL, PRIMARY KEY (tbl, row));
-CREATE TABLE IF NOT EXISTS _sync_accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin');
+CREATE TABLE IF NOT EXISTS _sync_accounts (name TEXT PRIMARY KEY, hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'admin',
+  about TEXT NOT NULL DEFAULT '', invited INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS _sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`
 
 // Kinds of entry.
@@ -84,6 +85,8 @@ func openSync(d *data, node string) (*syncLog, error) {
 		return nil, err
 	}
 	d.db.Exec(`ALTER TABLE _sync_accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'`) // a file from before roles
+	d.db.Exec(`ALTER TABLE _sync_accounts ADD COLUMN about TEXT NOT NULL DEFAULT ''`)     // from before registering
+	d.db.Exec(`ALTER TABLE _sync_accounts ADD COLUMN invited INTEGER NOT NULL DEFAULT 0`)
 	if _, err := d.db.Exec(`INSERT INTO _sync_state VALUES ('machine', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, node); err != nil {
 		return nil, err
 	}
@@ -209,8 +212,14 @@ func apply(tx *sql.Tx, tables []table, e entry) error {
 		if role == "" {
 			role = roleAdmin // an entry from before roles
 		}
-		_, err := tx.Exec(`INSERT INTO _sync_accounts (name, hash, role) VALUES (?, ?, ?)
-			ON CONFLICT (name) DO UPDATE SET hash = excluded.hash, role = excluded.role`, e.Row, e.Fields["hash"], role)
+		about, _ := e.Fields["about"].(string)
+		invited, _ := e.Fields["invited"].(float64) // from JSON
+		if n, ok := e.Fields["invited"].(int64); ok {
+			invited = float64(n)
+		}
+		_, err := tx.Exec(`INSERT INTO _sync_accounts (name, hash, role, about, invited) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (name) DO UPDATE SET hash = excluded.hash, role = excluded.role, about = excluded.about, invited = excluded.invited`,
+			e.Row, e.Fields["hash"], role, about, int64(invited))
 		return err
 	}
 	t := find(tables, e.Table)

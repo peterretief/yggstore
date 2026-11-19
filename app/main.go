@@ -40,6 +40,14 @@ type app struct {
 	docs  *docs // nil without -data
 	mu    sync.Mutex
 	tries map[string][]time.Time
+
+	// registering lets people ask for an account on the site (register.go).
+	registering bool
+	// mail sends email; nil for none: links are then shown to the admin.
+	mail func(to []string, subject, body string) error
+	// secret makes links (see linkToken); site is this site's address.
+	secret []byte
+	site   string
 }
 
 // Main runs an app: flags, sign-in, people, documents, the data pages and
@@ -73,6 +81,8 @@ func Main() {
 	asAdmin := flag.Bool("admin", false, "add: the account can see and change everything")
 	asStaff := flag.Bool("staff", false, "add: the account is staff: it may do what the design allows staff")
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
+	register := flag.Bool("register", false, "let people register on the site; an admin lets them in on People")
+	mailAs := flag.String("mail", "", "email invites and new passwords through this machine's yggstore node, from this name (such as the site's)")
 	flag.Parse()
 
 	if *newKey != "" {
@@ -180,6 +190,7 @@ func Main() {
 	if host, _, err := net.SplitHostPort(*addr); err != nil || !isLocal(host) {
 		log.Fatalf("%s isn't on this machine only", *addr)
 	}
+	var syncKey []byte
 	if *keyPath != "" {
 		if dataFile == nil || dataFile.sync == nil {
 			log.Fatal("-sync-key needs -data and -machine")
@@ -189,6 +200,7 @@ func Main() {
 			log.Fatal(err)
 		}
 		dataFile.keep = &keeper{key: key, seen: map[string]string{}}
+		syncKey = key
 		if len(syncAddrs) > 0 {
 			for _, a := range syncAddrs {
 				if *site == "" && !strings.HasPrefix(a, "http://") {
@@ -198,7 +210,15 @@ func Main() {
 			go dataFile.syncWith(*site, syncAddrs, *syncEveryFlag)
 		}
 	}
-	a := &app{db: db, data: dataFile, tries: map[string][]time.Time{}}
+	a := &app{db: db, data: dataFile, tries: map[string][]time.Time{}, registering: *register, site: *site}
+	if a.secret, err = linkSecret(syncKey, *dbPath+".link-key"); err != nil {
+		log.Fatal(err)
+	}
+	if *mailAs != "" {
+		a.mail = yggstoreMail(*mailAs)
+	} else if *register {
+		log.Printf("-register without -mail: People shows each invite's link, for you to pass on")
+	}
 	if dataFile != nil {
 		if a.docs, err = openDocs(dataFile.db, *docsDir); err != nil {
 			log.Fatal(err)
@@ -225,8 +245,19 @@ func isLocal(host string) bool {
 }
 
 func (a *app) routes() http.Handler {
+	a.prepare()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+base+"{$}", a.signedIn(a.private))
+	if a.registering {
+		mux.HandleFunc("GET "+base+"register", a.registerPage)
+		mux.HandleFunc("POST "+base+"register", a.register)
+	}
+	mux.HandleFunc("GET "+base+"welcome", a.welcomePage)
+	mux.HandleFunc("POST "+base+"welcome", a.welcome)
+	if a.mail != nil {
+		mux.HandleFunc("GET "+base+"forgot", a.forgotPage)
+		mux.HandleFunc("POST "+base+"forgot", a.forgot)
+	}
 	mux.HandleFunc("GET "+base+"login", a.loginPage)
 	menuFor = a.menu
 	mux.HandleFunc("POST "+base+"login", a.login)
@@ -297,6 +328,9 @@ func (a *app) person(r *http.Request) person {
 	}
 	var role string
 	a.accountsDB().QueryRow(`SELECT role FROM `+a.accounts()+` WHERE name = ?`, name).Scan(&role)
+	if role == roleApplied || role == "" {
+		return person{} // waiting to be let in, or gone
+	}
 	if role != roleAdmin && role != roleStaff {
 		role = roleClient // anything else is the least
 	}
@@ -393,8 +427,18 @@ func (a *app) me(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, name)
 }
 
+// loginForm is what the sign-in page shows.
+type loginForm struct {
+	Error            string
+	Register, Forgot bool
+}
+
+func (a *app) loginForm(msg string) loginForm {
+	return loginForm{Error: msg, Register: a.registering, Forgot: a.mail != nil}
+}
+
 func (a *app) loginPage(w http.ResponseWriter, r *http.Request) {
-	page(w, r, http.StatusOK, "login", "")
+	page(w, r, http.StatusOK, "login", a.loginForm(""))
 }
 
 func (a *app) login(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +446,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 	name, pw := cleanEmail(r.PostFormValue("email")), r.PostFormValue("password")
 	ip := r.Header.Get("X-Forwarded-For")
 	if a.tooMany(ip) || a.tooMany("name:"+name) {
-		page(w, r, http.StatusTooManyRequests, "login", "Too many tries. Try again later.")
+		page(w, r, http.StatusTooManyRequests, "login", a.loginForm("Too many tries. Try again later."))
 		return
 	}
 	var hash string
@@ -410,20 +454,28 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 	if ok := matches(hash, pw); err != nil || !ok { // checked either way, to take as long
 		a.wrong(ip)
 		a.wrong("name:" + name)
-		page(w, r, http.StatusUnauthorized, "login", "That email or password isn't right.")
+		page(w, r, http.StatusUnauthorized, "login", a.loginForm("That email or password isn't right."))
 		return
 	}
+	if err := a.startSession(w, r, name); err != nil {
+		http.Error(w, "something went wrong", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, base, http.StatusSeeOther)
+}
+
+// startSession signs the browser in as name.
+func (a *app) startSession(w http.ResponseWriter, r *http.Request, name string) error {
 	b := make([]byte, 32)
 	rand.Read(b)
 	token := hex.EncodeToString(b)
 	ends := time.Now().Add(sessionFor)
 	a.db.Exec(`DELETE FROM sessions WHERE ends <= ?`, time.Now().Unix())
 	if _, err := a.db.Exec(`INSERT INTO sessions VALUES (?, ?, ?)`, hashToken(token), name, ends.Unix()); err != nil {
-		http.Error(w, "something went wrong", http.StatusInternalServerError)
-		return
+		return err
 	}
 	setCookie(w, r, token, ends)
-	http.Redirect(w, r, base, http.StatusSeeOther)
+	return nil
 }
 
 func (a *app) logout(w http.ResponseWriter, r *http.Request) {
