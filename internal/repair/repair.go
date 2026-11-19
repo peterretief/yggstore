@@ -279,7 +279,7 @@ func (r *Repairer) Pass(ctx context.Context) (Report, error) {
 			continue
 		}
 		m, err := files.ReadStub(path)
-		if err != nil || m.Version != 2 || m.SharedBy != nil {
+		if err != nil || !m.Chunked() || m.SharedBy != nil {
 			continue
 		}
 		layout, err := erasure.NewLayout(m.DataShards, m.ParityShards)

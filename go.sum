@@ -32,6 +32,8 @@ github.com/google/jsonschema-go v0.4.3 h1:/DBOLZTfDow7pe2GmaJNhltueGTtDKICi8V8p+
 github.com/google/jsonschema-go v0.4.3/go.mod h1:r5quNTdLOYEz95Ru18zA0ydNbBuYoo9tgaYcxEYhJVE=
 github.com/hjson/hjson-go/v4 v4.6.0 h1:16e6ViyVfAANKsXo/46h8szUADez7FJs67xl/l+KHS4=
 github.com/hjson/hjson-go/v4 v4.6.0/go.mod h1:4zx6c7Y0vWcm8IRyVoQJUHAPJLXLvbG6X8nk1RLigSo=
+github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
+github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/klauspost/reedsolomon v1.14.2 h1:SafJYwpBBQBI6amHUygcjxZjXeN2HpiENHQDwuPWCCQ=

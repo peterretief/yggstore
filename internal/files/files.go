@@ -221,7 +221,9 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 			}
 			continue
 		}
-		cipherText, nonce, err := cryptofile.EncryptChunk(buf[:n], key)
+		// Compressed first: encrypted bytes don't compress.
+		body, comp := compress(buf[:n])
+		cipherText, nonce, err := cryptofile.EncryptChunk(body, key)
 		if err != nil {
 			fail(err)
 			break
@@ -277,10 +279,14 @@ func putReader(ctx context.Context, c client.Client, r io.Reader, name string, o
 			for h, p := range prepared {
 				chal.Shards[h] = p
 			}
-			chunks[idx] = manifest.Chunk{Tag: tag, PlaintextSize: n, CiphertextSize: ctLen, Nonce: nonce, Shards: refs}
+			chunks[idx] = manifest.Chunk{Tag: tag, PlaintextSize: n, CiphertextSize: ctLen, Nonce: nonce, Shards: refs, Compression: comp}
 			mu.Unlock()
 			progress(ctx, n)
-			logf("chunk %d: %d bytes -> %d shards", idx, n, len(shards))
+			if comp != "" {
+				logf("chunk %d: %d bytes, %d compressed -> %d shards", idx, n, len(body), len(shards))
+			} else {
+				logf("chunk %d: %d bytes -> %d shards", idx, n, len(shards))
+			}
 		}()
 		if rerr != nil { // short read: last chunk
 			break
@@ -446,8 +452,8 @@ func GetRange(ctx context.Context, c client.Client, m manifest.Manifest, w io.Wr
 	if err != nil {
 		return err
 	}
-	if m.Version != 2 {
-		return fmt.Errorf("only chunked (version 2) manifests are supported")
+	if !m.Chunked() {
+		return fmt.Errorf("only chunked (version 2 and 3) manifests are supported")
 	}
 	if offset < 0 || length < 0 || offset+length > int64(m.PlaintextSize) {
 		return fmt.Errorf("range %d+%d is outside the item (%d bytes)", offset, length, m.PlaintextSize)
@@ -601,6 +607,9 @@ func getChunk(ctx context.Context, c client.Client, lim *peerLimit, layout erasu
 	}
 	plain, err := cryptofile.Decrypt(cipherText, m.Key, ch.Nonce)
 	if err != nil {
+		return nil, have, fmt.Errorf("chunk %d: %w", idx, err)
+	}
+	if plain, err = decompress(plain, ch.Compression, ch.PlaintextSize); err != nil {
 		return nil, have, fmt.Errorf("chunk %d: %w", idx, err)
 	}
 	return plain, have, nil

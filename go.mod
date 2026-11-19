@@ -9,6 +9,7 @@ require (
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
 	github.com/emersion/go-smtp v0.25.0
 	github.com/gologme/log v1.3.0
+	github.com/klauspost/compress v1.18.0
 	github.com/klauspost/reedsolomon v1.14.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/ncruces/go-sqlite3 v0.30.0

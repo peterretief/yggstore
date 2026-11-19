@@ -55,7 +55,18 @@ type Chunk struct {
 	CiphertextSize int        `json:"ciphertext_size"`
 	Nonce          []byte     `json:"nonce"`
 	Shards         []ShardRef `json:"shards"`
+	// Compression is how the chunk's plaintext was compressed before it was
+	// encrypted: "" for not at all, or Zstd. Only version 3 has compressed
+	// chunks, so a yggstore from before refuses the item instead of handing
+	// back compressed bytes.
+	Compression string `json:"compression,omitempty"`
 }
+
+// Zstd is Chunk.Compression for zstd.
+const Zstd = "zstd"
+
+// Chunked says whether the item is stored in chunks (versions 2 and 3).
+func (m Manifest) Chunked() bool { return m.Version == 2 || m.Version == 3 }
 
 type ShardRef struct {
 	Hash string `json:"hash"`
@@ -114,7 +125,11 @@ func NewChunked(layout erasure.Layout, fileID, fileName string, plaintextSize, c
 	}
 	ciphertextSize := int64(0)
 	plainTotal := int64(0)
+	version := 2
 	for i, chunk := range chunks {
+		if chunk.Compression != "" {
+			version = 3
+		}
 		if chunk.PlaintextSize > chunkSize || chunk.CiphertextSize > chunkSize+16 {
 			return Manifest{}, fmt.Errorf("chunk %d exceeds configured chunk size", i)
 		}
@@ -131,7 +146,7 @@ func NewChunked(layout erasure.Layout, fileID, fileName string, plaintextSize, c
 		return Manifest{}, fmt.Errorf("chunk plaintext sizes do not match manifest total")
 	}
 	return Manifest{
-		Version: 2, DataShards: layout.DataShards, ParityShards: layout.ParityShards,
+		Version: version, DataShards: layout.DataShards, ParityShards: layout.ParityShards,
 		FileID: fileID, FileName: fileName, PlaintextSize: plaintextSize,
 		ChunkSize: chunkSize, CiphertextSize: int(ciphertextSize),
 		Key: append([]byte(nil), key...), Chunks: append([]Chunk(nil), chunks...),
@@ -177,13 +192,13 @@ func Unmarshal(data []byte) (Manifest, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return Manifest{}, fmt.Errorf("unmarshal manifest: %w", err)
 	}
-	if m.Version != 0 && m.Version != 1 && m.Version != 2 {
+	if m.Version < 0 || m.Version > 3 {
 		return m, fmt.Errorf("unsupported manifest version %d", m.Version)
 	}
 	if m.Kind != "" && m.Kind != "folder" {
 		return m, fmt.Errorf("unsupported manifest kind")
 	}
-	if m.Kind == "folder" && (m.Version != 2 || m.FileCount < 0 || m.FileCount > 100000 || m.ContentBytes < 0 || m.ContentBytes > 1<<40 || m.ContentBytes > int64(m.PlaintextSize)) {
+	if m.Kind == "folder" && (!m.Chunked() || m.FileCount < 0 || m.FileCount > 100000 || m.ContentBytes < 0 || m.ContentBytes > 1<<40 || m.ContentBytes > int64(m.PlaintextSize)) {
 		return m, fmt.Errorf("invalid folder metadata")
 	}
 	if m.Kind == "" && (m.FileCount != 0 || m.ContentBytes != 0) {
@@ -207,7 +222,7 @@ func Unmarshal(data []byte) (Manifest, error) {
 	if len(m.Key) != 32 {
 		return m, fmt.Errorf("invalid manifest key")
 	}
-	if m.Version == 2 {
+	if m.Chunked() {
 		if len(m.Shards) != 0 || len(m.Nonce) != 0 || m.ChunkSize <= 0 || m.ChunkSize > 1<<30 || len(m.Chunks) == 0 || m.PlaintextSize < 0 || int64(m.PlaintextSize) > 1<<40 || m.CiphertextSize < 16 || int64(m.CiphertextSize) > 1<<40 {
 			return m, fmt.Errorf("invalid chunked manifest parameters")
 		}
@@ -219,6 +234,9 @@ func Unmarshal(data []byte) (Manifest, error) {
 			}
 			if err := validateChunk(layout, chunk); err != nil {
 				return m, fmt.Errorf("chunk %d: %w", i, err)
+			}
+			if chunk.Compression != "" && m.Version != 3 {
+				return m, fmt.Errorf("chunk %d: compressed, in a version %d item", i, m.Version)
 			}
 			plainTotal += int64(chunk.PlaintextSize)
 			cipherTotal += int64(chunk.CiphertextSize)
