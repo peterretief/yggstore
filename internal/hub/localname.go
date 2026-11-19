@@ -10,11 +10,15 @@ import (
 )
 
 // A friendly name on the box's own network, such as mail.local, for its
-// webmail (webmail.go): Avahi, which already gives the box BOX.local, also
-// answers for the names in /etc/avahi/hosts, so the hub keeps a line there
-// with the box's address on its network, changes it when that address
-// changes, and has Avahi read it again. Only the line it wrote is touched.
+// webmail (webmail.go). Avahi already gives the box BOX.local; the hub runs
+// avahi-publish (from avahi-utils) to say NAME.local is the box's address
+// on its network too, and starts it again when that address changes. -R
+// leaves out the reverse entry, which Avahi would refuse as a second name
+// for the box's own address. If another box on the network has the name
+// already, Avahi keeps it theirs and this one says so once.
 
+// avahiHosts held the name before avahi-publish did; the line written then
+// is taken out again.
 const (
 	avahiHosts = "/etc/avahi/hosts"
 	localMark  = "# yggstore hub: webmail on this network"
@@ -35,8 +39,8 @@ func lanAddress() string {
 	return a.IP.String()
 }
 
-// hostsWith is the hosts file with our line for name at addr ("" removes it).
-func hostsWith(old, name, addr string) string {
+// withoutOurLine is a hosts file without the line the hub once wrote.
+func withoutOurLine(old string) string {
 	var out []string
 	skip := false
 	for _, l := range strings.Split(strings.TrimRight(old, "\n"), "\n") {
@@ -45,49 +49,77 @@ func hostsWith(old, name, addr string) string {
 			continue
 		}
 		if l == localMark {
-			skip = true // our name is the next line
+			skip = true
 			continue
 		}
-		if l != "" || len(out) > 0 {
-			out = append(out, l)
-		}
+		out = append(out, l)
 	}
-	if addr != "" {
-		out = append(out, localMark, addr+" "+name)
-	}
-	return strings.Join(out, "\n") + "\n"
+	return strings.TrimLeft(strings.Join(out, "\n"), "\n") + "\n"
 }
 
-// KeepLocalName keeps NAME.local pointing at the box, every minute, until
-// ctx ends. It does nothing on a machine without Avahi.
+// KeepLocalName keeps NAME.local pointing at the box until ctx ends.
 func KeepLocalName(ctx context.Context, name string, logf func(string, ...any)) {
 	if name == "" {
 		return
 	}
-	if _, err := os.Stat("/etc/avahi"); err != nil {
-		logf("hub: no Avahi here, so no %s.local", name)
+	if old, err := os.ReadFile(avahiHosts); err == nil && strings.Contains(string(old), localMark) {
+		if os.WriteFile(avahiHosts, []byte(withoutOurLine(string(old))), 0o644) == nil {
+			exec.Command("avahi-daemon", "--reload").Run()
+		}
+	}
+	bin, err := exec.LookPath("avahi-publish")
+	if err != nil {
+		logf("hub: no %s.local: avahi-publish isn't here (apt install avahi-utils)", name)
 		return
 	}
 	said := ""
-	for {
-		if addr := lanAddress(); addr != "" && addr != said {
-			old, _ := os.ReadFile(avahiHosts)
-			next := hostsWith(string(old), name+".local", addr)
-			if next != string(old) {
-				if err := os.WriteFile(avahiHosts, []byte(next), 0o644); err != nil {
-					logf("hub: %s.local: %v", name, err)
-				} else if out, err := exec.CommandContext(ctx, "avahi-daemon", "--reload").CombinedOutput(); err != nil {
-					logf("hub: %s.local: avahi-daemon --reload: %v %s", name, err, out)
-				} else {
-					logf("hub: %s.local is %s on this network", name, addr)
-				}
-			}
+	for ctx.Err() == nil {
+		addr := lanAddress()
+		if addr == "" {
+			sleepCtx(ctx, time.Minute)
+			continue
+		}
+		pctx, stop := context.WithCancel(ctx)
+		cmd := exec.CommandContext(pctx, bin, "-a", "-R", name+".local", addr)
+		out := &strings.Builder{}
+		cmd.Stdout, cmd.Stderr = out, out
+		if err := cmd.Start(); err != nil {
+			stop()
+			logf("hub: %s.local: %v", name, err)
+			sleepCtx(ctx, 5*time.Minute)
+			continue
+		}
+		done := make(chan struct{})
+		go func() { cmd.Wait(); close(done) }()
+		if said != addr {
+			logf("hub: %s.local is %s on this network", name, addr)
 			said = addr
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Minute):
+		// Until the address changes, or Avahi stops it (another box has
+		// the name, say).
+		for running := true; running; {
+			select {
+			case <-ctx.Done():
+				running = false
+			case <-done:
+				running = false
+				if msg := strings.TrimSpace(out.String()); msg != "" && said != "!"+msg {
+					logf("hub: %s.local: %s", name, msg)
+					said = "!" + msg
+				}
+				sleepCtx(ctx, time.Minute)
+			case <-time.After(30 * time.Second):
+				running = lanAddress() == addr
+			}
 		}
+		stop()
+		<-done
+	}
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
 	}
 }

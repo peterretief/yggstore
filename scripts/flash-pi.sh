@@ -133,6 +133,7 @@ ssh_authorized_keys:
   - $key
 packages:
   - avahi-daemon
+  - avahi-utils
 EOF
 if [ -n "${WIFI_SSID:-}" ]; then
 	sudo tee "$mnt/network-config" >/dev/null <<EOF

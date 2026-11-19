@@ -120,12 +120,12 @@ else
 fi
 on "install -m 755 /tmp/yggstore /usr/local/bin/yggstore && rm -f /tmp/yggstore"
 ok "yggstore $version in /usr/local/bin"
-if ask "command -v syncthing >/dev/null && command -v avahi-daemon >/dev/null" 2>/dev/null; then
+if ask "command -v syncthing >/dev/null && command -v avahi-daemon >/dev/null && command -v avahi-publish >/dev/null" 2>/dev/null; then
 	ok "Syncthing already installed"
 else
 	on "export DEBIAN_FRONTEND=noninteractive
 		apt-get update -q
-		apt-get install -y -q --no-install-recommends syncthing avahi-daemon"
+		apt-get install -y -q --no-install-recommends syncthing avahi-daemon avahi-utils"
 	ok "Syncthing installed"
 fi
 on "systemctl enable --now syncthing@root
