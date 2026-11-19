@@ -79,12 +79,13 @@ func validWho(t *table, who string) error {
 			return fmt.Errorf("%q needs a %s column, saying whose each row is", who, loginColumn)
 		}
 	case kind == "role" && slices.Contains([]string{roleAdmin, roleStaff, roleClient}, name):
+	case kind == "group" && ruleWord.MatchString(name):
 	case kind == "column" && name != "":
 		if t.col(name) == nil {
 			return fmt.Errorf("%q: there's no column %s", who, name)
 		}
 	default:
-		return fmt.Errorf("%q isn't owner, role:staff, role:admin, role:client, column:NAME or mail", who)
+		return fmt.Errorf("%q isn't owner, role:staff, role:admin, role:client, group:NAME, column:NAME or mail", who)
 	}
 	return nil
 }
@@ -211,6 +212,8 @@ func mayAct(p person, row map[string]string, s step) bool {
 		return strings.EqualFold(strings.TrimSpace(row[loginColumn]), p.Name)
 	case kind == "role":
 		return p.Role == name
+	case kind == "group":
+		return p.is(s.Who)
 	case kind == "column":
 		return strings.EqualFold(strings.TrimSpace(row[name]), p.Name)
 	}
@@ -445,6 +448,8 @@ func (d *data) whoIs(who string, row map[string]string) []string {
 		out = []string{row[name]}
 	case kind == "role" && d.notify.people != nil:
 		out = d.notify.people(name)
+	case kind == "group":
+		out = groupMembers(d.db, name)
 	}
 	return slices.DeleteFunc(out, func(s string) bool { return !strings.Contains(s, "@") })
 }
@@ -479,7 +484,7 @@ func (d *data) tellAbout(t table, id string, row map[string]string, by string, s
 	for _, tl := range t.Tells {
 		if slices.Contains(tl.At, s.To) {
 			for _, w := range tl.Who {
-				if strings.HasPrefix(w, "role:") && w != "role:client" {
+				if (strings.HasPrefix(w, "role:") && w != "role:client") || strings.HasPrefix(w, "group:") {
 					inside = append(inside, d.whoIs(w, row)...)
 				} else {
 					others = append(others, d.whoIs(w, row)...)

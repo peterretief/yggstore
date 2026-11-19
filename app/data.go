@@ -1292,6 +1292,7 @@ form.signin,div.signin{max-width:24rem;margin:3rem auto}
 .status b{background:var(--box);border:1px solid var(--line);border-radius:6px;padding:.1rem .5rem}
 table.shown td{white-space:pre-wrap;overflow-wrap:anywhere}table.shown th{vertical-align:top}
 ol.history{padding-left:1.2rem}ol.history li{margin:.3rem 0}ol.history q{color:var(--soft)}
+a.button{display:inline-block;padding:.5rem 1.1rem;border-radius:6px;background:var(--accent);color:var(--bg);text-decoration:none;font-weight:600}
 .trap{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 {{extraStyle}}</style>
 <script>if(!("commandForElement" in HTMLButtonElement.prototype))addEventListener("click",e=>{const b=e.target.closest("button[commandfor]"),d=b&&document.getElementById(b.getAttribute("commandfor"));if(!d)return;if(b.getAttribute("command")=="show-modal")d.showModal();else if(b.getAttribute("command")=="close")d.close()})</script>{{end}}
@@ -1312,7 +1313,9 @@ ol.history{padding-left:1.2rem}ol.history li{margin:.3rem 0}ol.history q{color:v
 {{define "login"}}<title>Sign in</title>
 <form class="edit signin" method="post" action="` + base + `login"><h1>Sign in</h1>
 {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
-<label>Email <input name="email" type="email" autocomplete="username" required autofocus></label>
+{{if .Group}}<p><a class="button" href="` + base + `group-login">Sign in with the group</a><br><small class="muted">With your passkey at {{.Group}}</small></p>
+<p class="muted">Or with this site's own password:</p>{{end}}
+<label>Email <input name="email" type="email" autocomplete="username" required{{if not .Group}} autofocus{{end}}></label>
 <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
 <button>Sign in</button>
 {{if .Forgot}}<p><a href="` + base + `forgot">Forgot your password?</a></p>{{end}}

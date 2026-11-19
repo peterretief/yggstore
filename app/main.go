@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,8 @@ type app struct {
 	// secret makes links (see linkToken); site is this site's address.
 	secret []byte
 	site   string
+	// group signs people in with the group's login; nil for none.
+	group *groupLogin
 }
 
 // Main runs an app: flags, sign-in, people, documents, the data pages and
@@ -85,6 +88,8 @@ func Main() {
 	asStaff := flag.Bool("staff", false, "add: the account is staff: it may do what the design allows staff")
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	register := flag.Bool("register", false, "let people register on the site; an admin lets them in on People")
+	groupIssuer := flag.String("group-login", "", "let people in the group sign in with its login, such as https://my.example.org (needs -site)")
+	groupRole := flag.String("group-role", roleClient, "group-login: what someone new is, client or staff (an admin can change it on People)")
 	mailAs := flag.String("mail", "", "email invites and new passwords through this machine's yggstore node, from this name (such as the site's)")
 	var mailIns []string
 	flag.Func("mail-in", "with -data: make rows of the mail in this app folder (from: yggstore app address; can be repeated)", func(s string) error {
@@ -222,6 +227,15 @@ func Main() {
 	if a.secret, err = linkSecret(syncKey, *dbPath+".link-key"); err != nil {
 		log.Fatal(err)
 	}
+	if *groupIssuer != "" {
+		if *site == "" {
+			log.Fatal("-group-login needs -site, the address the login knows this site by")
+		}
+		if *groupRole != roleClient && *groupRole != roleStaff {
+			log.Fatal("-group-role: client or staff")
+		}
+		a.group = &groupLogin{issuer: strings.TrimSuffix(*groupIssuer, "/"), role: *groupRole, client: &http.Client{Timeout: 20 * time.Second}}
+	}
 	if *mailAs != "" {
 		a.mailFrom = yggstoreMail(*mailAs)
 		a.mail = func(to []string, subject, body string) error { return a.mailFrom("", to, subject, body) }
@@ -280,6 +294,10 @@ func (a *app) routes() http.Handler {
 		mux.HandleFunc("POST "+base+"forgot", a.forgot)
 	}
 	mux.HandleFunc("GET "+base+"login", a.loginPage)
+	if a.group != nil {
+		mux.HandleFunc("GET "+groupLoginPath, a.groupStart)
+		mux.HandleFunc("GET "+groupBackPath, a.groupBackHere)
+	}
 	menuFor = a.menu
 	mux.HandleFunc("POST "+base+"login", a.login)
 	mux.HandleFunc("POST "+base+"logout", a.logout)
@@ -334,9 +352,18 @@ const (
 )
 
 type person struct {
-	Name  string
-	Role  string // roleAdmin, roleStaff or roleClient
-	Admin bool
+	Name   string
+	Role   string // roleAdmin, roleStaff or roleClient
+	Admin  bool
+	Groups []string // the groups they're in, as rules name them: group:NAME
+}
+
+// is says whether a rule's who is them: their role, or one of their groups.
+func (p person) is(who string) bool {
+	if g, ok := strings.CutPrefix(who, "group:"); ok {
+		return slices.Contains(p.Groups, g)
+	}
+	return who == p.Role
 }
 
 type viewerKey struct{}
@@ -362,7 +389,11 @@ func (a *app) person(r *http.Request) person {
 	if role != roleAdmin && role != roleStaff {
 		role = roleClient // anything else is the least
 	}
-	return person{Name: name, Role: role, Admin: role == roleAdmin}
+	p := person{Name: name, Role: role, Admin: role == roleAdmin}
+	if a.data != nil {
+		p.Groups = groupsOf(a.data.db, name)
+	}
+	return p
 }
 
 // ownPages are an app's own pages: a file adds its own with
@@ -459,10 +490,15 @@ func (a *app) me(w http.ResponseWriter, r *http.Request) {
 type loginForm struct {
 	Error            string
 	Register, Forgot bool
+	Group            string // the group's login, by its address; "" for none
 }
 
 func (a *app) loginForm(msg string) loginForm {
-	return loginForm{Error: msg, Register: a.registering, Forgot: a.mail != nil}
+	f := loginForm{Error: msg, Register: a.registering, Forgot: a.mail != nil}
+	if a.group != nil {
+		f.Group = strings.TrimPrefix(a.group.issuer, "https://")
+	}
+	return f
 }
 
 func (a *app) loginPage(w http.ResponseWriter, r *http.Request) {

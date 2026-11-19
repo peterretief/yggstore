@@ -67,8 +67,15 @@ var (
 // readRule reads one rule, such as "client read if published".
 func readRule(t *table, clause string) (rule, error) {
 	words := strings.Fields(strings.ToLower(clause))
-	bad := fmt.Errorf("%s: %q isn't a rule like \"staff write\", \"client read own\" or \"client read if published\"", t.Name, strings.TrimSpace(clause))
-	if len(words) < 2 || (words[0] != roleStaff && words[0] != roleClient) {
+	bad := fmt.Errorf("%s: %q isn't a rule like \"staff write\", \"client read own\", \"group:technicians write\" or \"client read if published\"", t.Name, strings.TrimSpace(clause))
+	if len(words) < 2 {
+		return rule{}, bad
+	}
+	if g, ok := strings.CutPrefix(words[0], "group:"); ok {
+		if !ruleWord.MatchString(g) {
+			return rule{}, bad
+		}
+	} else if words[0] != roleStaff && words[0] != roleClient {
 		return rule{}, bad
 	}
 	r := rule{Role: words[0], Action: words[1]}
@@ -213,7 +220,7 @@ func (t table) access(p person) access {
 		return a
 	}
 	for _, r := range t.Rules {
-		if r.Role != p.Role {
+		if !p.is(r.Role) {
 			continue
 		}
 		switch r.Action {
@@ -268,7 +275,7 @@ func (t table) rowsFor(tables []table, p person, action string) (cond string, ar
 	}
 	var any []string
 	for _, r := range t.Rules {
-		if r.Role != p.Role || (action != "read" && r.Action != action) {
+		if !p.is(r.Role) || (action != "read" && r.Action != action) {
 			continue
 		}
 		var parts []string

@@ -44,6 +44,8 @@ const (
 	entryDismiss = "dismiss" // a person has dealt with a refused entry
 	entryAccount = "account" // who can sign in, and their password's hash
 	entryDesign  = "design"  // the tables' statements: see noteDesign
+	entryGroup   = "group"   // a group of people made or deleted (groups.go)
+	entryMember  = "member"  // someone put in a group, or taken out
 )
 
 type entry struct {
@@ -92,6 +94,9 @@ func openSync(d *data, node string) (*syncLog, error) {
 	}
 	l := &syncLog{d: d, node: node}
 	if err := l.adopt(tables); err != nil {
+		return nil, err
+	}
+	if err := l.adoptGroups(); err != nil {
 		return nil, err
 	}
 	// A design already in the log is only replaced by an import.
@@ -221,6 +226,9 @@ func apply(tx *sql.Tx, tables []table, e entry) error {
 			ON CONFLICT (name) DO UPDATE SET hash = excluded.hash, role = excluded.role, about = excluded.about, invited = excluded.invited`,
 			e.Row, e.Fields["hash"], role, about, int64(invited))
 		return err
+	}
+	if e.Kind == entryGroup || e.Kind == entryMember {
+		return applyGroup(tx, e)
 	}
 	t := find(tables, e.Table)
 	if t == nil {
@@ -366,7 +374,11 @@ func replay(tx *sql.Tx, tables []table) error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`PRAGMA defer_foreign_keys = OFF; DELETE FROM _sync_refused; DELETE FROM _sync_deleted; DELETE FROM _sync_accounts; DELETE FROM _steps`); err != nil {
+	if _, err := tx.Exec(groupsTables); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`PRAGMA defer_foreign_keys = OFF; DELETE FROM _sync_refused; DELETE FROM _sync_deleted; DELETE FROM _sync_accounts; DELETE FROM _steps;
+		DELETE FROM _group_members; DELETE FROM _groups`); err != nil {
 		return err
 	}
 	entries, err := readEntries(tx, "")
