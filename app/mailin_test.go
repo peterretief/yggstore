@@ -1,8 +1,10 @@
 package app
 
 import (
+	"database/sql"
 	"encoding/json"
 	netmail "net/mail"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,5 +174,94 @@ func TestSameAddress(t *testing.T) {
 		if sameAddress(c.a, c.b) != c.same {
 			t.Errorf("%s %s", c.a, c.b)
 		}
+	}
+}
+
+func TestSignFaults(t *testing.T) {
+	if p := DesignProblems(t, "testdata/signs.sql"); len(p) > 0 {
+		t.Fatalf("problems: %v", p)
+	}
+	s := NewTestSite(t, "testdata/signs.sql", map[string][2]string{
+		"boss": {"boss@example.org", roleAdmin}, "sam": {"sam@example.org", roleStaff},
+		"tim": {"tim@saldana.example", roleClient}, "mo": {"mo@metro.example", roleClient}})
+	bag := &mailbag{}
+	d := s.App.data
+	d.notify.send = bag.sendFrom
+	for _, q := range []string{
+		`INSERT INTO sign_owners VALUES ('saldana', 'Saldana'), ('metro', 'Metro')`,
+		`INSERT INTO sign_owner_people VALUES ('p1', 'saldana', 'tim@saldana.example'), ('p2', 'metro', 'mo@metro.example')`,
+	} {
+		if _, err := s.DB().Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := t.TempDir()
+	key, _ := share.LoadOrCreate(filepath.Join(dir, "sharing.key"))
+	alert := func(id, subject, extra, inGroup string) {
+		drop(t, dir, key, id, "Delivered-To: signs@group.internal\r\nFrom: signs@group.example\r\nSubject: "+subject+
+			"\r\nX-Sign: s1\r\nX-Owner: saldana\r\nX-Site: bay\r\n"+extra+"\r\nThe sign has not been connected since 10:00.\r\n", inGroup)
+		if _, err := d.takeMail(dir, s.App.docs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func() (n int) { s.DB().QueryRow(`SELECT COUNT(*) FROM sign_faults`).Scan(&n); return }
+	alert("a1", "Sign s1 is not connected", "", "signs@group.example")
+	alert("a2", "Sign s1 is not connected", "", "signs@group.example") // again: onto the same fault
+	if count() != 1 {
+		t.Fatalf("%d faults", count())
+	}
+	var id, sign, owner, site, status string
+	s.DB().QueryRow(`SELECT id, sign, owner, site, status FROM sign_faults`).Scan(&id, &sign, &owner, &site, &status)
+	if sign != "s1" || owner != "saldana" || site != "bay" || status != "new" {
+		t.Fatalf("fault: %s %s %s %s", sign, owner, site, status)
+	}
+	// From outside the group, the same headers count for nothing.
+	alert("a3", "Sign s1 is back", "X-Step: recovers\r\n", "")
+	if status := func() (s2 string) { s.DB().QueryRow(`SELECT status FROM sign_faults`).Scan(&s2); return }(); status != "new" {
+		t.Fatal("outside mail moved it on")
+	}
+	// Tim sees his owner's fault, with the alerts on it; Mo doesn't.
+	page := s.Get("tim", tableLink("sign_faults")+id)
+	if !strings.Contains(page, "Mail came") || !strings.Contains(page, "Sign s1 is not connected") {
+		t.Fatalf("tim's page:\n%s", page)
+	}
+	if w := s.Do("mo", "GET", tableLink("sign_faults")+id, nil, ""); w.Code != 404 {
+		t.Fatalf("mo: %d", w.Code)
+	}
+	alert("a4", "Sign s1 is back", "X-Step: recovers\r\n", "signs@group.example")
+	s.DB().QueryRow(`SELECT status FROM sign_faults WHERE id = ?`, id).Scan(&status)
+	if status != "recovered" || count() != 1 {
+		t.Fatalf("after back: %s, %d faults", status, count())
+	}
+	// Back again, with nothing open: no new fault.
+	s.Post("sam", tableLink("sign_faults")+id+"/step", url.Values{"action": {"closes"}})
+	alert("a5", "Sign s1 is back", "X-Step: recovers\r\n", "signs@group.example")
+	if count() != 1 {
+		t.Fatalf("a fault from word that it's over: %d", count())
+	}
+	// And gone again: a new fault, as the last is closed.
+	alert("a6", "Sign s1 is not connected", "", "signs@group.example")
+	if count() != 2 {
+		t.Fatalf("%d faults", count())
+	}
+
+	// Tim reports one himself, for his owner only, and can't set who has it.
+	w := s.Post("tim", tableLink("sign_faults")+"new", url.Values{"owner": {"saldana"}, "sign": {"s2"}, "what": {"Flickers"}, "assigned": {"tim"}})
+	if w.Code != 303 {
+		t.Fatalf("tim's report: %d %s", w.Code, w.Body)
+	}
+	var by, assigned sql.NullString
+	s.DB().QueryRow(`SELECT reported_by, assigned, status FROM sign_faults WHERE what = 'Flickers'`).Scan(&by, &assigned, &status)
+	if by.String != "tim@saldana.example" || assigned.Valid || status != "new" {
+		t.Fatalf("tim's fault: %v %v %s", by, assigned, status)
+	}
+	if w := s.Post("tim", tableLink("sign_faults")+"new", url.Values{"owner": {"metro"}, "what": {"Not mine"}}); w.Code != 403 {
+		t.Fatalf("tim reported for metro: %d", w.Code)
+	}
+	if w := s.Post("tim", tableLink("sign_faults")+id, url.Values{"owner": {"metro"}, "what": {"Moved"}}); w.Code != 403 {
+		t.Fatalf("tim moved a fault to metro: %d", w.Code)
+	}
+	if w := s.Post("mo", tableLink("sign_faults")+id, url.Values{"owner": {"saldana"}, "what": {"Changed"}}); w.Code != 403 {
+		t.Fatalf("mo changed saldana's: %d", w.Code)
 	}
 }

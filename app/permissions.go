@@ -61,7 +61,7 @@ var (
 	// columnStart is a line that may define a column, with no comment of
 	// its own: its name, then its type.
 	columnStart = regexp.MustCompile(`^\s*("[^"]+"|\[[^\]]+\]|` + "`[^`]+`" + `|[A-Za-z_][A-Za-z0-9_]*)\s+\S`)
-	directive   = regexp.MustCompile(`(?i)^\s*(hide from|label|help|fill|from|mail)\s*:\s*(.+?)\s*$`)
+	directive   = regexp.MustCompile(`(?i)^\s*(hide from|read only for|label|help|fill|from|mail)\s*:\s*(.+?)\s*$`)
 )
 
 // readRule reads one rule, such as "client read if published".
@@ -75,8 +75,10 @@ func readRule(t *table, clause string) (rule, error) {
 	switch r.Action {
 	case "read":
 	case "write", "delete":
-		if r.Role == roleClient {
-			return rule{}, fmt.Errorf("%s: clients can only read for now (%q)", t.Name, strings.TrimSpace(clause))
+		// A client may add and change their own rows, never others'; they
+		// don't delete.
+		if r.Role == roleClient && (r.Action == "delete" || len(words) < 3 || words[2] != "own") {
+			return rule{}, fmt.Errorf("%s: clients can read, and write their own (\"client write own\"), but no more (%q)", t.Name, strings.TrimSpace(clause))
 		}
 	default:
 		return rule{}, bad
@@ -173,6 +175,13 @@ func applyNotes(c *column, comment string) error {
 					c.Hide = map[string]bool{}
 				}
 				c.Hide[strings.TrimSpace(role)] = true
+			}
+		case "read only for":
+			for _, role := range strings.Split(strings.ToLower(d[2]), ",") {
+				if c.ReadOnly == nil {
+					c.ReadOnly = map[string]bool{}
+				}
+				c.ReadOnly[strings.TrimSpace(role)] = true
 			}
 		case "label":
 			c.Label = d[2]

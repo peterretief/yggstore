@@ -73,6 +73,7 @@ func (s step) label() string {
 func validWho(t *table, who string) error {
 	kind, name, _ := strings.Cut(who, ":")
 	switch {
+	case who == "mail": // a member's mail that names the step (mailin.go)
 	case who == "owner":
 		if t.col(loginColumn) == nil {
 			return fmt.Errorf("%q needs a %s column, saying whose each row is", who, loginColumn)
@@ -83,7 +84,7 @@ func validWho(t *table, who string) error {
 			return fmt.Errorf("%q: there's no column %s", who, name)
 		}
 	default:
-		return fmt.Errorf("%q isn't owner, role:staff, role:admin, role:client or column:NAME", who)
+		return fmt.Errorf("%q isn't owner, role:staff, role:admin, role:client, column:NAME or mail", who)
 	}
 	return nil
 }
@@ -227,6 +228,7 @@ const (
 	entryStep    = "step" // a row moved on (or was made, or someone was reminded)
 	actionMade   = "_made"
 	actionRemind = "_remind"
+	actionMail   = "_mail" // a message about the row came in
 )
 
 var errMovedOn = errors.New("someone had already moved this on")
@@ -236,7 +238,7 @@ var errMovedOn = errors.New("someone had already moved this on")
 func applyStep(tx *sql.Tx, t table, e entry) error {
 	f := func(k string) string { s, _ := e.Fields[k].(string); return s }
 	from, to, action := f("from"), f("to"), f("action")
-	if action != actionMade && action != actionRemind {
+	if action != actionMade && action != actionRemind && action != actionMail {
 		var now sql.NullString
 		if err := tx.QueryRow("SELECT "+quote(statusColumn)+" FROM "+quote(t.Name)+" WHERE "+quote(t.Key)+" = ?", e.Row).Scan(&now); err != nil {
 			if err == sql.ErrNoRows {
@@ -300,6 +302,8 @@ func (d *data) history(t table, row string) []historyLine {
 			h.What = "Made, " + to
 		case actionRemind:
 			h.What, h.Who = "Reminded ("+to+")", ""
+		case actionMail:
+			h.What = "Mail came"
 		default:
 			h.What = (step{Action: action}).label() + ": " + from + " → " + to
 		}

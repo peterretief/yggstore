@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"log"
 	netmail "net/mail"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -44,9 +46,20 @@ import (
 type mailIn struct {
 	Address                  string
 	MembersOnly, Acknowledge bool
+	// OnePer is a column: mail with the same value in it as a row still
+	// open goes onto that row's history instead of making another.
+	OnePer string
 }
 
-var mailInLine = regexp.MustCompile(`(?i)--\s*mail-in:\s*(.+)$`)
+// stepHeader is the header in a member's mail that names a step for the
+// row to take, where the design lets mail take it ("-- step: A -> mail
+// recovers -> B").
+const stepHeader = "X-Step"
+
+var (
+	mailInLine  = regexp.MustCompile(`(?i)--\s*mail-in:\s*(.+)$`)
+	validHeader = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,60}$`)
+)
 
 func readMailIn(t *table, text string) error {
 	parts := strings.Split(text, ",")
@@ -61,7 +74,15 @@ func readMailIn(t *table, text string) error {
 		case "acknowledge":
 			m.Acknowledge = true
 		default:
-			return fmt.Errorf("mail-in: %q isn't \"members only\" or \"acknowledge\"", strings.TrimSpace(p))
+			w := strings.Fields(strings.ToLower(p))
+			if len(w) == 4 && w[0] == "one" && w[1] == "open" && w[2] == "per" {
+				if t.col(w[3]) == nil {
+					return fmt.Errorf("mail-in: one open per %s: there's no column %s", w[3], w[3])
+				}
+				m.OnePer = w[3]
+				continue
+			}
+			return fmt.Errorf("mail-in: %q isn't \"members only\", \"acknowledge\" or \"one open per COLUMN\"", strings.TrimSpace(p))
 		}
 	}
 	t.MailIn = m
@@ -77,6 +98,8 @@ func mailNote(c *column, kind, what string) error {
 		c.Mail = "from " + w
 	case kind == "mail" && (w == "subject" || w == "text" || w == "received" || w == "in the group"):
 		c.Mail = w
+	case kind == "mail" && strings.HasPrefix(w, "header ") && validHeader.MatchString(strings.TrimSpace(what)[len("header "):]):
+		c.Mail = "header " + textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(strings.TrimSpace(what)[len("header "):]))
 	default:
 		return fmt.Errorf("%s: %s isn't one of from: address, from: name, mail: subject, mail: text, mail: received, mail: in the group", kind, what)
 	}
@@ -257,6 +280,11 @@ func (d *data) takeOne(key *share.Identity, base string, dc *docs) error {
 			default:
 				v = received.Format("2006-01-02 15:04")
 			}
+		default: // "header NAME"
+			v = strings.TrimSpace(hdr.Header.Get(strings.TrimPrefix(c.Mail, "header ")))
+			if v == "" {
+				v = nil
+			}
 		case "in the group":
 			if k := c.kind(); k == "checkbox" || k == "number" {
 				v = map[bool]int{true: 1, false: 0}[meta.InGroup != ""]
@@ -265,6 +293,22 @@ func (d *data) takeOne(key *share.Identity, base string, dc *docs) error {
 			}
 		}
 		fields[c.Name] = v
+	}
+	// A step named in a member's mail, if the design lets mail take it.
+	stepBy := ""
+	if a := strings.ToLower(strings.TrimSpace(hdr.Header.Get(stepHeader))); a != "" && meta.InGroup != "" &&
+		slices.ContainsFunc(t.Steps, func(s step) bool { return s.Who == "mail" && s.Action == a }) {
+		stepBy = a
+	}
+	if key := t.MailIn.OnePer; key != "" && fields[key] != nil {
+		if id := d.openRow(*t, key, fields[key]); id != "" {
+			return d.mailOnto(*t, id, sender, m, stepBy)
+		}
+	}
+	if stepBy != "" {
+		// Word that something is over, with nothing open about it.
+		log.Printf("mail-in: %s from %s: nothing open to %s", t.MailIn.Address, sender, stepBy)
+		return nil
 	}
 	id, err := d.insert(*t, fields)
 	if err != nil {
@@ -301,6 +345,64 @@ func (d *data) takeOne(key *share.Identity, base string, dc *docs) error {
 		}()
 	}
 	return nil
+}
+
+// openRow is the newest row with this value in column whose status some
+// step still leaves: "" if there's none.
+func (d *data) openRow(t table, column string, value any) string {
+	var done []any
+	for _, s := range t.Steps {
+		if !slices.ContainsFunc(t.Steps, func(x step) bool { return x.From == s.To }) {
+			done = append(done, s.To) // nothing leaves it
+		}
+	}
+	where := quote(column) + " = ?"
+	args := []any{value}
+	if t.Steps != nil && len(done) > 0 {
+		where += " AND " + quote(statusColumn) + " NOT IN (?" + strings.Repeat(", ?", len(done)-1) + ")"
+		args = append(args, done...)
+	}
+	var id any
+	d.db.QueryRow("SELECT "+quote(t.Key)+" FROM "+quote(t.Name)+" WHERE "+where+" ORDER BY rowid DESC LIMIT 1", args...).Scan(&id)
+	return text(id)
+}
+
+// mailOnto keeps a message on an open row's history, and takes the step it
+// names, if it can from where the row is.
+func (d *data) mailOnto(t table, id, sender string, m mail.Message, stepBy string) error {
+	tables, err := d.design()
+	if err != nil {
+		return err
+	}
+	row, ok := d.readRow(tables, t, person{Admin: true}, id)
+	if !ok {
+		return errors.New("the open row went")
+	}
+	note := strings.TrimSpace(m.Subject)
+	if text := strings.TrimSpace(m.Text); text != "" {
+		note += "\n" + text
+	}
+	if len(note) > 4000 {
+		note = note[:4000]
+	}
+	if err := d.takeStep(t, id, sender, actionMail, row[statusColumn], row[statusColumn], note); err != nil {
+		return err
+	}
+	log.Printf("mail-in: %s from %s goes onto %s %s", t.MailIn.Address, sender, t.Name, id)
+	if stepBy == "" {
+		return nil
+	}
+	for _, s := range t.Steps {
+		if s.Who == "mail" && s.Action == stepBy && s.From == row[statusColumn] {
+			if err := d.takeStep(t, id, sender, s.Action, s.From, s.To, ""); err != nil {
+				return err
+			}
+			row[statusColumn] = s.To
+			go d.tellAbout(t, id, row, sender, &s, "")
+			return nil
+		}
+	}
+	return nil // a step it can't take from here: the note says what came
 }
 
 // takeMailEvery makes rows of an app folder's mail, every so often, for good.

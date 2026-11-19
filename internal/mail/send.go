@@ -17,6 +17,7 @@ import (
 	netmail "net/mail"
 	"net/smtp"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -51,7 +52,13 @@ type Draft struct {
 	// InReplyTo and References thread a reply (from the message replied to).
 	InReplyTo  string
 	References string
+	// Extra are headers of the sender's own, each "X-Name: value": only
+	// X- names, which mean nothing to mail programs (an app reads them;
+	// see the app package's "mail: header").
+	Extra []string
 }
+
+var extraName = regexp.MustCompile(`^X-[A-Za-z0-9-]{1,60}$`)
 
 // Compose writes a plain-text message and lists everyone it goes to,
 // Bcc included (Bcc is not in the headers).
@@ -119,6 +126,14 @@ func (d Draft) Compose() (raw []byte, rcpts []string, err error) {
 	if id := oneLine(d.InReplyTo); id != "" {
 		put("In-Reply-To", id)
 		put("References", strings.TrimSpace(oneLine(d.References)+" "+id))
+	}
+	for _, x := range d.Extra {
+		k, v, ok := strings.Cut(x, ":")
+		k = strings.TrimSpace(k)
+		if !ok || !extraName.MatchString(k) {
+			return nil, nil, fmt.Errorf("header %q: give it as X-Name: value", x)
+		}
+		put(k, mime.QEncoding.Encode("utf-8", oneLine(v)))
 	}
 	put("MIME-Version", "1.0")
 	put("Content-Type", "text/plain; charset=utf-8")

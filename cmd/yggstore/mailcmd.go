@@ -57,6 +57,11 @@ func cmdMail(ctx context.Context, args []string) error {
 	bcc := fs.String("bcc", "", "hidden copies (send)")
 	subject := fs.String("subject", "", "subject (send)")
 	name := fs.String("name", "", "your name, shown with your address (send)")
+	var extra []string
+	fs.Func("header", "an X- header of your own, as \"X-Name: value\" (send; can be repeated)", func(s string) error {
+		extra = append(extra, s)
+		return nil
+	})
 	fromFlag := fs.String("from", "", "send as this address, if it's this node's: your internal one (NAME@GROUP.internal, which stays in the group), or an app's (send)")
 	fs.Parse(args[1:])
 	box := func() (*mail.Box, error) {
@@ -158,7 +163,7 @@ machine, so confirm. Keep the password private; it is in
 		if err != nil {
 			return err
 		}
-		raw, rcpts, err := mail.Draft{From: from, Name: *name, To: *to, Cc: *cc, Bcc: *bcc, Subject: *subject, Text: string(body)}.Compose()
+		raw, rcpts, err := mail.Draft{From: from, Name: *name, To: *to, Cc: *cc, Bcc: *bcc, Subject: *subject, Text: string(body), Extra: extra}.Compose()
 		if err != nil {
 			return err
 		}

@@ -18,7 +18,7 @@ func TestRulesAreRead(t *testing.T) {
 	tb := table{Name: "t", Cols: []column{{Name: "id"}, {Name: "budget"}, {Name: "notes"}}}
 	readRules(&tb, `CREATE TABLE t (
   -- allow: staff read, Staff Write, client read own
-  -- allow: client write own, staff fly
+  -- allow: client write, client delete own, staff fly
   id TEXT PRIMARY KEY,
   budget REAL,   -- hide from: client, staff
   notes TEXT     -- label: Our notes; help: Only for us
@@ -26,7 +26,7 @@ func TestRulesAreRead(t *testing.T) {
 	if fmt.Sprint(tb.Rules) != "[{staff read false  } {staff write false  } {client read true login }]" {
 		t.Fatalf("%v", tb.Rules)
 	}
-	if len(tb.Problems) != 2 || !strings.Contains(tb.Problems[0], "only read") || !strings.Contains(tb.Problems[1], "staff fly") {
+	if len(tb.Problems) != 3 || !strings.Contains(tb.Problems[0], "write their own") || !strings.Contains(tb.Problems[1], "client delete own") || !strings.Contains(tb.Problems[2], "staff fly") {
 		t.Fatalf("%q", tb.Problems)
 	}
 	b, n := tb.col("budget"), tb.col("notes")

@@ -217,3 +217,18 @@ func TestRefusedIsCounted(t *testing.T) {
 		t.Fatal("still counted after a day")
 	}
 }
+
+func TestComposeExtraHeaders(t *testing.T) {
+	raw, _, err := Draft{From: "a@example.org", To: "b@example.org", Subject: "s", Extra: []string{"X-Sign: s1", "X-Owner:  Saldana  Bay\r\nBcc: c@example.org"}}.Compose()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "X-Sign: s1\r\n") || !strings.Contains(string(raw), "X-Owner: Saldana Bay Bcc: c@example.org\r\n") {
+		t.Fatalf("%s", raw)
+	}
+	for _, bad := range []string{"Bcc: c@example.org", "From: x@example.org", "X-Bad Name: v", "nothing"} {
+		if _, _, err := (Draft{From: "a@example.org", To: "b@example.org", Extra: []string{bad}}).Compose(); err == nil {
+			t.Errorf("%q was taken", bad)
+		}
+	}
+}

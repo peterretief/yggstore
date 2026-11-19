@@ -51,6 +51,7 @@ type column struct {
 	Choices    []string
 	HasDefault bool            // the design gives it a value when it's left out
 	Hide       map[string]bool // roles it's hidden from (permissions.go)
+	ReadOnly   map[string]bool // roles that see it but don't change it
 	Default    string          // the design's default, for a status (steps.go)
 	Label      string          // how it's named to people, if not by its name
 	Help       string          // a line under its field in forms
@@ -915,7 +916,7 @@ func (d *data) writeCSV(w http.ResponseWriter, t table, query string, args []any
 
 type field struct {
 	Name, Title, Kind, Value, Help string
-	Required                       bool
+	Required, ReadOnly             bool
 	Options                        [][2]string
 }
 
@@ -963,6 +964,9 @@ func (d *data) fields(tables []table, t table, who person, values func(string) s
 			continue
 		}
 		f := field{Name: c.Name, Title: c.title(), Help: c.Help, Kind: c.kind(), Value: values(c.Name), Required: c.Required}
+		if !who.Admin && c.ReadOnly[who.Role] {
+			f.ReadOnly, f.Required = true, false
+		}
 		switch f.Kind {
 		case "ref":
 			f.Options, _ = d.picksFor(tables, *c.Ref, who)
@@ -1095,8 +1099,8 @@ func (d *data) save(w http.ResponseWriter, r *http.Request) {
 			marks = append(marks, "?")
 			args = append(args, newID())
 		}
-		if c.Auto {
-			continue
+		if c.Auto || (!who.Admin && c.ReadOnly[who.Role]) {
+			continue // a column they only read stays as it is
 		}
 		var v any
 		if s := r.PostFormValue(c.Name); c.kind() == "checkbox" {
@@ -1353,11 +1357,11 @@ ol.history{padding-left:1.2rem}ol.history li{margin:.3rem 0}ol.history q{color:v
 <div class="bar">{{range .Buttons}}<button name="action" value="{{.Action}}">{{.Label}}</button>{{end}}</div></form>{{end}}{{end}}
 {{if .Shown}}<table class="shown">{{range .Shown}}<tr><th>{{index . 0}}</th><td>{{index . 1}}</td></tr>{{end}}</table>{{else}}
 <form class="edit" method="post" action="{{.Action}}">{{range .Fields}}<label>{{.Title}}{{if .Required}} *{{end}}
-{{if or (eq .Kind "ref") (eq .Kind "choice")}}{{$v := .Value}}<select name="{{.Name}}"{{if .Required}} required{{end}}><option value=""></option>{{range .Options}}<option value="{{index . 0}}"{{if eq (index . 0) $v}} selected{{end}}>{{index . 1}}</option>{{end}}</select>
-{{else if eq .Kind "textarea"}}<textarea name="{{.Name}}" rows="5"{{if .Required}} required{{end}}>{{.Value}}</textarea>
-{{else if eq .Kind "checkbox"}}<input type="checkbox" name="{{.Name}}" value="1"{{if and .Value (ne .Value "0")}} checked{{end}}>
-{{else if eq .Kind "decimal"}}<input type="number" step="any" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}>
-{{else}}<input type="{{.Kind}}" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}>{{end}}{{if .Help}}<small class="muted">{{.Help}}</small>{{end}}</label>{{end}}
+{{if or (eq .Kind "ref") (eq .Kind "choice")}}{{$v := .Value}}<select name="{{.Name}}"{{if .Required}} required{{end}}{{if .ReadOnly}} disabled{{end}}><option value=""></option>{{range .Options}}<option value="{{index . 0}}"{{if eq (index . 0) $v}} selected{{end}}>{{index . 1}}</option>{{end}}</select>
+{{else if eq .Kind "textarea"}}<textarea name="{{.Name}}" rows="5"{{if .Required}} required{{end}}{{if .ReadOnly}} disabled{{end}}>{{.Value}}</textarea>
+{{else if eq .Kind "checkbox"}}<input type="checkbox" name="{{.Name}}" value="1"{{if and .Value (ne .Value "0")}} checked{{end}}{{if .ReadOnly}} disabled{{end}}>
+{{else if eq .Kind "decimal"}}<input type="number" step="any" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}{{if .ReadOnly}} disabled{{end}}>
+{{else}}<input type="{{.Kind}}" name="{{.Name}}" value="{{.Value}}"{{if .Required}} required{{end}}{{if .ReadOnly}} disabled{{end}}>{{end}}{{if .Help}}<small class="muted">{{.Help}}</small>{{end}}</label>{{end}}
 <button>Save</button></form>{{end}}
 {{if .Delete}}<p><button type="button" commandfor="delete-this" command="show-modal">Delete</button></p>
 <dialog id="delete-this"><p>Delete this {{human .Name}}? It can't be undone.</p><form class="bar" method="post" action="{{.Delete}}"><button type="button" commandfor="delete-this" command="close">Cancel</button><button>Delete</button></form></dialog>{{end}}

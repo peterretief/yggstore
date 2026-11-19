@@ -86,7 +86,11 @@ func Main() {
 	drop := flag.Bool("drop", false, "import: also remove tables and columns the .sql file no longer has")
 	register := flag.Bool("register", false, "let people register on the site; an admin lets them in on People")
 	mailAs := flag.String("mail", "", "email invites and new passwords through this machine's yggstore node, from this name (such as the site's)")
-	mailIn := flag.String("mail-in", "", "with -data: make rows of the mail in this app folder (from: yggstore app address)")
+	var mailIns []string
+	flag.Func("mail-in", "with -data: make rows of the mail in this app folder (from: yggstore app address; can be repeated)", func(s string) error {
+		mailIns = append(mailIns, s)
+		return nil
+	})
 	flag.Parse()
 
 	if *newKey != "" {
@@ -243,14 +247,14 @@ func Main() {
 	if dataFile != nil && a.mail != nil {
 		go dataFile.remindEvery(10 * time.Minute)
 	}
-	if *mailIn != "" {
+	for _, dir := range mailIns {
 		if dataFile == nil {
 			log.Fatal("-mail-in needs -data")
 		}
-		if _, err := os.Stat(filepath.Join(*mailIn, "sharing.key")); err != nil {
-			log.Fatalf("-mail-in: %s isn't an app's folder (make it with: yggstore app address NAME LABEL)", *mailIn)
+		if _, err := os.Stat(filepath.Join(dir, "sharing.key")); err != nil {
+			log.Fatalf("-mail-in: %s isn't an app's folder (make it with: yggstore app address NAME LABEL)", dir)
 		}
-		go dataFile.takeMailEvery(*mailIn, a.docs, 30*time.Second)
+		go dataFile.takeMailEvery(dir, a.docs, 30*time.Second)
 	}
 	log.Printf("listening on %s", *addr)
 	log.Fatal(srv.ListenAndServe())
