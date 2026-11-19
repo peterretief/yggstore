@@ -55,7 +55,8 @@ const base = "/files/light";
 if (location.hostname.startsWith("my.")) document.getElementById("signupBox").hidden = false;
 // Signed in: on to my. as well (next), back to the app that asked (the
 // group's login page), or the files.
-const done = d => { location.href = d.next || (location.pathname.startsWith("/login/") ? location.href : d.home || "/files"); };
+// Back to the page they came for (their mail, say), or their home page.
+const done = d => { location.href = d.next || (location.pathname.startsWith("/login/") || /^\/files\/(mail|site)$/.test(location.pathname) ? location.href : d.home || "/files"); };
 // With a password: a temporary one is swapped for their own (428 asks).
 let choosing = false;
 document.getElementById("pwForm").addEventListener("submit", async ev => {

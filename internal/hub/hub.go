@@ -216,6 +216,11 @@ func (h *Hub) Handler() http.Handler {
 			h.cfg.Work.ServeHTTP(w, r) // checks the caller is a member itself
 			return
 		}
+		if wm, ok := h.cfg.Files.(interface {
+			ServeWebmail(http.ResponseWriter, *http.Request) bool
+		}); ok && wm.ServeWebmail(w, r) {
+			return // checks it's the local network itself
+		}
 		if (r.URL.Path == FilesPath || strings.HasPrefix(r.URL.Path, FilesPath+"/")) && h.cfg.Files != nil {
 			h.cfg.Files.ServeHTTP(w, r) // checks whose device asks itself
 			return

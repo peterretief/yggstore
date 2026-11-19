@@ -299,6 +299,12 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !isOwn && (rl.serveLogin(w, r, host) || rl.serveTrial(w, r, host)) {
 		return
 	}
+	// /mail is the short address for someone's mail on the web: one link
+	// to bookmark or put on a phone's Home Screen.
+	if !isOwn && (p == "/mail" || p == "/webmail") && r.Method == http.MethodGet {
+		http.Redirect(w, r, "/files/mail", http.StatusFound)
+		return
+	}
 	if !isOwn && (p == "/" || p == "") {
 		if _, ok := rl.signedIn(w, r, host, ""); ok {
 			http.Redirect(w, r, "/files", http.StatusFound)
@@ -371,6 +377,10 @@ func (rl *Relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ss, ok := rl.signedIn(w, r, host, only)
 	if !ok {
+		if r.Method == http.MethodGet && (p == "/files/mail" || p == "/files/site") && r.URL.RawQuery == "" {
+			ServeSignIn(w, http.StatusOK) // and once signed in, back to this page
+			return
+		}
 		if r.Method == http.MethodGet && (p == "/files" || p == "/files/") && r.URL.RawQuery == "" {
 			// At their own address, my. may know them already.
 			if isOwn && rl.startLogin(w, r, host, true) {

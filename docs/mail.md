@@ -78,6 +78,17 @@ the group, but nothing comes in from outside or goes out.
   outside isn't offered for it.
 - Apps that sign people in with the group know such a person by it.
 
+### Webmail on the box's own network
+
+Someone on a box opens `http://BOX.local/webmail` (or the box's address on
+the site's network, with `:7490` where port 80 is taken) on a phone or
+laptop on the site's Wi-Fi, signs in with their name on the box and their
+box password, and has the same mail page as on the web. It needs no
+internet and nothing joined to Yggdrasil; it answers only the local
+network, and its sessions stay on the box. A temporary password is changed
+at the first sign-in. Away from the site, `my.DOMAIN/mail` opens the same
+mail after signing in there.
+
 ### New mail notices
 
 On their mail page on the box, anyone on a box can press **Tell me about

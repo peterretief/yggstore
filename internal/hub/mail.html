@@ -46,7 +46,7 @@ a { color: var(--accent); }
 <body>
 <main>
   <h1>Your mail</h1>
-  <div class="sub"><span id="addr"></span><a href="/files">Your files</a> · <a href="/files/site">Your websites</a></div>
+  <div class="sub"><span id="addr"></span><span id="links"><a href="/files">Your files</a> · <a href="/files/site">Your websites</a></span></div>
   <p id="writeBox" hidden><button id="write">Write</button></p>
   <div id="done" role="status" hidden></div>
   <div class="card" id="compose" hidden><h2 id="cTitle">New message</h2>
@@ -229,9 +229,17 @@ document.addEventListener("change", async ev => {
 load();
 setInterval(load, 15000);
 
+// On the box's own network (webmail.go): no files or websites pages there,
+// and no notices (they need a secure address); a way to sign out instead.
+const onLAN = location.pathname === "/webmail";
+if (onLAN) {
+  $("links").innerHTML = `<form method="post" action="/webmail/signout" style="display:inline"><button class="plain">Sign out</button></form>`;
+}
+
 // New mail notices on this device: the browser's own notices, sent by the
 // box through the browser's push service (pushmail.go).
 const pushUI = async () => {
+  if (onLAN) return;
   const box = $("push"), card = $("pushCard");
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
     const iphone = /iPhone|iPad/.test(navigator.userAgent);

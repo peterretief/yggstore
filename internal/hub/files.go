@@ -185,6 +185,7 @@ type filesPage struct {
 	webAt  time.Time
 
 	challenges passkey.Challenges
+	wm         *webmailSessions // webmail on the box's network (webmail.go)
 
 	mu     sync.Mutex
 	seenAt map[string]time.Time // per device, when last written down

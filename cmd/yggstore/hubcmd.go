@@ -85,6 +85,7 @@ func cmdHub(ctx context.Context, args []string) error {
 	}
 	fs := flag.NewFlagSet("hub", flag.ExitOnError)
 	listen := fs.String("listen", ":7490", "address for the page (the LAN must reach it)")
+	webmailAddr := fs.String("webmail", ":80", `also answer here, for webmail on the box's own network (http://BOX.local/webmail); "" for only -listen`)
 	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
 	name := fs.String("name", hostname(), "this box's node, by name, if its address isn't found")
 	binDir := fs.String("bin", "", "folder of more yggstore builds to hand out (yggstore-PLATFORM)")
@@ -362,6 +363,18 @@ func cmdHub(ctx context.Context, args []string) error {
 		<-ctx.Done()
 		srv.Close()
 	}()
+	if *webmailAddr != "" && *webmailAddr != *listen {
+		// The ordinary web port, if nothing else has it (a signs page, say):
+		// the same pages, so /webmail needs no port in its address.
+		if ln, err := net.Listen("tcp", *webmailAddr); err != nil {
+			log.Printf("hub: webmail only on %s: %v", *listen, err)
+		} else {
+			wsrv := &http.Server{Handler: h.Handler(), ReadHeaderTimeout: 10 * time.Second}
+			go wsrv.Serve(ln)
+			go func() { <-ctx.Done(); wsrv.Close() }()
+			log.Printf("hub: webmail on the box's network at http://BOX.local%s/webmail", strings.TrimPrefix(*webmailAddr, ":80"))
+		}
+	}
 	log.Printf("hub on %s, handing out yggstore for %v (others from %s)", *listen, slices.Sorted(maps.Keys(bins)), hub.Releases)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
