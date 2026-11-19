@@ -449,14 +449,21 @@ func (k Passkey) light() light.Key {
 }
 
 // LightPeople is what the web nodes are told of the box's people: everyone
-// with a key or a password, and whether they may sign in now.
+// with a key or a password, and whether they may sign in now; and everyone
+// active, with their sharing code, for mail to their local address.
 func (s HubState) LightPeople() light.People {
 	out := light.People{People: []light.Person{}}
 	for _, p := range s.People {
 		if !p.CanSignIn() {
+			if p.Active() && p.Code != "" { // mail only: no way to sign in
+				out.People = append(out.People, light.Person{Name: p.Name, Code: p.Code})
+			}
 			continue
 		}
 		lp := light.Person{Name: p.Name, Web: p.WebAccess(), Recovery: p.RecoveryID, Password: p.Password}
+		if p.Active() {
+			lp.Code = p.Code
+		}
 		if p.Trial != nil {
 			lp.Email = p.Trial.Email
 		}

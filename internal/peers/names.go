@@ -147,10 +147,55 @@ func InternalDomain(list []Peer) string {
 	return label + ".internal"
 }
 
-// IsInternal says whether an address is at the group's internal domain.
+// IsInternal says whether an address is at the group's internal domain,
+// or a box's local address under it (LocalAddress).
 func IsInternal(list []Peer, addr string) bool {
 	_, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
-	return ok && domain != "" && domain == InternalDomain(list)
+	internal := InternalDomain(list)
+	return ok && domain != "" && internal != "" && (domain == internal || strings.HasSuffix(domain, "."+internal))
+}
+
+// LocalPart is a name on a box as the local part of an address: "Kath
+// Smith" is kath-smith.
+func LocalPart(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case b.Len() > 0 && !strings.HasSuffix(b.String(), "-"):
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// LocalAddress is a box person's local address, which every person on a
+// box has (docs/mail.md): kath@localbox-004.example.internal. Mail to it
+// and from it stays in the group.
+func LocalAddress(list []Peer, box, person string) string {
+	internal, local := InternalDomain(list), LocalPart(person)
+	if internal == "" || local == "" || ValidLabel(strings.ToLower(box)) != nil {
+		return ""
+	}
+	return local + "@" + strings.ToLower(box) + "." + internal
+}
+
+// LocalBox reads a local address: the box it's on, and the person's local
+// part, if the box is one in the list.
+func LocalBox(list []Peer, addr string) (Peer, string, bool) {
+	local, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
+	internal := InternalDomain(list)
+	box, ok2 := strings.CutSuffix(domain, "."+internal)
+	if !ok || !ok2 || internal == "" || local == "" || LocalPart(local) != local {
+		return Peer{}, "", false
+	}
+	for _, p := range list {
+		if strings.EqualFold(p.Name, box) && !p.Gateway {
+			return p, local, true
+		}
+	}
+	return Peer{}, "", false
 }
 
 // NameOwner is the peer that holds name (anna.example.org): the node it

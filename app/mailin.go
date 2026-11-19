@@ -332,7 +332,7 @@ func (d *data) takeOne(key *share.Identity, base string, dc *docs) error {
 			}
 		}
 	}
-	if t.MailIn.Acknowledge && d.notify.send != nil && !noAnswer(hdr.Header, sender) && !noMailbox(sender) {
+	if t.MailIn.Acknowledge && d.notify.send != nil && !noAnswer(hdr.Header, sender) {
 		subject := strings.TrimSpace(m.Subject)
 		if subject == "" {
 			subject = "your message"

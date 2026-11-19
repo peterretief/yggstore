@@ -150,18 +150,15 @@ func TestGroupLogin(t *testing.T) {
 	if code, _ := signInWithGroup(t, s, f); code != http.StatusSeeOther || s.App.accountRole("sam@example.org") != roleStaff {
 		t.Fatalf("sam: %d %s", code, s.App.accountRole("sam@example.org"))
 	}
-	// Someone on a box with no name in the group comes in by their box and
-	// name, as a client, and is left out of emails (no mail reaches them).
+	// Someone on a box with no name in the group comes in as their local
+	// address there, as a client.
 	f.who = map[string]any{"sub": "localbox-004/Kath Smith", "name": "Kath Smith"}
 	code, me := signInWithGroup(t, s, f)
-	if code != http.StatusSeeOther || !strings.Contains(me, "kath-smith.localbox-004@127.internal") {
+	if code != http.StatusSeeOther || !strings.Contains(me, "kath-smith@localbox-004.127.internal") {
 		t.Fatalf("unnamed: %d %s", code, me)
 	}
-	if s.App.accountRole("kath-smith.localbox-004@127.internal") != roleClient {
+	if s.App.accountRole("kath-smith@localbox-004.127.internal") != roleClient {
 		t.Fatal("not a client")
-	}
-	if got := cleanList([]string{"kath-smith.localbox-004@127.internal", "sam@example.org", "anna@withcare.internal"}, ""); strings.Join(got, ",") != "sam@example.org,anna@withcare.internal" {
-		t.Fatalf("emails go to %v", got)
 	}
 	// Nothing to tell who they are: refused.
 	f.who = map[string]any{"name": "nobody"}

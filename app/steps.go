@@ -516,8 +516,17 @@ func (d *data) tellAbout(t table, id string, row map[string]string, by string, s
 			body += "\n" + comment + "\n"
 		}
 		body += "\nOpen it: " + d.link(t, id) + "\n"
-		if err := d.notify.send(t.mailFrom(), group.to, subject, body); err != nil {
-			log.Printf("steps: telling %d about %s %s: %v", len(group.to), t.Name, id, err)
+		d.sendEach(t.mailFrom(), group.to, subject, body)
+	}
+}
+
+// sendEach emails each person on their own, so one who can't be reached
+// just now (someone whose box is off, say) doesn't stop the others' mail,
+// and nobody sees who else was told.
+func (d *data) sendEach(from string, to []string, subject, body string) {
+	for _, a := range to {
+		if err := d.notify.send(from, []string{a}, subject, body); err != nil {
+			log.Printf("steps: emailing %s (%s): %v", a, subject, err)
 		}
 	}
 }
@@ -527,7 +536,7 @@ func cleanList(list []string, without string) []string {
 	seen := map[string]bool{cleanEmail(without): true}
 	var out []string
 	for _, a := range list {
-		if a = cleanEmail(a); a != "" && !seen[a] && !noMailbox(a) {
+		if a = cleanEmail(a); a != "" && !seen[a] {
 			seen[a] = true
 			out = append(out, a)
 		}
@@ -611,9 +620,7 @@ func (d *data) remindAt(tables []table, t table, status string, after time.Durat
 		title := rowTitle(t, row)
 		body := fmt.Sprintf("%s: %s\n\nIt has been %s since %s, waiting for one of you.\n\nOpen it: %s\n",
 			human(t.Name), title, status, d.enteredAt(t, id), d.link(t, id))
-		if err := d.notify.send(t.mailFrom(), to, fmt.Sprintf("Waiting: %s %s: %s", human(t.Name), status, title), body); err != nil {
-			log.Printf("steps: reminding about %s %s: %v", t.Name, id, err)
-		}
+		d.sendEach(t.mailFrom(), to, fmt.Sprintf("Waiting: %s %s: %s", human(t.Name), status, title), body)
 	}
 }
 

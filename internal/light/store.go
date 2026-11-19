@@ -61,6 +61,9 @@ type Person struct {
 	// Recovery is their recovery ID: the web nodes' record of their
 	// latest recovery copy, for their files while the box is off.
 	Recovery string `json:"recovery,omitempty"`
+	// Code is their sharing code: mail to their local address
+	// (peers.LocalAddress) is sealed for it.
+	Code string `json:"code,omitempty"`
 }
 
 // People is what a box sends the web nodes: everyone on it with a key.
@@ -222,6 +225,24 @@ func (s *Store) SetPeople(box string, ps []Person) {
 	s.st.Boxes[box] = ps
 	s.pruneLocked(time.Now())
 	s.saveLocked()
+}
+
+// LocalCode is the sharing code of the person on box whose local part
+// (peers.LocalPart) is local, from what the box last said.
+func (s *Store) LocalCode(box, local string) (string, bool) {
+	s.lock()
+	defer s.mu.Unlock()
+	for b, ps := range s.st.Boxes {
+		if !strings.EqualFold(b, box) {
+			continue
+		}
+		for _, p := range ps {
+			if peers.LocalPart(p.Name) == local && p.Code != "" {
+				return p.Code, true
+			}
+		}
+	}
+	return "", false
 }
 
 // setMember notes whether box is a member's own node.

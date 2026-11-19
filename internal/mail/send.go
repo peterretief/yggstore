@@ -259,6 +259,9 @@ type Relay struct {
 	// InHouse delivers a message to one address in the group, if it's one
 	// the group gives (see Node.DeliverInHouse); nil sends everything out.
 	InHouse func(ctx context.Context, from, to string, msg []byte) (bool, error) `json:"-"`
+	// Local says whether an address is a box person's local address the
+	// group knows (Node.IsLocal).
+	Local func(addr string) bool `json:"-"`
 
 	mu   sync.Mutex
 	sent map[string][]time.Time // by caller, for the rate limit
@@ -328,6 +331,10 @@ func (r *Relay) may(node, addr string) bool {
 		}
 		// A domain of someone's own is theirs, on that box, at any address.
 		if p, _, ok := peers.OwnDomain(r.Peers(), domain); ok && p.IP() == node {
+			return true
+		}
+		// A box sends as its own people's local addresses.
+		if p, _, ok := peers.LocalBox(r.Peers(), addr); ok && p.IP() == node {
 			return true
 		}
 	}

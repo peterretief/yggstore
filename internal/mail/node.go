@@ -51,6 +51,10 @@ type Messages interface {
 type Node struct {
 	Dir string // the node's mail state
 	Box string // the owner's mailbox; "" if this node collects no mail
+	// LocalCode is the sharing code of a person on a box, by the box's name
+	// and their local part, for mail to their local address
+	// (peers.LocalAddress); nil on a node that isn't a web node.
+	LocalCode func(box, local string) (string, bool)
 	// Apps holds apps' own addresses on this machine (docs/app-workflow.md):
 	// APPS/NAME/sharing.key, and APPS/NAME/inbox for mail sealed for it.
 	Apps   string

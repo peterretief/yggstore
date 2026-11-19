@@ -107,7 +107,7 @@ function inbox() {
   const own = st.own_domains || [];
   if (!st.address && !own.length) return `<h2>No email address yet</h2><p class="sub">The box's owner can ask the group for a name for you, such as
     <b>yourname@${esc(st.domain || "the-group.org")}</b>. Once the group's admin approves it, your mail comes in here.</p>`;
-  if (!st.messages.length) return `<p class="sub">No mail yet. Mail to <b>${esc(st.address || "any address at " + own.join(" or "))}</b> comes in here.</p>`;
+  if (!st.messages.length) return `<p class="sub">No mail yet. Mail to <b>${esc(st.address || "any address at " + own.join(" or "))}</b> comes in here.${st.local ? " It's your address inside the group: people in the group can write to it, and you can write to them, but not to anyone outside it." : ""}</p>`;
   const list = here(folder);
   if (!list.length) return `<p class="sub">Nothing in ${esc(label(folder))}.${custom(folder) ? ` <button class="plain" id="rmfolder">Remove this folder</button>` : ""}</p>`;
   return list.map(m => `<div class="row" data-id="${esc(m.id)}"><span class="name">${unread(m) ? "<b>" : ""}${esc(m.subject || "(no subject)")}${unread(m) ? "</b>" : ""}${folder === "ALL" ? ` <span class="sub">· ${esc(label(m.folder || "INBOX"))}</span>` : ""}<br>
@@ -181,7 +181,7 @@ async function load() {
   $("inbox").innerHTML = inbox();
   tabs();
   $("tabs").hidden = !st.address && !(st.own_domains || []).length;
-  $("fwdCard").hidden = $("note").hidden = !st.address;
+  $("fwdCard").hidden = $("note").hidden = !st.address || !!st.local;
   $("writeBox").hidden = !st.address && !(st.own_domains || []).length;
   if (!document.activeElement || !["to", "code"].includes(document.activeElement.id)) $("fwd").innerHTML = fwdCard();
 }

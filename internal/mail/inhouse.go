@@ -28,7 +28,10 @@ func (n *Node) DeliverInHouse(ctx context.Context, from, to string, raw []byte) 
 	}
 	p, holder, ok := peers.MailHolder(n.Peers(), to)
 	if !ok || p.Gateway || holder.Code == "" {
-		return false, nil
+		// A person's local address on their box.
+		if p, holder.Code, ok = n.localHolder(to); !ok {
+			return false, nil
+		}
 	}
 	clean := func(s string) string { return strings.NewReplacer("\r", "", "\n", "", "<", "", ">", "").Replace(s) }
 	added := fmt.Sprintf("Delivered-To: %s\r\nReturn-Path: <%s>\r\nReceived: by %s (yggstore, in the group); %s\r\n",
@@ -41,6 +44,27 @@ func (n *Node) DeliverInHouse(ctx context.Context, from, to string, raw []byte) 
 		return true, err
 	}
 	return true, nil
+}
+
+// localHolder is the box a local address is on, and the code its person's
+// mail is sealed for.
+func (n *Node) localHolder(addr string) (peers.Peer, string, bool) {
+	if n.LocalCode == nil {
+		return peers.Peer{}, "", false
+	}
+	p, local, ok := peers.LocalBox(n.Peers(), addr)
+	if !ok {
+		return peers.Peer{}, "", false
+	}
+	code, ok := n.LocalCode(p.Name, local)
+	return p, code, ok
+}
+
+// IsLocal says whether an address is a box person's local address that this
+// web node can deliver to.
+func (n *Node) IsLocal(addr string) bool {
+	_, _, ok := n.localHolder(addr)
+	return ok
 }
 
 // send delivers in the group what it can, and the rest through the SMTP
@@ -59,7 +83,12 @@ func (r *Relay) send(ctx context.Context, from string, to []string, msg []byte) 
 	}
 	internal := func(a string) bool { return peers.IsInternal(list, a) }
 	fromInside := internal(from)
-	inGroup := func(a string) bool { p, _, ok := peers.MailHolder(list, a); return ok && !p.Gateway }
+	inGroup := func(a string) bool {
+		if p, _, ok := peers.MailHolder(list, a); ok && !p.Gateway {
+			return true
+		}
+		return r.Local != nil && r.Local(a)
+	}
 	for _, a := range to {
 		switch {
 		case internal(a) && !inGroup(a):

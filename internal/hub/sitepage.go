@@ -48,6 +48,20 @@ type sitePageState struct {
 	SiteNames []string `json:"site_names,omitempty"`
 	// Folders are their mailbox's folders.
 	Folders []string `json:"folders,omitempty"`
+	// Local: Address is their local address (no name in the group yet),
+	// which only the group's people can write to, and which writes only
+	// to them.
+	Local bool `json:"local,omitempty"`
+}
+
+// localAddress is a person's local address on this box (peers.LocalAddress).
+func localAddress(list []peers.Peer, self, person string) string {
+	for _, p := range list {
+		if p.IP() == self {
+			return peers.LocalAddress(list, p.Name, person)
+		}
+	}
+	return ""
 }
 
 type forwardState struct {
@@ -114,6 +128,9 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 					out.Site = &s
 				}
 			}
+			if !hasAddress && len(ownDomains(list, ps.cfg.Self, p.Name)) == 0 {
+				out.Address, out.Local = localAddress(list, ps.cfg.Self, p.Name), true
+			}
 			out.SiteNames = ps.SiteNames(p)
 			out.OwnDomains, out.Folders = ownDomains(list, ps.cfg.Self, p.Name), box.Folders()
 			if msgs, err := box.List(); err == nil {
@@ -175,6 +192,8 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 		group := ""
 		if hasAddress {
 			group = peers.MailAddress(pn.Name)
+		} else if len(ownDomains(list, ps.cfg.Self, p.Name)) == 0 {
+			group = localAddress(list, ps.cfg.Self, p.Name) // only to the group's people
 		}
 		sendFrom, err := chooseFrom(req.From, group, ownDomains(list, ps.cfg.Self, p.Name))
 		if err != nil {

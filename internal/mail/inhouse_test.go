@@ -271,3 +271,60 @@ func TestInternalMail(t *testing.T) {
 		t.Fatal("internal mail without in-house delivery")
 	}
 }
+
+// Every person on a box has a local address: mail to it is sealed for them
+// and goes to their box; only the box sends as it; it never leaves the group.
+func TestLocalAddresses(t *testing.T) {
+	kath := identity(t)
+	list := []peers.Peer{
+		{Name: "admin", Addr: "127.0.0.1:9", Admin: true, Domain: "group.example"},
+		{Name: "localbox-004", Addr: "127.0.0.4:9"},
+		{Name: "desk", Addr: "127.0.0.5:9", Names: []string{"peter.group.example"}, Code: kath.Code()},
+	}
+	members := func() []peers.Peer { return list }
+	if a := peers.LocalAddress(list, "localbox-004", "Kath Smith"); a != "kath-smith@localbox-004.group.internal" {
+		t.Fatal(a)
+	}
+	for _, bad := range []string{"kath@nobox.group.internal", "kath.x@localbox-004.group.internal", "kath@localbox-004.group.example"} {
+		if _, _, ok := peers.LocalBox(list, bad); ok {
+			t.Errorf("%s read as a local address", bad)
+		}
+	}
+	var took []string
+	n := &Node{Self: "127.0.0.2", Peers: members, LocalCode: func(box, local string) (string, bool) {
+		if box == "localbox-004" && local == "kath-smith" {
+			return kath.Code(), true
+		}
+		return "", false
+	}}
+	if !n.IsLocal("Kath-Smith@localbox-004.group.internal") || n.IsLocal("tom@localbox-004.group.internal") {
+		t.Fatal("IsLocal")
+	}
+	p, code, ok := n.localHolder("kath-smith@localbox-004.group.internal")
+	if !ok || p.Name != "localbox-004" || code != kath.Code() {
+		t.Fatalf("holder: %v %v", p, ok)
+	}
+	r := &Relay{Peers: members, Local: n.IsLocal,
+		Deliver: func(ctx context.Context, from string, to []string, msg []byte) error { took = append(took, to...); return nil },
+		InHouse: func(ctx context.Context, from, to string, msg []byte) (bool, error) {
+			if _, _, ok := peers.MailHolder(list, to); ok || n.IsLocal(to) {
+				took = append(took, "in:"+to)
+				return true, nil
+			}
+			return false, nil
+		}}
+	ctx := context.Background()
+	if err := r.send(ctx, "peter@group.example", []string{"kath-smith@localbox-004.group.internal"}, nil); err != nil || strings.Join(took, ",") != "in:kath-smith@localbox-004.group.internal" {
+		t.Fatalf("to kath: %v %v", err, took)
+	}
+	took = nil
+	if err := r.send(ctx, "kath-smith@localbox-004.group.internal", []string{"someone@example.net"}, nil); err == nil || len(took) != 0 {
+		t.Fatalf("kath wrote outside: %v %v", err, took)
+	}
+	if err := r.send(ctx, "peter@group.example", []string{"tom@localbox-004.group.internal"}, nil); err == nil {
+		t.Fatal("to nobody on the box")
+	}
+	if !r.may("127.0.0.4", "kath-smith@localbox-004.group.internal") || r.may("127.0.0.5", "kath-smith@localbox-004.group.internal") {
+		t.Fatal("who may send as kath's local address")
+	}
+}

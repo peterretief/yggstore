@@ -384,7 +384,7 @@ func cmdServe(ctx context.Context, args []string) error {
 			relay = nil
 		} else {
 			relay.Log, relay.Peers = log.Printf, live.List
-			relay.InHouse = mailNode.DeliverInHouse
+			relay.InHouse, relay.Local = mailNode.DeliverInHouse, mailNode.IsLocal
 			log.Printf("mail: sending members' email through %s", relay.SMTP)
 		}
 	}
@@ -412,6 +412,7 @@ func cmdServe(ctx context.Context, args []string) error {
 		}
 		signin = &light.Store{Dir: filepath.Join(*dataDir, "light"), Peers: live.List, Client: &http.Client{Timeout: 30 * time.Second}, Log: log.Printf,
 			Others: func(ctx context.Context) []string { return webNodes(ctx, client.New(), *peersPath) }, Email: groupEmail}
+		mailNode.LocalCode = signin.LocalCode // box people's local addresses
 		login := &light.Relay{Peers: live.List, Signin: signin, Log: log.Printf, Email: groupEmail}
 		if groupEmail == nil {
 			// This web node sends no mail: others send its sign-up links.

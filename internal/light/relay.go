@@ -116,7 +116,7 @@ func (rl *Relay) markDown(ip string) {
 	}
 	rl.down[ip] = true
 	go func() {
-		c := rl.client()
+		c := *rl.client() // a copy: the client may be shared, even http.DefaultClient
 		c.Timeout = 5 * time.Second
 		for {
 			time.Sleep(ProbeEvery)

@@ -60,6 +60,24 @@ out:
   internal address starts from it. In a terminal: `yggstore mail send
   -from anna@example.internal ...`.
 
+### Local addresses: everyone on a box
+
+Every person on a box has a local address from the moment they're on it,
+name or no name: their name there, at the box, under the group's internal
+domain, such as `kath@localbox-004.withcare.internal` ("Kath Smith" is
+`kath-smith@...`). Like the internal addresses, it works only inside the
+group: anyone in the group can write to it, and they can write to anyone in
+the group, but nothing comes in from outside or goes out.
+
+- The box tells the web nodes each person's sharing code with the rest of
+  what it says about its people; mail to a local address is sealed for it
+  and goes to the box, which files it in their mailbox as usual.
+- Only the box sends as its own people's local addresses.
+- Someone without a name in the group sees their local address on their
+  mail page on the box, and writes from it; forwarding to an address
+  outside isn't offered for it.
+- Apps that sign people in with the group know such a person by it.
+
 An app's address has a twin too (`help@example.internal`), and mail to it
 is from members by its nature.
 
