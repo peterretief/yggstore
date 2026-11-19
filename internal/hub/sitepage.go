@@ -115,6 +115,9 @@ func (f *filesPage) site(w http.ResponseWriter, r *http.Request, p Person) {
 	}
 	fail := func(err error) { http.Error(w, err.Error(), http.StatusBadRequest) }
 
+	if f.pushOp(w, r, p, op) {
+		return
+	}
 	if r.Method == http.MethodGet {
 		switch op {
 		case "status":

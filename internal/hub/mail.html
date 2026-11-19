@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="/files/mail.webmanifest">
 <meta name="referrer" content="no-referrer">
 <title>Your mail</title>
 <style>
@@ -59,6 +60,7 @@ a { color: var(--accent); }
   <div class="tabs" id="doms" hidden></div>
   <div class="tabs" id="tabs"></div>
   <div class="card" id="inbox"><span class="sub">Loading…</span></div>
+  <div class="card" id="pushCard" hidden><h2>New mail notices</h2><div id="push"></div></div>
   <div class="card" id="fwdCard" hidden><h2>Forward to your email</h2><div id="fwd"></div></div>
   <div class="err" id="err"></div>
   <p class="sub" id="note" hidden>Your mail is sealed for your own key, which is kept on this box: nobody else in the group can read it,
@@ -226,6 +228,55 @@ document.addEventListener("change", async ev => {
 });
 load();
 setInterval(load, 15000);
+
+// New mail notices on this device: the browser's own notices, sent by the
+// box through the browser's push service (pushmail.go).
+const pushUI = async () => {
+  const box = $("push"), card = $("pushCard");
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    const iphone = /iPhone|iPad/.test(navigator.userAgent);
+    if (iphone && !navigator.standalone) {
+      card.hidden = false;
+      box.innerHTML = `<p class="sub">To get a notice on this iPhone when mail comes: press Share, then <b>Add to Home Screen</b>, and open Your mail from there.</p>`;
+    }
+    return;
+  }
+  card.hidden = false;
+  if (Notification.permission === "denied") {
+    box.innerHTML = `<p class="sub">Notices are blocked for this page. Allow them in the browser's settings for this site, then come back.</p>`;
+    return;
+  }
+  const worker = async () => {
+    await navigator.serviceWorker.register("/files/mail-sw.js", {scope: "/files/"});
+    return navigator.serviceWorker.ready;
+  };
+  const offer = () => {
+    box.innerHTML = `<p><button id="pushOn">Tell me about new mail on this device</button></p><div class="err" id="pushErr"></div>`;
+    $("pushOn").onclick = async () => {
+      try {
+        if (await Notification.requestPermission() !== "granted") { pushUI(); return; }
+        const reg = await worker();
+        const {key} = await (await fetch("?op=pushkey", {cache: "no-store"})).json();
+        const raw = atob(key.replace(/-/g, "+").replace(/_/g, "/"));
+        const s = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, c => c.charCodeAt(0))});
+        const r = await fetch("?op=push", {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"}, body: JSON.stringify({subscription: s.toJSON()})});
+        if (!r.ok) throw new Error(await r.text());
+        pushUI();
+      } catch (e) { $("pushErr").textContent = "That didn't work: " + e.message; }
+    };
+  };
+  if (Notification.permission !== "granted") { offer(); return; }
+  box.innerHTML = `<p class="sub">Looking at this device…</p>`;
+  let sub = null;
+  try { sub = await (await worker()).pushManager.getSubscription(); } catch (e) { box.innerHTML = `<p class="sub">This browser can't give notices here.</p>`; return; }
+  if (!sub) { offer(); return; }
+  box.innerHTML = `<p>This device gets a notice when mail comes. <button class="plain" id="pushOff">Stop</button></p>`;
+  $("pushOff").onclick = async () => {
+    await fetch("?op=pushoff", {method: "POST", headers: {"X-Yggstore": "1", "Content-Type": "application/json"}, body: JSON.stringify({endpoint: sub.endpoint})});
+    await sub.unsubscribe(); pushUI();
+  };
+};
+pushUI();
 </script>
 </body>
 </html>

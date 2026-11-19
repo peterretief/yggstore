@@ -23,6 +23,7 @@ import (
 	"github.com/peterretief/yggstore/internal/password"
 	"github.com/peterretief/yggstore/internal/peers"
 	"github.com/peterretief/yggstore/internal/syncthing"
+	"github.com/peterretief/yggstore/internal/webpush"
 	"github.com/peterretief/yggstore/internal/workcopy"
 )
 
@@ -73,6 +74,9 @@ type Person struct {
 	// light.go); WebOff is the box's admin turning that off for them.
 	Passkeys []Passkey `json:"passkeys,omitempty"`
 	WebOff   bool      `json:"web_off,omitempty"`
+	// Push are the browsers that get a notice of their new mail
+	// (pushmail.go).
+	Push []webpush.Subscription `json:"push,omitempty"`
 	// Password signs them in on the web too: a temporary one the admin
 	// set, until they choose their own (see password.go).
 	Password *password.Password `json:"password,omitempty"`

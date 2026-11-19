@@ -411,6 +411,9 @@ load();
 
 // serveAs serves the files page to person p, however they got in.
 func (f *filesPage) serveAs(w http.ResponseWriter, r *http.Request, p Person) {
+	if f.u.cfg.People != nil && servePushFiles(w, r) {
+		return
+	}
 	switch r.URL.Path {
 	case FilesPath:
 		f.live(p).ServeHTTP(w, r)

@@ -78,6 +78,18 @@ the group, but nothing comes in from outside or goes out.
   outside isn't offered for it.
 - Apps that sign people in with the group know such a person by it.
 
+### New mail notices
+
+On their mail page on the box, anyone on a box can press **Tell me about
+new mail on this device**: the browser there (a phone, or a computer) then
+gets its own notice, "New mail, from Kath", whenever a message reaches
+their mailbox, Notes' emails included. The box sends it through the
+browser's push service (Google's, Mozilla's or Apple's), encrypted for that
+browser (RFC 8291), with its own key; the notice says who the mail is from,
+never what it says. **Stop** on the same page, or a device the push service
+says is gone, ends it. On an iPhone it works once the page is on the Home
+Screen (Share, Add to Home Screen), which the page says.
+
 An app's address has a twin too (`help@example.internal`), and mail to it
 is from members by its nature.
 

@@ -26,6 +26,7 @@ import (
 	"github.com/peterretief/yggstore/internal/share"
 	"github.com/peterretief/yggstore/internal/site"
 	"github.com/peterretief/yggstore/internal/sitemove"
+	"github.com/peterretief/yggstore/internal/webpush"
 	"github.com/peterretief/yggstore/internal/websites"
 )
 
@@ -124,6 +125,7 @@ type PeopleSites struct {
 	keysAt   time.Time
 	refilled time.Time
 	logged   map[string]string // the last problem logged, per person
+	push     *webpush.Sender   // the box's key for new mail notices
 }
 
 // personSite is a person's websites: one watcher for all their names.
@@ -504,6 +506,7 @@ func (ps *PeopleSites) sortMail(ctx context.Context, keys map[string]*share.Iden
 				if err := fileByPrefix(box, id, raw, ownDomains(list, ps.cfg.Self, p.Name), peers.GroupDomain(list)); err != nil {
 					ps.cfg.Logf("%s: sorting message %s into a folder: %v", p.Name, id, err)
 				}
+				go ps.notifyMail(p, box, id)
 			}
 		}
 	}
