@@ -117,8 +117,8 @@ func TestMailIn(t *testing.T) {
 		}
 	}
 	waitFor(t, "the customer told", func() bool { return bag.count() == 3 })
-	if to, subject, _ := bag.last(); to != "customer@example.net" || subject != "Tickets solved: The printer" {
-		t.Fatalf("told %s: %s", to, subject)
+	if to, subject, body := bag.last(); to != "customer@example.net" || subject != "Tickets solved: The printer" || strings.Contains(body, "sam@") {
+		t.Fatalf("told %s: %s\n%s", to, subject, body)
 	}
 	if c := s.Post("cust", tableLink("tickets")+id+"/step", map[string][]string{"action": {"reopens"}}).Code; c != 303 {
 		t.Fatalf("customer reopens: %d", c)

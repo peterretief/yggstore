@@ -464,35 +464,52 @@ func rowTitle(t table, row map[string]string) string {
 }
 
 // tellAbout emails the people the design tells when a row reaches a status,
-// except whoever moved it there.
+// except whoever moved it there. People told by their role (staff, admins)
+// hear who moved it; the row's owner or the person a column names hear what
+// happened, not which of the staff did it.
 func (d *data) tellAbout(t table, id string, row map[string]string, by string, s *step, comment string) {
 	if d.notify.send == nil {
 		return
 	}
-	var to []string
+	var inside, others []string
 	for _, tl := range t.Tells {
 		if slices.Contains(tl.At, s.To) {
 			for _, w := range tl.Who {
-				to = append(to, d.whoIs(w, row)...)
+				if strings.HasPrefix(w, "role:") && w != "role:client" {
+					inside = append(inside, d.whoIs(w, row)...)
+				} else {
+					others = append(others, d.whoIs(w, row)...)
+				}
 			}
 		}
 	}
-	to = cleanList(to, by)
-	if len(to) == 0 {
-		return
-	}
+	inside = cleanList(inside, by)
+	others = slices.DeleteFunc(cleanList(others, by), func(a string) bool { return slices.Contains(inside, a) })
 	title := rowTitle(t, row)
-	what := fmt.Sprintf("%s pressed %s.", by, s.label())
-	if s.Action == actionMade {
-		what = fmt.Sprintf("%s made it.", by)
-	}
-	body := fmt.Sprintf("%s: %s\n\nIt's now %s. %s\n", human(t.Name), title, s.To, what)
-	if comment != "" {
-		body += "\n" + comment + "\n"
-	}
-	body += "\nOpen it: " + d.link(t, id) + "\n"
-	if err := d.notify.send(t.mailFrom(), to, fmt.Sprintf("%s %s: %s", human(t.Name), s.To, title), body); err != nil {
-		log.Printf("steps: telling %d about %s %s: %v", len(to), t.Name, id, err)
+	subject := fmt.Sprintf("%s %s: %s", human(t.Name), s.To, title)
+	for _, group := range []struct {
+		to   []string
+		said bool
+	}{{inside, true}, {others, false}} {
+		if len(group.to) == 0 {
+			continue
+		}
+		body := fmt.Sprintf("%s: %s\n\nIt's now %s.", human(t.Name), title, s.To)
+		if group.said {
+			if s.Action == actionMade {
+				body += fmt.Sprintf(" %s made it.", by)
+			} else {
+				body += fmt.Sprintf(" %s pressed %s.", by, s.label())
+			}
+		}
+		body += "\n"
+		if comment != "" {
+			body += "\n" + comment + "\n"
+		}
+		body += "\nOpen it: " + d.link(t, id) + "\n"
+		if err := d.notify.send(t.mailFrom(), group.to, subject, body); err != nil {
+			log.Printf("steps: telling %d about %s %s: %v", len(group.to), t.Name, id, err)
+		}
 	}
 }
 

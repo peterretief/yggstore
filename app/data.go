@@ -1036,6 +1036,13 @@ func (d *data) form(w http.ResponseWriter, r *http.Request) {
 		p.Buttons = stepsFor(full, who, got)
 		p.StepAction = tableLink(t.Name) + url.PathEscape(id) + "/step"
 		p.History = d.history(full, id)
+		if !who.Admin && who.Role == roleClient { // what happened, not which of the staff did it
+			for i := range p.History {
+				if !strings.EqualFold(p.History[i].Who, who.Name) {
+					p.History[i].Who = ""
+				}
+			}
+		}
 	}
 	for _, o := range tables {
 		for _, c := range o.Cols {
