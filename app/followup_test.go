@@ -39,7 +39,7 @@ func TestFollowUps(t *testing.T) {
 	}
 	// The signs page opens the list with the sign filled in for Add.
 	list := s.Get("tim", tableLink("signs_support")+"?fill.sign=s1&fill.owner=saldana")
-	if !strings.Contains(list, `new?owner=saldana&amp;sign=s1"`) {
+	if !strings.Contains(list, `new?owner=saldana&amp;sign=s1">New ticket</a>`) {
 		t.Fatalf("Add doesn't carry the sign:\n%s", list)
 	}
 	if w := s.Post("tim", tableLink("signs_support")+"new", url.Values{"owner": {"saldana"}, "sign": {"s1"}, "subject": {"Half dark"}}); w.Code != 303 {

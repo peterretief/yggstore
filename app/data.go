@@ -76,7 +76,9 @@ type table struct {
 	// Menu puts the table in the app's top menu: "-- menu: Tickets / Help"
 	// is Help under Tickets, "-- menu: Leave" an item of its own.
 	Menu, MenuItem string
-	Problems       []string // rules that couldn't be read
+	// AddLabel is what its Add button says ("-- add: New ticket").
+	AddLabel string
+	Problems []string // rules that couldn't be read
 }
 
 // visible is the columns people see in reports: a random id means nothing
@@ -595,6 +597,7 @@ type group struct {
 type reportPage struct {
 	Name, Link, Q, By, Filter string
 	Admin                     bool
+	AddLabel                  string // what Add says
 	New                       string // where Add goes: with what the link that opened the list fills in (fill.COLUMN=...)
 	Total                     int64
 	Heads                     []head
@@ -807,7 +810,10 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 		return tableLink(t.Name) + "?" + v.Encode()
 	}
 	p := reportPage{Admin: acc.Write, Name: t.Name, Link: tableLink(t.Name), Q: q, By: by, Filter: filter, Total: total, CSV: link(map[string]string{"csv": "1", "page": ""})}
-	p.New = p.Link + "new"
+	p.New, p.AddLabel = p.Link+"new", "Add"
+	if t.AddLabel != "" {
+		p.AddLabel = t.AddLabel
+	}
 	fill := url.Values{}
 	for k, v := range r.URL.Query() {
 		if c, ok := strings.CutPrefix(k, "fill."); ok && t.col(c) != nil && len(v) > 0 {
@@ -1387,7 +1393,7 @@ a.button{display:inline-block;padding:.5rem 1.1rem;border-radius:6px;background:
 {{define "report"}}{{template "top"}}<title>{{human .Name}}</title>
 <nav><a href="` + dataBase + `">Your data</a></nav><h1>{{human .Name}}</h1>
 {{if .Filter}}<p>{{.Filter}} · <a href="{{.Link}}">Show all</a></p>{{end}}
-<div class="bar">{{if .Admin}}<a href="{{.New}}">Add</a>{{end}}
+<div class="bar">{{if .Admin}}<a href="{{.New}}">{{.AddLabel}}</a>{{end}}
 <form method="get" action="{{.Link}}"><input name="q" value="{{.Q}}" aria-label="Search"> <button>Search</button></form>
 <span>{{.Total}} in all</span><a href="{{.CSV}}">Download CSV</a></div>
 {{if .GroupBy}}<p>Totals by: {{range .GroupBy}}<a href="{{.Link}}">{{.Title}}</a> {{end}}</p>{{end}}

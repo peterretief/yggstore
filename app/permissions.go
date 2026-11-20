@@ -62,6 +62,7 @@ type access struct {
 
 var (
 	allowLine  = regexp.MustCompile(`(?i)--\s*allow:\s*(.+)$`)
+	addLine    = regexp.MustCompile(`(?i)--\s*add:\s*(.+?)\s*$`)
 	menuLine   = regexp.MustCompile(`(?i)--\s*menu:\s*(.+?)\s*$`)
 	columnLine = regexp.MustCompile(`^\s*("[^"]+"|\[[^\]]+\]|` + "`[^`]+`" + `|[A-Za-z_][A-Za-z0-9_]*)\s.*?--\s*(.+)$`)
 	// columnStart is a line that may define a column, with no comment of
@@ -137,6 +138,13 @@ func readRules(t *table, stmt string) {
 		if m := mailInLine.FindStringSubmatch(line); m != nil {
 			if err := readMailIn(t, m[1]); err != nil {
 				t.Problems = append(t.Problems, t.Name+": "+err.Error())
+			}
+			continue
+		}
+		if m := addLine.FindStringSubmatch(line); m != nil {
+			if t.AddLabel = strings.TrimSpace(m[1]); len(t.AddLabel) > 30 {
+				t.Problems = append(t.Problems, t.Name+": "+t.AddLabel+" is too long for a button")
+				t.AddLabel = ""
 			}
 			continue
 		}
