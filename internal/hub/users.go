@@ -94,6 +94,10 @@ type Person struct {
 	// Shared is a mailbox for everyone on the box's network, such as
 	// support@ (shared.go): no password, no files.
 	Shared bool `json:"shared,omitempty"`
+	// CopyTo is where a shared mailbox passes a copy of its mail on to
+	// (the hub's -shared-copy), from CopySince (unix ms) on.
+	CopyTo    string `json:"copy_to,omitempty"`
+	CopySince int64  `json:"copy_since,omitempty"`
 	// pick is the site a website page request is about ("": their first).
 	pick string
 }

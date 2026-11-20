@@ -105,7 +105,17 @@ these addresses, which matters with no password on them.
 The hub adds them when it starts (`-shared-mail support,sales,accounts`;
 `""` for none). If someone on the box already has one of the names, that
 shared mailbox isn't made, and the hub's log says so. The box's admin
-removes one like a person, and it stays removed. The admin's Email page
+removes one like a person, and it stays removed.
+
+A shared mailbox can pass a copy of everything that comes to it on to an
+address for the whole group (`-shared-copy
+support=signs-support@withcare.internal,sales=…`), such as a Notes table
+that makes each one a record. The copy is from the box's address, says
+which box (`X-Box`) and who wrote (`X-Original-From`, and Reply-To), and is
+marked `Auto-Submitted: auto-forwarded`. Apps mark their own emails
+`auto-generated` (`yggstore mail send -auto`), and a box never passes on
+mail a program sent, or mail from where it copies to, so an app's emails
+back to the box don't go round again. The admin's Email page
 (`/group-mail`) marks them as shared.
 
 ### New mail notices

@@ -56,6 +56,10 @@ type Draft struct {
 	// X- names, which mean nothing to mail programs (an app reads them;
 	// see the app package's "mail: header").
 	Extra []string
+	// Auto marks it as sent by a program, not a person (RFC 3834's
+	// Auto-Submitted: auto-generated, or auto-forwarded for a copy passed
+	// on), so nothing answers it automatically or passes it on again.
+	Auto string
 }
 
 var extraName = regexp.MustCompile(`^X-[A-Za-z0-9-]{1,60}$`)
@@ -126,6 +130,13 @@ func (d Draft) Compose() (raw []byte, rcpts []string, err error) {
 	if id := oneLine(d.InReplyTo); id != "" {
 		put("In-Reply-To", id)
 		put("References", strings.TrimSpace(oneLine(d.References)+" "+id))
+	}
+	switch d.Auto {
+	case "":
+	case "auto-generated", "auto-forwarded", "auto-replied":
+		put("Auto-Submitted", d.Auto)
+	default:
+		return nil, nil, fmt.Errorf("Auto-Submitted: %q isn't one", d.Auto)
 	}
 	for _, x := range d.Extra {
 		k, v, ok := strings.Cut(x, ":")

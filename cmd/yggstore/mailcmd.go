@@ -62,6 +62,7 @@ func cmdMail(ctx context.Context, args []string) error {
 		extra = append(extra, s)
 		return nil
 	})
+	auto := fs.Bool("auto", false, "a program sends it, not a person: marked Auto-Submitted, so nothing answers it or passes it on (send)")
 	fromFlag := fs.String("from", "", "send as this address, if it's this node's: your internal one (NAME@GROUP.internal, which stays in the group), or an app's (send)")
 	fs.Parse(args[1:])
 	box := func() (*mail.Box, error) {
@@ -163,7 +164,7 @@ machine, so confirm. Keep the password private; it is in
 		if err != nil {
 			return err
 		}
-		raw, rcpts, err := mail.Draft{From: from, Name: *name, To: *to, Cc: *cc, Bcc: *bcc, Subject: *subject, Text: string(body), Extra: extra}.Compose()
+		raw, rcpts, err := mail.Draft{From: from, Name: *name, To: *to, Cc: *cc, Bcc: *bcc, Subject: *subject, Text: string(body), Extra: extra, Auto: map[bool]string{true: "auto-generated"}[*auto]}.Compose()
 		if err != nil {
 			return err
 		}

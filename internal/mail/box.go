@@ -55,13 +55,16 @@ type Summary struct {
 // Message is one message, read.
 type Message struct {
 	Summary
-	Cc          string       `json:"cc,omitempty"`
-	ReplyTo     string       `json:"reply_to,omitempty"`
-	Text        string       `json:"text"`
-	FromHTML    bool         `json:"from_html,omitempty"` // Text was made from the HTML part
-	MessageID   string       `json:"message_id,omitempty"`
-	DeliveredTo string       `json:"delivered_to,omitempty"` // the address it came to
-	References  string       `json:"references,omitempty"`
+	Cc          string `json:"cc,omitempty"`
+	ReplyTo     string `json:"reply_to,omitempty"`
+	Text        string `json:"text"`
+	FromHTML    bool   `json:"from_html,omitempty"` // Text was made from the HTML part
+	MessageID   string `json:"message_id,omitempty"`
+	DeliveredTo string `json:"delivered_to,omitempty"` // the address it came to
+	References  string `json:"references,omitempty"`
+	// Auto is its Auto-Submitted header, if a program sent it ("" or
+	// "no": a person).
+	Auto        string       `json:"auto,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
@@ -271,6 +274,9 @@ func Parse(raw []byte) (Message, error) {
 	m.MessageID = strings.TrimSpace(msg.Header.Get("Message-ID"))
 	m.DeliveredTo = strings.ToLower(strings.TrimSpace(msg.Header.Get("Delivered-To")))
 	m.References = strings.Join(strings.Fields(msg.Header.Get("References")), " ")
+	if a := strings.ToLower(strings.TrimSpace(msg.Header.Get("Auto-Submitted"))); a != "no" {
+		m.Auto, _, _ = strings.Cut(a, ";")
+	}
 	if t, err := msg.Header.Date(); err == nil {
 		m.Date = t.UnixMilli()
 	}

@@ -259,6 +259,11 @@ func (ps *PeopleSites) Step(ctx context.Context) {
 		}
 	}
 	for _, p := range st.People {
+		if p.Shared && p.Active() && p.CopyTo != "" {
+			if id := keys[p.Folder]; id != nil {
+				ps.copyShared(ctx, list, p, id)
+			}
+		}
 		if from, ok := ForwardFrom(list, ps.cfg.Self, p.Name); ok && p.Active() && p.Forward.On() {
 			if id := keys[p.Folder]; id != nil {
 				ps.forward(ctx, p, from, id)
