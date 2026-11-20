@@ -119,6 +119,20 @@ CREATE TABLE leave (
 - **Each step is kept:** who pressed what, when, with an optional comment.
   The log already holds this; the row's page shows it as its history, and
   a report can list it.
+- **Follow-ups:** `-- follow-ups: owner, through:owner, role:staff` puts
+  "Add a follow-up" on each row: anyone who may read the row writes on it,
+  the thread is kept in its history, and the people named are emailed, not
+  the writer. Staff hear who wrote; the customer's side hears what was
+  written, not which of the staff wrote it. `through:COLUMN` is the people
+  of the record COLUMN points to, such as a sign owner's people.
+- **A customer's colleagues:** `client read own through owner` (and `client
+  write own through owner`) gives a client every row whose `owner` points
+  to a record they belong to (a sign owner they're a person of), not only
+  rows they made: so a colleague picks a ticket up.
+- **Links that fill in:** a list opened with `?fill.COLUMN=value` carries
+  those into its Add, so another page (the signs page's Support button)
+  opens a person's tickets with a new one ready for that sign. Signed out,
+  the link goes to sign in and then back to it.
 - **Reminders:** a row that waits more than the days set
   (`-- remind: submitted after 3 days`) reminds the same people once, not
   every day.

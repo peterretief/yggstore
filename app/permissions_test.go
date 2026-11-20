@@ -23,7 +23,7 @@ func TestRulesAreRead(t *testing.T) {
   budget REAL,   -- hide from: client, staff
   notes TEXT     -- label: Our notes; help: Only for us
 )`)
-	if fmt.Sprint(tb.Rules) != "[{staff read false  } {staff write false  } {client read true login }]" {
+	if fmt.Sprint(tb.Rules) != "[{staff read false   } {staff write false   } {client read true login  }]" {
 		t.Fatalf("%v", tb.Rules)
 	}
 	if len(tb.Problems) != 3 || !strings.Contains(tb.Problems[0], "write their own") || !strings.Contains(tb.Problems[1], "client delete own") || !strings.Contains(tb.Problems[2], "staff fly") {

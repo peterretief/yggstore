@@ -34,3 +34,21 @@ CREATE TABLE sign_faults (
   reported_by TEXT,              -- fill: who made it
   status TEXT NOT NULL DEFAULT 'new'
 );
+
+CREATE TABLE signs_support (
+  -- mail-in: signs-support@group.example, acknowledge
+  -- allow: staff read, staff write
+  -- allow: client read own, client read own through owner, client write own through owner
+  -- step: new -> role:staff takes -> open
+  -- step: open -> role:staff solves -> solved
+  -- tell: new to role:staff
+  -- follow-ups: owner, through:owner, role:staff
+  id TEXT PRIMARY KEY,
+  subject TEXT NOT NULL,         -- mail: subject
+  login TEXT,                    -- from: address; fill: who made it
+  sign TEXT,                     -- mail: header X-Sign
+  owner TEXT REFERENCES sign_owners(name), -- mail: header X-Owner
+  body LONGTEXT,                 -- mail: text
+  notes LONGTEXT,                -- hide from: client
+  status TEXT NOT NULL DEFAULT 'new'
+);

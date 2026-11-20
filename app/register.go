@@ -162,8 +162,8 @@ func yggstoreMail(name string) func(from string, to []string, subject, body stri
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		// -auto: an app's emails are a program's, so nobody's auto-reply answers
-	// them and no shared mailbox passes them on (a loop otherwise).
-	args := []string{"mail", "send", "-auto", "-name", name, "-to", strings.Join(to, ","), "-subject", subject}
+		// them and no shared mailbox passes them on (a loop otherwise).
+		args := []string{"mail", "send", "-auto", "-name", name, "-to", strings.Join(to, ","), "-subject", subject}
 		if from != "" {
 			args = append(args, "-from", from)
 		}

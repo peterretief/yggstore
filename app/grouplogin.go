@@ -199,7 +199,7 @@ func (a *app) groupBackHere(w http.ResponseWriter, r *http.Request) {
 		fail("That sign-in didn't work. Try again.", err)
 		return
 	}
-	http.Redirect(w, r, base, http.StatusSeeOther)
+	http.Redirect(w, r, signedInTo(w, r), http.StatusSeeOther)
 }
 
 // groupWho swaps a code for an ID token, checks it, and gives the person's

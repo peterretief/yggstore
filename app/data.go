@@ -59,17 +59,20 @@ type column struct {
 }
 
 type table struct {
-	Name     string
-	Cols     []column
-	Key      string // what identifies a row
-	Label    string // what a row is called in drop-downs and reports
-	Rules    []rule // who may do what (permissions.go)
-	Steps    []step // how its rows move on (steps.go)
-	Tells    []tell
-	Reminds  []remind
-	Start    string   // where a new row starts, with steps
-	MailIn   *mailIn  // mail to an address becomes its rows (mailin.go)
-	Problems []string // rules that couldn't be read
+	Name  string
+	Cols  []column
+	Key   string // what identifies a row
+	Label string // what a row is called in drop-downs and reports
+	Rules []rule // who may do what (permissions.go)
+	Steps []step // how its rows move on (steps.go)
+	Tells []tell
+	// FollowUps, if the table has "follow-ups:", is who hears of each
+	// follow-up written on a row (steps.go).
+	FollowUps []string
+	Reminds   []remind
+	Start     string   // where a new row starts, with steps
+	MailIn    *mailIn  // mail to an address becomes its rows (mailin.go)
+	Problems  []string // rules that couldn't be read
 }
 
 // visible is the columns people see in reports: a random id means nothing
@@ -109,6 +112,24 @@ func scope(tables []table, t table, p person) (cond string, args []any, ok bool)
 // course_teachers.
 func scopeBy(tables []table, t table, p person, by string) (string, []any, bool) {
 	return scopeFrom(tables, t, p, by, map[string]bool{})
+}
+
+// scopeThrough limits a table to the rows whose column col points to a
+// record that reaches this person (scopeFrom, from that table on).
+func scopeThrough(tables []table, t table, p person, col, by string) (string, []any, bool) {
+	c := t.col(col)
+	if c == nil || c.Ref == nil {
+		return "", nil, false
+	}
+	parent := find(tables, c.Ref.Table)
+	if parent == nil {
+		return "", nil, false
+	}
+	cond, args, ok := scopeFrom(tables, *parent, p, by, map[string]bool{t.Name: true})
+	if !ok {
+		return "", nil, false
+	}
+	return quote(c.Name) + " IN (SELECT " + quote(c.Ref.Column) + " FROM " + quote(parent.Name) + " WHERE " + cond + ")", args, true
 }
 
 func scopeFrom(tables []table, t table, p person, by string, seen map[string]bool) (string, []any, bool) {
@@ -425,6 +446,7 @@ func (d *data) routes(mux *http.ServeMux, in, admin func(http.HandlerFunc) http.
 	mux.HandleFunc("POST "+dataBase+"{table}/{id}", in(d.save))
 	mux.HandleFunc("POST "+dataBase+"{table}/{id}/delete", in(d.remove))
 	mux.HandleFunc("POST "+dataBase+"{table}/{id}/step", in(d.step))
+	mux.HandleFunc("POST "+dataBase+"{table}/{id}/follow-up", in(d.followUp))
 }
 
 // The diagram: parents on the left, what refers to them to their right.
@@ -569,6 +591,7 @@ type group struct {
 type reportPage struct {
 	Name, Link, Q, By, Filter string
 	Admin                     bool
+	New                       string // where Add goes: with what the link that opened the list fills in (fill.COLUMN=...)
 	Total                     int64
 	Heads                     []head
 	Rows                      []rowOut
@@ -780,6 +803,16 @@ func (d *data) report(w http.ResponseWriter, r *http.Request) {
 		return tableLink(t.Name) + "?" + v.Encode()
 	}
 	p := reportPage{Admin: acc.Write, Name: t.Name, Link: tableLink(t.Name), Q: q, By: by, Filter: filter, Total: total, CSV: link(map[string]string{"csv": "1", "page": ""})}
+	p.New = p.Link + "new"
+	fill := url.Values{}
+	for k, v := range r.URL.Query() {
+		if c, ok := strings.CutPrefix(k, "fill."); ok && t.col(c) != nil && len(v) > 0 {
+			fill.Set(c, v[0])
+		}
+	}
+	if len(fill) > 0 {
+		p.New += "?" + fill.Encode()
+	}
 	for _, c := range cols {
 		h := head{Name: c.Name, Title: c.title(), Num: c.summed()}
 		flip := ""
@@ -931,6 +964,7 @@ type formPage struct {
 	Shown                             [][2]string // a client's view: title, value
 	Children                          []child
 	Status, StepAction                string // with steps: where the row is, and where its buttons go
+	FollowUp                          string // where a follow-up goes, if the table takes them
 	Buttons                           []stepButton
 	History                           []historyLine
 }
@@ -1040,6 +1074,9 @@ func (d *data) form(w http.ResponseWriter, r *http.Request) {
 		p.Buttons = stepsFor(full, who, got)
 		p.StepAction = tableLink(t.Name) + url.PathEscape(id) + "/step"
 		p.History = d.history(full, id)
+		if full.FollowUps != nil {
+			p.FollowUp = tableLink(t.Name) + url.PathEscape(id) + "/follow-up"
+		}
 		if !who.Admin && who.Role == roleClient { // what happened, not which of the staff did it
 			for i := range p.History {
 				if !strings.EqualFold(p.History[i].Who, who.Name) {
@@ -1341,7 +1378,7 @@ a.button{display:inline-block;padding:.5rem 1.1rem;border-radius:6px;background:
 {{define "report"}}{{template "top"}}<title>{{human .Name}}</title>
 <nav><a href="` + dataBase + `">Your data</a></nav><h1>{{human .Name}}</h1>
 {{if .Filter}}<p>{{.Filter}} · <a href="{{.Link}}">Show all</a></p>{{end}}
-<div class="bar">{{if .Admin}}<a href="{{.Link}}new">Add</a>{{end}}
+<div class="bar">{{if .Admin}}<a href="{{.New}}">Add</a>{{end}}
 <form method="get" action="{{.Link}}"><input name="q" value="{{.Q}}" aria-label="Search"> <button>Search</button></form>
 <span>{{.Total}} in all</span><a href="{{.CSV}}">Download CSV</a></div>
 {{if .GroupBy}}<p>Totals by: {{range .GroupBy}}<a href="{{.Link}}">{{.Title}}</a> {{end}}</p>{{end}}
@@ -1369,6 +1406,7 @@ a.button{display:inline-block;padding:.5rem 1.1rem;border-radius:6px;background:
 {{if .Delete}}<p><button type="button" commandfor="delete-this" command="show-modal">Delete</button></p>
 <dialog id="delete-this"><p>Delete this {{human .Name}}? It can't be undone.</p><form class="bar" method="post" action="{{.Delete}}"><button type="button" commandfor="delete-this" command="close">Cancel</button><button>Delete</button></form></dialog>{{end}}
 {{if .History}}<h2>History</h2><ol class="history">{{range .History}}<li><span class="muted">{{.When}}</span> {{.What}}{{if .Who}} · {{.Who}}{{end}}{{if .Comment}}<br><q>{{.Comment}}</q>{{end}}</li>{{end}}</ol>{{end}}
+{{if .FollowUp}}<form class="edit" method="post" action="{{.FollowUp}}"><label>Add a follow-up <textarea name="text" rows="3" maxlength="4000" required></textarea></label><button>Send</button></form>{{end}}
 {{if .Children}}<h2>Related</h2><ul>{{range .Children}}<li><a href="{{.Link}}">{{.Title}}</a> ({{.Count}}){{if .Add}} · <a href="{{.Add}}">Add</a>{{end}}</li>{{end}}</ul>{{end}}{{end}}
 
 {{define "refused"}}{{template "top"}}<title>To look at</title>

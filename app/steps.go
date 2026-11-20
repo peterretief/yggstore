@@ -36,6 +36,13 @@ import (
 // person may read the row: so a client can submit their own request, though
 // clients don't write. Every step is kept, with who took it and why, as the
 // row's history.
+//
+//	  -- follow-ups: owner, through:owner, role:staff
+//
+// lets anyone who may read a row write on it, a thread kept in its history
+// (a customer's "it's still dark", staff's "we're coming Tuesday"), and
+// emails the people named, but not the writer. "through:COLUMN" is the
+// people of the record COLUMN points to: a sign owner's people.
 
 const statusColumn = "status"
 
@@ -54,7 +61,7 @@ type remind struct {
 }
 
 var (
-	stepLine   = regexp.MustCompile(`(?i)--\s*(step|tell|remind):\s*(.+)$`)
+	stepLine   = regexp.MustCompile(`(?i)--\s*(step|tell|remind|follow-ups):\s*(.+)$`)
 	afterWords = regexp.MustCompile(`(?i)^(.+?)\s+after\s+(\d+)\s*(day|days|hour|hours)$`)
 )
 
@@ -84,8 +91,12 @@ func validWho(t *table, who string) error {
 		if t.col(name) == nil {
 			return fmt.Errorf("%q: there's no column %s", who, name)
 		}
+	case kind == "through" && name != "":
+		if c := t.col(name); c == nil || c.Ref == nil {
+			return fmt.Errorf("%q: %s isn't a column pointing to another table", who, name)
+		}
 	default:
-		return fmt.Errorf("%q isn't owner, role:staff, role:admin, role:client, group:NAME, column:NAME or mail", who)
+		return fmt.Errorf("%q isn't owner, role:staff, role:admin, role:client, group:NAME, column:NAME, through:COLUMN or mail", who)
 	}
 	return nil
 }
@@ -134,6 +145,13 @@ func readStep(t *table, kind, text string) error {
 			tl.Who = append(tl.Who, w)
 		}
 		t.Tells = append(t.Tells, tl)
+	case "follow-ups":
+		for _, w := range list(strings.ToLower(strings.TrimPrefix(strings.TrimSpace(text), "tell "))) {
+			if err := validWho(t, w); err != nil {
+				return err
+			}
+			t.FollowUps = append(t.FollowUps, w)
+		}
 	case "remind":
 		m := afterWords.FindStringSubmatch(text)
 		if m == nil {
@@ -156,8 +174,8 @@ func readStep(t *table, kind, text string) error {
 // its status column the steps' own.
 func settleSteps(t *table) {
 	if t.Steps == nil {
-		if t.Tells != nil || t.Reminds != nil {
-			t.Problems = append(t.Problems, t.Name+": tell: and remind: need steps")
+		if t.Tells != nil || t.Reminds != nil || t.FollowUps != nil {
+			t.Problems = append(t.Problems, t.Name+": tell:, remind: and follow-ups: need steps")
 		}
 		return
 	}
@@ -232,6 +250,7 @@ const (
 	actionMade   = "_made"
 	actionRemind = "_remind"
 	actionMail   = "_mail" // a message about the row came in
+	actionNote   = "_note" // a follow-up written on the row
 )
 
 var errMovedOn = errors.New("someone had already moved this on")
@@ -241,7 +260,7 @@ var errMovedOn = errors.New("someone had already moved this on")
 func applyStep(tx *sql.Tx, t table, e entry) error {
 	f := func(k string) string { s, _ := e.Fields[k].(string); return s }
 	from, to, action := f("from"), f("to"), f("action")
-	if action != actionMade && action != actionRemind && action != actionMail {
+	if action != actionMade && action != actionRemind && action != actionMail && action != actionNote {
 		var now sql.NullString
 		if err := tx.QueryRow("SELECT "+quote(statusColumn)+" FROM "+quote(t.Name)+" WHERE "+quote(t.Key)+" = ?", e.Row).Scan(&now); err != nil {
 			if err == sql.ErrNoRows {
@@ -307,6 +326,8 @@ func (d *data) history(t table, row string) []historyLine {
 			h.What, h.Who = "Reminded ("+to+")", ""
 		case actionMail:
 			h.What = "Mail came"
+		case actionNote:
+			h.What = "Follow-up"
 		default:
 			h.What = (step{Action: action}).label() + ": " + from + " → " + to
 		}
@@ -450,6 +471,8 @@ func (d *data) whoIs(who string, row map[string]string) []string {
 		out = d.notify.people(name)
 	case kind == "group":
 		out = groupMembers(d.db, name)
+	case kind == "through":
+		out = d.peopleThrough(name, row)
 	}
 	return slices.DeleteFunc(out, func(s string) bool { return !strings.Contains(s, "@") })
 }
@@ -635,5 +658,128 @@ func (d *data) remindEvery(every time.Duration) {
 	for {
 		time.Sleep(every)
 		d.remindAll(time.Now())
+	}
+}
+
+// peopleThrough is the people of the record a row's column points to: the
+// logins of a table that links people to that record (sign_owner_people,
+// for a sign owner), or that record's own login.
+func (d *data) peopleThrough(col string, row map[string]string) []string {
+	tables, err := d.design()
+	if err != nil {
+		return nil
+	}
+	var t *table
+	for i := range tables {
+		if tables[i].col(col) != nil && tables[i].col(col).Ref != nil {
+			if _, ok := row[col]; ok {
+				t = &tables[i]
+				break
+			}
+		}
+	}
+	if t == nil || row[col] == "" {
+		return nil
+	}
+	ref := t.col(col).Ref
+	parent := find(tables, ref.Table)
+	if parent == nil {
+		return nil
+	}
+	var out []string
+	add := func(q string, args ...any) {
+		rows, err := d.db.Query(q, args...)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var s sql.NullString
+			if rows.Scan(&s) == nil && s.String != "" {
+				out = append(out, s.String)
+			}
+		}
+	}
+	if parent.col(loginColumn) != nil {
+		add("SELECT "+quote(loginColumn)+" FROM "+quote(parent.Name)+" WHERE "+quote(ref.Column)+" = ?", row[col])
+	}
+	for _, o := range tables {
+		if o.col(loginColumn) == nil {
+			continue
+		}
+		for _, c := range o.Cols {
+			if c.Ref != nil && c.Ref.Table == parent.Name {
+				add("SELECT "+quote(loginColumn)+" FROM "+quote(o.Name)+" WHERE "+quote(c.Name)+" = ?", row[col])
+			}
+		}
+	}
+	return out
+}
+
+// followUp is a follow-up written on a row by someone who may read it.
+func (d *data) followUp(w http.ResponseWriter, r *http.Request) {
+	tables, t := d.tableFor(w, r)
+	if t == nil {
+		return
+	}
+	who, id := viewer(r), r.PathValue("id")
+	if t.FollowUps == nil {
+		http.NotFound(w, r)
+		return
+	}
+	row, ok := d.readRow(tables, *t, who, id)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	text := strings.TrimSpace(r.PostFormValue("text"))
+	if text == "" {
+		http.Redirect(w, r, tableLink(t.Name)+url.PathEscape(id), http.StatusSeeOther)
+		return
+	}
+	if len(text) > 4000 {
+		text = text[:4000]
+	}
+	if err := d.takeStep(*t, id, who.Name, actionNote, "", "", text); err != nil {
+		page(w, r, http.StatusConflict, "message", formPage{Name: t.Name, Action: tableLink(t.Name) + url.PathEscape(id), Error: plainError(err)})
+		return
+	}
+	d.notice(r)
+	go d.tellFollowUp(*t, id, row, who, text)
+	http.Redirect(w, r, tableLink(t.Name)+url.PathEscape(id), http.StatusSeeOther)
+}
+
+// tellFollowUp emails a follow-up to the people the design names, not the
+// writer. Staff and groups hear who wrote; the customers' side hears what
+// was written, not which of the staff wrote it.
+func (d *data) tellFollowUp(t table, id string, row map[string]string, by person, text string) {
+	if d.notify.send == nil {
+		return
+	}
+	var inside, others []string
+	for _, w := range t.FollowUps {
+		if (strings.HasPrefix(w, "role:") && w != "role:client") || strings.HasPrefix(w, "group:") {
+			inside = append(inside, d.whoIs(w, row)...)
+		} else {
+			others = append(others, d.whoIs(w, row)...)
+		}
+	}
+	inside = cleanList(inside, by.Name)
+	others = slices.DeleteFunc(cleanList(others, by.Name), func(a string) bool { return slices.Contains(inside, a) })
+	title := rowTitle(t, row)
+	subject := "Follow-up: " + title
+	for _, group := range []struct {
+		to   []string
+		said bool
+	}{{inside, true}, {others, false}} {
+		if len(group.to) == 0 {
+			continue
+		}
+		head := "A follow-up on " + human(t.Name) + ": " + title
+		if group.said || by.Role == roleClient {
+			head += ", from " + by.Name
+		}
+		body := head + "\n\n" + text + "\n\nOpen it, or answer there: " + d.link(t, id) + "\n"
+		d.sendEach(t.mailFrom(), group.to, subject, body)
 	}
 }

@@ -35,8 +35,12 @@ import (
 // A rule can be limited: "own" is a person's own rows, through a login
 // column (scope), "own by COLUMN" through another column naming them, such
 // as a course's teacher in course_teachers ("staff write own by teacher"),
-// and "if COLUMN" (reads only) the rows where that column is set, such as
-// "client read if published". Rules add up. Clients only read, for now.
+// "own through COLUMN" through the record COLUMN points to, whatever its
+// own login says: "client read own through owner" on a ticket whose owner
+// is a sign owner is every ticket of the owners the person is a person of
+// (sign_owner_people), not only theirs, so colleagues pick each other's up.
+// "if COLUMN" (reads only) is the rows where that column is set, such as
+// "client read if published". Rules add up.
 
 const roleStaff = "staff"
 
@@ -44,6 +48,7 @@ type rule struct {
 	Role, Action string // staff or client; read, write or delete
 	Own          bool   // only their own rows
 	By           string // the column that names them: login, unless "own by ..."
+	Through      string // "own through COLUMN": through the record it points to
 	If           string // only rows where this column is set
 }
 
@@ -98,6 +103,12 @@ func readRule(t *table, clause string) (rule, error) {
 				return rule{}, bad
 			}
 			r.By, rest = rest[1], rest[2:]
+		} else if len(rest) >= 2 && rest[0] == "through" {
+			c := t.col(rest[1])
+			if c == nil || c.Ref == nil {
+				return rule{}, fmt.Errorf("%s: %q: %s isn't a column pointing to another table", t.Name, strings.TrimSpace(clause), rest[1])
+			}
+			r.Through, rest = c.Name, rest[2:]
 		}
 	}
 	if len(rest) == 2 && rest[0] == "if" {
@@ -281,6 +292,9 @@ func (t table) rowsFor(tables []table, p person, action string) (cond string, ar
 		var parts []string
 		if r.Own {
 			c, a, ok := scopeBy(tables, t, p, r.By)
+			if r.Through != "" {
+				c, a, ok = scopeThrough(tables, t, p, r.Through, r.By)
+			}
 			if !ok {
 				continue // no way back to a login: none of it is theirs
 			}

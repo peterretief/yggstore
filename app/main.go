@@ -15,6 +15,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -412,11 +413,35 @@ func (a *app) signedIn(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p := a.person(r)
 		if p.Name == "" {
+			if r.Method == http.MethodGet && r.URL.Path != base {
+				// Back here once signed in: a link to a page (the signs
+				// page's Support, say) lands on it, not on the home page.
+				http.SetCookie(w, &http.Cookie{Name: backCookie, Value: url.QueryEscape(r.URL.RequestURI()), Path: base,
+					HttpOnly: true, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https", SameSite: http.SameSiteLaxMode,
+					Expires: time.Now().Add(30 * time.Minute)})
+			}
 			http.Redirect(w, r, base+"login", http.StatusSeeOther)
 			return
 		}
 		h(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, p)))
 	}
+}
+
+const backCookie = "back_to"
+
+// signedInTo is where a sign-in goes on to: the page asked for before it, if
+// one of the app's own, or the home page.
+func signedInTo(w http.ResponseWriter, r *http.Request) string {
+	c, err := r.Cookie(backCookie)
+	if err != nil {
+		return base
+	}
+	http.SetCookie(w, &http.Cookie{Name: backCookie, Path: base, MaxAge: -1, HttpOnly: true})
+	to, err := url.QueryUnescape(c.Value)
+	if err != nil || !strings.HasPrefix(to, base) || strings.HasPrefix(to, "//") || strings.ContainsAny(to, "\\\r\n") {
+		return base
+	}
+	return to
 }
 
 // adminOnly keeps a page to admins.
@@ -525,7 +550,7 @@ func (a *app) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "something went wrong", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, base, http.StatusSeeOther)
+	http.Redirect(w, r, signedInTo(w, r), http.StatusSeeOther)
 }
 
 // startSession signs the browser in as name.
