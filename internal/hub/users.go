@@ -91,6 +91,9 @@ type Person struct {
 	// Sent is when each person they wrote to in the last day was sent
 	// to, from the mail page (see send.go).
 	Sent []int64 `json:"sent,omitempty"`
+	// Shared is a mailbox for everyone on the box's network, such as
+	// support@ (shared.go): no password, no files.
+	Shared bool `json:"shared,omitempty"`
 	// pick is the site a website page request is about ("": their first).
 	pick string
 }

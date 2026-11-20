@@ -416,6 +416,8 @@ func (d *Dashboard) Handler() http.Handler {
 	mux.HandleFunc("POST /api/applications/decide", d.handleApplicationDecide)
 	mux.HandleFunc("GET /usage", d.handleUsagePage)
 	mux.HandleFunc("GET /api/usage", d.handleUsage)
+	mux.HandleFunc("GET /group-mail", d.handleGroupMailPage)
+	mux.HandleFunc("GET /api/group-mail", d.handleGroupMail)
 	mux.HandleFunc("GET /sites", d.handleSitesPage)
 	mux.HandleFunc("GET /api/moves", d.handleMoves)
 	mux.HandleFunc("POST /api/moves", d.handleMoveStart)

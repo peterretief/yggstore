@@ -231,8 +231,10 @@ setInterval(load, 15000);
 
 // On the box's own network (webmail.go): no files or websites pages there,
 // and no notices (they need a secure address); a way to sign out instead.
-const onLAN = location.pathname === "/webmail";
-if (onLAN) {
+const onLAN = location.pathname === "/webmail" || location.pathname.startsWith("/webmail/shared/");
+if (location.pathname.startsWith("/webmail/shared/")) {
+  $("links").innerHTML = `<a href="/info">All the box's mailboxes</a>`; // shared: no one to sign out
+} else if (onLAN) {
   $("links").innerHTML = `<form method="post" action="/webmail/signout" style="display:inline"><button class="plain">Sign out</button></form>`;
 }
 

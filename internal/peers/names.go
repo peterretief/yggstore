@@ -148,11 +148,27 @@ func InternalDomain(list []Peer) string {
 }
 
 // IsInternal says whether an address is at the group's internal domain,
-// or a box's local address under it (LocalAddress).
+// or a box's local address (LocalAddress): local.N, or the longer form under
+// the internal domain that came before it.
 func IsInternal(list []Peer, addr string) bool {
 	_, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
 	internal := InternalDomain(list)
-	return ok && domain != "" && internal != "" && (domain == internal || strings.HasSuffix(domain, "."+internal))
+	return ok && domain != "" && internal != "" &&
+		(domain == internal || strings.HasSuffix(domain, "."+internal) || strings.HasPrefix(domain, localPrefix))
+}
+
+const localPrefix = "local."
+
+var boxNumber = regexp.MustCompile(`^localbox-0*([0-9]+)$`)
+
+// LocalDomain is a box's short mail domain: local.4 for localbox-004,
+// local.NAME for a box whose name has no number.
+func LocalDomain(box string) string {
+	box = strings.ToLower(box)
+	if m := boxNumber.FindStringSubmatch(box); m != nil {
+		return localPrefix + m[1]
+	}
+	return localPrefix + box
 }
 
 // LocalPart is a name on a box as the local part of an address: "Kath
@@ -171,27 +187,31 @@ func LocalPart(name string) string {
 }
 
 // LocalAddress is a box person's local address, which every person on a
-// box has (docs/mail.md): kath@localbox-004.example.internal. Mail to it
-// and from it stays in the group.
+// box has (docs/mail.md): kath@local.4 on localbox-004. Mail to it and from
+// it stays in the group.
 func LocalAddress(list []Peer, box, person string) string {
 	internal, local := InternalDomain(list), LocalPart(person)
 	if internal == "" || local == "" || ValidLabel(strings.ToLower(box)) != nil {
 		return ""
 	}
-	return local + "@" + strings.ToLower(box) + "." + internal
+	return local + "@" + LocalDomain(box)
 }
 
 // LocalBox reads a local address: the box it's on, and the person's local
-// part, if the box is one in the list.
+// part, if the box is one in the list. The longer form that came before,
+// kath@localbox-004.example.internal, still reads.
 func LocalBox(list []Peer, addr string) (Peer, string, bool) {
 	local, domain, ok := strings.Cut(strings.ToLower(strings.TrimSpace(addr)), "@")
 	internal := InternalDomain(list)
-	box, ok2 := strings.CutSuffix(domain, "."+internal)
-	if !ok || !ok2 || internal == "" || local == "" || LocalPart(local) != local {
+	if !ok || internal == "" || local == "" || LocalPart(local) != local {
 		return Peer{}, "", false
 	}
+	box, long := strings.CutSuffix(domain, "."+internal)
 	for _, p := range list {
-		if strings.EqualFold(p.Name, box) && !p.Gateway {
+		if p.Gateway {
+			continue
+		}
+		if (long && strings.EqualFold(p.Name, box)) || (!long && domain == LocalDomain(p.Name)) {
 			return p, local, true
 		}
 	}

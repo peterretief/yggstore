@@ -264,16 +264,13 @@ func (a *app) groupWho(ctx context.Context, code, verifier, nonce string) (strin
 }
 
 // unnamed is the account for "box/person", someone on a box with no name
-// in the group: their local address, person@box.GROUP.internal ("" if sub
-// isn't like that).
+// in the group: their local address, person@local.N ("" if sub isn't like
+// that).
 func (g *groupLogin) unnamed(sub string) string {
 	box, person, ok := strings.Cut(strings.ToLower(sub), "/")
 	box, person = peers.LocalPart(box), peers.LocalPart(person)
-	host := strings.TrimPrefix(strings.TrimPrefix(g.issuer, "https://"), "http://")
-	host, _, _ = strings.Cut(host, ":")
-	group, _, _ := strings.Cut(strings.TrimPrefix(host, "my."), ".")
-	if !ok || box == "" || person == "" || group == "" {
+	if !ok || box == "" || person == "" {
 		return ""
 	}
-	return person + "@" + box + "." + group + ".internal"
+	return person + "@" + peers.LocalDomain(box)
 }

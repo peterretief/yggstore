@@ -43,6 +43,9 @@ type boxUsage struct {
 	Box    string        `json:"box"` // its node's name
 	At     int64         `json:"at"`  // unix ms, when it was sent
 	People []personUsage `json:"people"`
+	// Mail is its mailboxes' counts (mailusage.go); nil from a yggstore
+	// that doesn't count them.
+	Mail []mailboxUsage `json:"mail,omitempty"`
 }
 
 // usageReports keeps the latest summary from each box, by node ID.
@@ -81,17 +84,19 @@ func (u *usageReports) put(node string, b boxUsage) {
 	}
 }
 
-// boxSummary is what this box's people use now.
+// boxSummary is what this box's people use now, and its mail; on a
+// machine that isn't a box, only its own mailbox, if mail comes to it.
 func (d *Dashboard) boxSummary(list []peers.Peer) (boxUsage, bool) {
+	own, _ := selfEntry(list, d.cfg.SelfID)
+	now := time.Now()
+	b := boxUsage{Box: own.Machine(), At: now.UnixMilli(), People: []personUsage{}, Mail: d.mailSummary(now)}
 	if !d.onBox() {
-		return boxUsage{}, false
+		return b, len(b.Mail) > 0 && b.Mail[0].Total > 0
 	}
 	st, err := hub.Load(d.cfg.HubState)
 	if err != nil {
 		return boxUsage{}, false
 	}
-	own, _ := selfEntry(list, d.cfg.SelfID)
-	b := boxUsage{Box: own.Machine(), At: time.Now().UnixMilli(), People: []personUsage{}}
 	for _, p := range st.People {
 		if p.Removed {
 			continue
@@ -112,13 +117,13 @@ func (d *Dashboard) sendUsage(ctx context.Context, list []peers.Peer) {
 	if !due {
 		return
 	}
+	u.mu.Lock()
+	u.last = time.Now() // a machine with nothing to say looks again in an hour
+	u.mu.Unlock()
 	b, ok := d.boxSummary(list)
 	if !ok {
 		return
 	}
-	u.mu.Lock()
-	u.last = time.Now()
-	u.mu.Unlock()
 	body, _ := json.Marshal(b)
 	lc, lerr := d.msgClient()
 	for _, p := range list {
@@ -140,7 +145,7 @@ func (d *Dashboard) takeUsage(list []peers.Peer, from, fromName, body string) {
 		return
 	}
 	var b boxUsage
-	if json.Unmarshal([]byte(body), &b) != nil || len(b.People) > 1000 {
+	if json.Unmarshal([]byte(body), &b) != nil || len(b.People) > 1000 || len(b.Mail) > 1001 {
 		return
 	}
 	if b.Box == "" {

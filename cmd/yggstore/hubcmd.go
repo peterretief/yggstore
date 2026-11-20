@@ -86,6 +86,7 @@ func cmdHub(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("hub", flag.ExitOnError)
 	listen := fs.String("listen", ":7490", "address for the page (the LAN must reach it)")
 	localName := fs.String("local-name", "mail", `also call the box NAME.local on its own network (through Avahi), for webmail at http://NAME.local/webmail; "" for none`)
+	sharedMail := fs.String("shared-mail", hub.DefaultShared, `shared mailboxes everyone on the box's network opens with no password, from http://mail.local/info; "" for none`)
 	webmailAddr := fs.String("webmail", ":80", `also answer here, for webmail on the box's own network (http://BOX.local/webmail); "" for only -listen`)
 	peersPath := fs.String("peers", defaultPeers(), "peer list"+peersHelp)
 	name := fs.String("name", hostname(), "this box's node, by name, if its address isn't found")
@@ -364,6 +365,21 @@ func cmdHub(ctx context.Context, args []string) error {
 		<-ctx.Done()
 		srv.Close()
 	}()
+	if names := hub.SharedNames(*sharedMail); len(names) > 0 {
+		var added, taken []string
+		if _, err := hub.Update(ctx, *statePath, func(s *hub.HubState) error {
+			added, taken = s.EnsureShared(names, filepath.Join(*dir, "users"), time.Now())
+			return nil
+		}); err != nil {
+			log.Printf("hub: shared mailboxes: %v", err)
+		}
+		if len(added) > 0 {
+			log.Printf("hub: shared mailboxes added: %s", strings.Join(added, ", "))
+		}
+		for _, n := range taken {
+			log.Printf("hub: no shared mailbox %s: someone on the box has that name", n)
+		}
+	}
 	go hub.KeepLocalName(ctx, *localName, log.Printf)
 	if *webmailAddr != "" && *webmailAddr != *listen {
 		// The ordinary web port, if nothing else has it (a signs page, say):

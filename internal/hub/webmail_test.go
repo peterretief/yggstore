@@ -72,7 +72,7 @@ func TestWebmail(t *testing.T) {
 	if w := do("POST", "/webmail/signin", lan, box, "", url.Values{"name": {"Kath"}, "password": {"wrong"}}); w.Code != 403 {
 		t.Fatalf("a wrong password: %d", w.Code)
 	}
-	w := do("POST", "/webmail/signin", lan, box, "", url.Values{"name": {"kath@localbox-004.group.internal"}, "password": {"kath's password 1"}})
+	w := do("POST", "/webmail/signin", lan, box, "", url.Values{"name": {"kath@local.4"}, "password": {"kath's password 1"}})
 	if w.Code != 303 {
 		t.Fatalf("sign in: %d %s", w.Code, w.Body)
 	}
@@ -87,7 +87,7 @@ func TestWebmail(t *testing.T) {
 	}
 	w = do("GET", "/webmail?op=status", lan, "192.168.1.2", cookie, nil)
 	var st sitePageState
-	if json.Unmarshal(w.Body.Bytes(), &st); st.Address != "kath@localbox-004.group.internal" || !st.Local {
+	if json.Unmarshal(w.Body.Bytes(), &st); st.Address != "kath@local.4" || !st.Local {
 		t.Fatalf("status: %s", w.Body)
 	}
 	if w := do("POST", "/webmail?op=mkfolder", lan, box, cookie, nil); w.Code != 403 {

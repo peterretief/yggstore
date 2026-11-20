@@ -27,9 +27,11 @@ import (
 // network gets it (OnLAN), and its sessions stay on the box.
 
 const (
-	WebmailPath   = "/webmail"
-	webmailCookie = "box_webmail"
-	webmailFor    = 30 * 24 * time.Hour
+	WebmailPath    = "/webmail"
+	InfoPath       = "/info"            // the box's shared mailboxes, and how to sign in
+	SharedMailPath = "/webmail/shared/" // + a shared mailbox's name
+	webmailCookie  = "box_webmail"
+	webmailFor     = 30 * 24 * time.Hour
 )
 
 type webmailSession struct {
@@ -126,14 +128,26 @@ func localHost(h string) bool {
 	return net.ParseIP(h) != nil || strings.HasSuffix(h, ".local") || (h != "" && !strings.Contains(h, "."))
 }
 
+// onBoxNetwork says whether a request came straight from the box's own
+// network: a local address, a local Host, and through no proxy (a proxy on
+// the box would make the internet look local).
+func onBoxNetwork(r *http.Request) bool {
+	for _, h := range []string{"X-Forwarded-For", "X-Real-Ip", "Forwarded", "Cf-Connecting-Ip", "Cf-Ray"} {
+		if r.Header.Get(h) != "" {
+			return false
+		}
+	}
+	return OnLAN(r.RemoteAddr) && localHost(r.Host)
+}
+
 // ServeWebmail answers /webmail (and /mail) for the local network; it
 // reports whether the request was its to answer.
 func (f *filesPage) ServeWebmail(w http.ResponseWriter, r *http.Request) bool {
 	p := r.URL.Path
-	if p != WebmailPath && p != "/mail" && !strings.HasPrefix(p, WebmailPath+"/") {
+	if p != WebmailPath && p != "/mail" && p != InfoPath && !strings.HasPrefix(p, WebmailPath+"/") {
 		return false
 	}
-	if !OnLAN(r.RemoteAddr) || !localHost(r.Host) {
+	if !onBoxNetwork(r) {
 		http.Error(w, "webmail opens on the box's own network", http.StatusForbidden)
 		return true
 	}
@@ -143,6 +157,14 @@ func (f *filesPage) ServeWebmail(w http.ResponseWriter, r *http.Request) bool {
 	}
 	if p == "/mail" {
 		http.Redirect(w, r, WebmailPath, http.StatusFound)
+		return true
+	}
+	if p == InfoPath {
+		f.infoPage(w, r)
+		return true
+	}
+	if name, ok := strings.CutPrefix(p, SharedMailPath); ok {
+		f.sharedMail(w, r, name)
 		return true
 	}
 	now := time.Now()
@@ -307,4 +329,72 @@ func webmailChoosePage(w http.ResponseWriter, name, pw, msg string) {
 <label>New password <input name="new" type="password" autocomplete="new-password" minlength="10" required autofocus></label>
 <label>Again <input name="again" type="password" autocomplete="new-password" minlength="10" required></label>
 <button>Save and open your mail</button></form></html>`))
+}
+
+// sharedMail opens a shared mailbox (shared.go), with no password: only
+// the box's own network gets here.
+func (f *filesPage) sharedMail(w http.ResponseWriter, r *http.Request, name string) {
+	st, err := Load(f.u.cfg.StatePath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	p, ok := st.PersonNamed(name)
+	if !ok || !p.Shared || !p.Active() || strings.Contains(name, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	// Other web pages open in the browser can't add this header.
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-Yggstore") != "1" {
+		http.Error(w, "missing X-Yggstore header", http.StatusForbidden)
+		return
+	}
+	switch r.URL.Query().Get("op") {
+	case "push", "pushoff", "pushkey": // notices need a secure address, and would go to everyone
+		http.Error(w, "no notices for a shared mailbox", http.StatusForbidden)
+		return
+	}
+	r.URL.Path = MailPath
+	f.site(w, r, p)
+}
+
+// infoPage lists the box's shared mailboxes, and where people sign in to
+// their own.
+func (f *filesPage) infoPage(w http.ResponseWriter, r *http.Request) {
+	st, err := Load(f.u.cfg.StatePath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	list, _ := peers.Load(f.u.cfg.PeersPath)
+	box := ""
+	for _, p := range list {
+		if p.IP() == f.u.cfg.People.cfg.Self {
+			box = p.Machine()
+		}
+	}
+	var rows strings.Builder
+	for _, p := range st.SharedPeople() {
+		addr := localAddress(list, f.u.cfg.People.cfg.Self, p.Name)
+		rows.WriteString(`<li><a class="box" href="` + SharedMailPath + html.EscapeString(p.Name) + `"><b>` +
+			html.EscapeString(strings.ToUpper(p.Name[:1])+p.Name[1:]) + `</b><span class="sub">` + html.EscapeString(addr) + `</span></a></li>`)
+	}
+	if rows.Len() == 0 {
+		rows.WriteString(`<li class="sub">This box has no shared mailboxes.</li>`)
+	}
+	title := "Mail on this box"
+	if box != "" {
+		title = "Mail on " + box
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write([]byte(`<!doctype html><html lang="en"><meta charset="utf-8"><title>` + html.EscapeString(title) + `</title>` + webmailStyle + `
+<style>ul{list-style:none;padding:0}li{margin:.6rem 0}a.box{display:block;padding:.8rem 1rem;background:#fff;border:1px solid #dde1e6;border-radius:10px;color:inherit;text-decoration:none}
+a.box:hover{border-color:#2b6fd6}a.box b{display:block;font-size:1.1rem}
+@media (prefers-color-scheme:dark){a.box{background:#1d2024;border-color:#33383f}}</style>
+<h1>` + html.EscapeString(title) + `</h1>
+<p>Shared mailboxes: anyone here can open them.</p>
+<ul>` + rows.String() + `</ul>
+<p><a href="` + WebmailPath + `">Open your own mail</a> <span class="sub">(your name and password on the box)</span></p>
+<p class="sub">These open only on the box's own network, and take mail from inside the group.</p></html>`))
 }

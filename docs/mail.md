@@ -63,9 +63,11 @@ out:
 ### Local addresses: everyone on a box
 
 Every person on a box has a local address from the moment they're on it,
-name or no name: their name there, at the box, under the group's internal
-domain, such as `kath@localbox-004.withcare.internal` ("Kath Smith" is
-`kath-smith@...`). Like the internal addresses, it works only inside the
+name or no name: their name there, at the box's short local domain,
+`local.N` for localbox-00N, such as `kath@local.4` on localbox-004 ("Kath
+Smith" is `kath-smith@local.4`; a box whose name has no number is
+`local.NAME`). The longer form these began with,
+`kath@localbox-004.withcare.internal`, still reaches them. Like the internal addresses, it works only inside the
 group: anyone in the group can write to it, and they can write to anyone in
 the group, but nothing comes in from outside or goes out.
 
@@ -88,6 +90,23 @@ internet and nothing joined to Yggdrasil; it answers only the local
 network, and its sessions stay on the box. A temporary password is changed
 at the first sign-in. Away from the site, `my.DOMAIN/mail` opens the same
 mail after signing in there.
+
+### Shared mailboxes: support, sales, accounts
+
+Every box has three shared mailboxes, `support@local.N`,
+`sales@local.N` and `accounts@local.N`, which take mail from inside the group like any
+local address. Anyone on the box's own network opens them, with no
+password, from the box's info page, `http://mail.local/info` (or
+`http://BOX.local/info`), which also links to `/webmail` for their own
+mail. Like webmail, the page answers only the local network, and nothing
+that comes through a proxy or a tunnel; nothing from the internet reaches
+these addresses, which matters with no password on them.
+
+The hub adds them when it starts (`-shared-mail support,sales,accounts`;
+`""` for none). If someone on the box already has one of the names, that
+shared mailbox isn't made, and the hub's log says so. The box's admin
+removes one like a person, and it stays removed. The admin's Email page
+(`/group-mail`) marks them as shared.
 
 ### New mail notices
 

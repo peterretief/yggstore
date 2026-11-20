@@ -154,10 +154,10 @@ func TestGroupLogin(t *testing.T) {
 	// address there, as a client.
 	f.who = map[string]any{"sub": "localbox-004/Kath Smith", "name": "Kath Smith"}
 	code, me := signInWithGroup(t, s, f)
-	if code != http.StatusSeeOther || !strings.Contains(me, "kath-smith@localbox-004.127.internal") {
+	if code != http.StatusSeeOther || !strings.Contains(me, "kath-smith@local.4") {
 		t.Fatalf("unnamed: %d %s", code, me)
 	}
-	if s.App.accountRole("kath-smith@localbox-004.127.internal") != roleClient {
+	if s.App.accountRole("kath-smith@local.4") != roleClient {
 		t.Fatal("not a client")
 	}
 	// Nothing to tell who they are: refused.
