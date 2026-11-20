@@ -343,6 +343,15 @@ func importDesign(path, file string, drop bool, out io.Writer) error {
 			fmt.Fprintf(out, "Added %d rows to %s\n", n, o.name)
 		}
 	}
+	// The tables' order in the file, which a rebuilt table would lose: menus
+	// follow it (menuOrder).
+	for _, q := range []string{`CREATE TABLE IF NOT EXISTS main._order (name TEXT PRIMARY KEY, pos INTEGER NOT NULL)`,
+		`DELETE FROM main._order`,
+		`INSERT INTO main._order (name, pos) SELECT name, rowid FROM design.sqlite_master WHERE type = 'table'`} {
+		if err := exec(q); err != nil {
+			return err
+		}
+	}
 	var table string
 	var rowid sql.NullInt64
 	var parent string

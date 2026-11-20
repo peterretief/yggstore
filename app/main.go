@@ -469,6 +469,31 @@ func (a *app) menu(r *http.Request) menu {
 	for _, l := range ownLinks {
 		m.Items = append(m.Items, menuItem{Title: l.Title, Href: l.Href, Icon: l.Icon})
 	}
+	// The tables the design puts in the menu, that the person may open.
+	if a.data != nil {
+		if tables, err := a.data.design(); err == nil {
+			a.data.menuOrder(tables)
+			at := map[string]int{}
+			for _, t := range tables {
+				if t.Menu == "" || !t.access(who).Read {
+					continue
+				}
+				link := menuItem{Title: t.MenuItem, Href: tableLink(t.Name), Icon: "📋"}
+				if link.Title == "" { // an item of its own
+					link.Title = t.Menu
+					m.Items = append(m.Items, link)
+					continue
+				}
+				i, ok := at[t.Menu]
+				if !ok {
+					i = len(m.Items)
+					at[t.Menu] = i
+					m.Items = append(m.Items, menuItem{Title: t.Menu, Icon: "📋"})
+				}
+				m.Items[i].Sub = append(m.Items[i].Sub, link)
+			}
+		}
+	}
 	if a.docs != nil {
 		m.Items = append(m.Items, menuItem{Title: "Documents", Href: docsBase, Icon: "📁"})
 	}
@@ -483,14 +508,26 @@ func (a *app) menu(r *http.Request) menu {
 		m.Items = append(m.Items, menuItem{Title: "People", Href: base + "people", Icon: "👥"})
 	}
 	// The page they're on: the longest link its address starts with.
-	on := -1
+	at := func(href string) bool {
+		return href != "" && (r.URL.Path == href || href != base && strings.HasPrefix(r.URL.Path, href))
+	}
+	on, onLen := -1, 0
 	for i, it := range m.Items {
-		if (r.URL.Path == it.Href || it.Href != base && strings.HasPrefix(r.URL.Path, it.Href)) && (on < 0 || len(it.Href) > len(m.Items[on].Href)) {
-			on = i
+		hrefs := []string{it.Href}
+		for _, s := range it.Sub {
+			hrefs = append(hrefs, s.Href)
+		}
+		for _, h := range hrefs {
+			if at(h) && len(h) > onLen {
+				on, onLen = i, len(h)
+			}
 		}
 	}
 	if on >= 0 {
 		m.Items[on].On = true
+		for j := range m.Items[on].Sub {
+			m.Items[on].Sub[j].On = at(m.Items[on].Sub[j].Href)
+		}
 	}
 	return m
 }

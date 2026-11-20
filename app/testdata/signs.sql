@@ -14,6 +14,7 @@ CREATE TABLE sign_owner_people (
 );
 
 CREATE TABLE sign_faults (
+  -- menu: Tickets / Faults
   -- mail-in: signs@group.internal, members only, one open per sign
   -- allow: staff read, staff write
   -- allow: client read own, client write own
@@ -36,6 +37,7 @@ CREATE TABLE sign_faults (
 );
 
 CREATE TABLE signs_support (
+  -- menu: Tickets / Help
   -- mail-in: signs-support@group.example, acknowledge
   -- allow: staff read, staff write
   -- allow: client read own, client read own through owner, client write own through owner

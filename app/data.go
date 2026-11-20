@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,9 +71,12 @@ type table struct {
 	// follow-up written on a row (steps.go).
 	FollowUps []string
 	Reminds   []remind
-	Start     string   // where a new row starts, with steps
-	MailIn    *mailIn  // mail to an address becomes its rows (mailin.go)
-	Problems  []string // rules that couldn't be read
+	Start     string  // where a new row starts, with steps
+	MailIn    *mailIn // mail to an address becomes its rows (mailin.go)
+	// Menu puts the table in the app's top menu: "-- menu: Tickets / Help"
+	// is Help under Tickets, "-- menu: Leave" an item of its own.
+	Menu, MenuItem string
+	Problems       []string // rules that couldn't be read
 }
 
 // visible is the columns people see in reports: a random id means nothing
@@ -1258,6 +1262,7 @@ func plainError(err error) string {
 type menuItem struct {
 	Title, Href, Icon string
 	On                bool
+	Sub               []menuItem // a menu of its own: the tables the design put under it
 }
 
 type menu struct {
@@ -1316,7 +1321,11 @@ header.app{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem 1.2rem;paddi
 header.app .site{font-weight:700;font-size:1.1rem;color:var(--ink);text-decoration:none;margin-right:auto}
 nav.menu{display:flex;flex-wrap:wrap;gap:.2rem;margin:0}nav.menu a{color:var(--ink);text-decoration:none;padding:.35rem .7rem;border-radius:6px}
 nav.menu a:hover{background:var(--box)}nav.menu a[aria-current]{background:var(--box);font-weight:600;color:var(--accent)}
-details.who{position:relative}details.who summary{cursor:pointer;list-style:none;padding:.35rem .7rem;border:1px solid var(--line);border-radius:6px;font-size:.9rem;color:var(--soft)}
+details.who,details.sub{position:relative}details.who summary{cursor:pointer;list-style:none;padding:.35rem .7rem;border:1px solid var(--line);border-radius:6px;font-size:.9rem;color:var(--soft)}
+details.sub summary{cursor:pointer;list-style:none;padding:.35rem .7rem;border-radius:6px;color:var(--ink)}details.sub summary::-webkit-details-marker{display:none}
+details.sub[open] summary,details.sub summary:hover,details.sub summary[aria-current]{background:var(--box)}details.sub summary[aria-current]{font-weight:600;color:var(--accent)}
+details.sub .drop{position:absolute;left:0;top:2.4rem;z-index:5;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.5rem;min-width:11rem;box-shadow:0 8px 16px #0000001a}
+details.sub .drop a{display:block;padding:.4rem .6rem;color:var(--ink);text-decoration:none;border-radius:6px}details.sub .drop a:hover,details.sub .drop a[aria-current]{background:var(--box)}
 details.who summary::-webkit-details-marker{display:none}details.who[open] summary{background:var(--box)}
 details.who .drop{position:absolute;right:0;top:2.4rem;z-index:5;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.5rem;min-width:13rem;box-shadow:0 8px 16px #0000001a}
 details.who .drop a,details.who .drop button{display:block;width:100%;text-align:left;padding:.4rem .6rem;border:0;background:none;font:inherit;color:var(--ink);text-decoration:none;border-radius:6px;cursor:pointer}
@@ -1337,14 +1346,14 @@ a.button{display:inline-block;padding:.5rem 1.1rem;border-radius:6px;background:
 {{define "top"}}{{end}}
 
 {{define "menu"}}<header class="app"><a class="site" href="/">{{.Site}}</a>
-<nav class="menu" aria-label="Menu">{{range .Items}}<a href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}</nav>
+<nav class="menu" aria-label="Menu">{{range .Items}}{{if .Sub}}<details class="sub"><summary{{if .On}} aria-current="page"{{end}}>{{.Title}} ▾</summary><div class="drop">{{range .Sub}}<a href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}</div></details>{{else}}<a href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Title}}</a>{{end}}{{end}}</nav>
 <details class="who"><summary>{{.Name}} ▾</summary><div class="drop">
 <a href="` + base + `password">Change your password</a>
 <form method="post" action="` + base + `logout"><button>Sign out</button></form></div></details></header>{{end}}
 
 {{define "home"}}<title>{{.Site}}</title>
 <h1>Hello, {{.Name}}</h1>
-<div class="tiles">{{range .Items}}{{if ne .Href "` + base + `"}}<a href="{{.Href}}"><b>{{.Icon}}</b>{{.Title}}</a>{{end}}{{end}}
+<div class="tiles">{{range .Items}}{{if .Sub}}{{$t := .Title}}{{range .Sub}}<a href="{{.Href}}"><b>{{.Icon}}</b>{{.Title}} <small class="muted">{{$t}}</small></a>{{end}}{{else if ne .Href "` + base + `"}}<a href="{{.Href}}"><b>{{.Icon}}</b>{{.Title}}</a>{{end}}{{end}}
 <a href="` + base + `password"><b>🔑</b>Change your password</a></div>{{end}}
 
 {{define "login"}}<title>Sign in</title>
@@ -1420,3 +1429,26 @@ a.button{display:inline-block;padding:.5rem 1.1rem;border-radius:6px;background:
 {{define "message"}}{{template "top"}}<title>{{human .Name}}</title>
 <nav><a href="{{.Action}}">Back</a></nav><p class="err">{{.Error}}</p>{{end}}
 `))
+
+// menuOrder puts tables in the design file's order (the import keeps it),
+// so a menu reads as the designer wrote it; any it doesn't know go last.
+func (d *data) menuOrder(tables []table) {
+	pos := map[string]int{}
+	if rows, err := d.db.Query(`SELECT name, pos FROM _order`); err == nil {
+		for rows.Next() {
+			var n string
+			var p int
+			if rows.Scan(&n, &p) == nil {
+				pos[n] = p
+			}
+		}
+		rows.Close()
+	}
+	at := func(t table) int {
+		if p, ok := pos[t.Name]; ok {
+			return p
+		}
+		return 1 << 30
+	}
+	sort.SliceStable(tables, func(i, j int) bool { return at(tables[i]) < at(tables[j]) })
+}

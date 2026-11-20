@@ -62,6 +62,7 @@ type access struct {
 
 var (
 	allowLine  = regexp.MustCompile(`(?i)--\s*allow:\s*(.+)$`)
+	menuLine   = regexp.MustCompile(`(?i)--\s*menu:\s*(.+?)\s*$`)
 	columnLine = regexp.MustCompile(`^\s*("[^"]+"|\[[^\]]+\]|` + "`[^`]+`" + `|[A-Za-z_][A-Za-z0-9_]*)\s.*?--\s*(.+)$`)
 	// columnStart is a line that may define a column, with no comment of
 	// its own: its name, then its type.
@@ -136,6 +137,15 @@ func readRules(t *table, stmt string) {
 		if m := mailInLine.FindStringSubmatch(line); m != nil {
 			if err := readMailIn(t, m[1]); err != nil {
 				t.Problems = append(t.Problems, t.Name+": "+err.Error())
+			}
+			continue
+		}
+		if m := menuLine.FindStringSubmatch(line); m != nil {
+			top, item, _ := strings.Cut(m[1], "/")
+			t.Menu, t.MenuItem = strings.TrimSpace(top), strings.TrimSpace(item)
+			if t.Menu == "" || len(t.Menu) > 30 || len(t.MenuItem) > 30 {
+				t.Problems = append(t.Problems, t.Name+": "+strings.TrimSpace(m[1])+" isn't a menu like \"Tickets / Help\"")
+				t.Menu, t.MenuItem = "", ""
 			}
 			continue
 		}

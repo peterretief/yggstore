@@ -141,3 +141,19 @@ func TestBackAfterSignIn(t *testing.T) {
 		t.Fatal("no cookie")
 	}
 }
+
+// "-- menu: Tickets / Help" puts the table under Tickets in the top menu,
+// on every page, and on the home page.
+func TestDesignMenu(t *testing.T) {
+	s := NewTestSite(t, "testdata/signs.sql", map[string][2]string{"tim": {"tim@saldana.example", roleClient}})
+	home := s.Get("tim", base)
+	for _, want := range []string{"Tickets ▾", `href="` + tableLink("signs_support") + `">Help</a>`, `href="` + tableLink("sign_faults") + `">Faults</a>`} {
+		if !strings.Contains(home, want) {
+			t.Fatalf("no %q on the home page:\n%s", want, home)
+		}
+	}
+	list := s.Get("tim", tableLink("signs_support"))
+	if !strings.Contains(list, `<summary aria-current="page">Tickets ▾</summary>`) || !strings.Contains(list, `href="`+tableLink("signs_support")+`" aria-current="page">Help</a>`) {
+		t.Fatalf("the menu doesn't say where they are:\n%s", list)
+	}
+}
